@@ -1,35 +1,49 @@
 use std::{collections::HashMap};
 
-use crate::ast::Expr;
 
-mod ast;
+use crate::{ast::{Expr, Operation, Value}, interpreter::eval};
 
-fn eval(expr: &Expr, env: &mut HashMap<String, i32>) -> i32 {
-    match expr {
-        Expr::Int(n) => *n,
-        Expr::Var(v) => *(env.get(v).unwrap()),
-        Expr::Add(expr, expr1) => eval(expr, env) + eval(expr1, env),
-        Expr::Let{name, expr, body} => {
-            let v = eval(expr, env);
-            env.insert(name.clone(), v);
-            let res = eval(body, env);
-            env.remove(name);
-            res
-        },
+#[derive(Debug, Clone)]
+pub struct Env {
+    stack: Vec<HashMap<String, Value>>,
+}
+
+impl Env {
+    pub fn get(&self, name: &String) -> Option<Value> {
+        for scope in self.stack.iter().rev() {
+            if let Some(val) = scope.get(name) {
+                return Some(val.clone());
+            }
+        }
+        None
     }
 }
 
+mod ast;
+mod interpreter;
+
 fn main() {
-    let mut stack: HashMap<String, i32> = HashMap::new();
+    let mut stack: Env = {
+        Env { stack: Vec::new() }
+    };
     let res = eval(
         &Expr::Let {
             name: "h".to_string(),
             expr: Box::new(Expr::Int(10)),
-            body: Box::new(Expr::Add(
-                Box::new(Expr::Var("h".to_string())), Box::new(Expr::Int(7)))
-            )
+            body: Box::new(Expr::Binary {left: Box::new(Expr::Var("h".to_string())), operation: Operation::Add, right: Box::new(Expr::Int(5))})
         },
         &mut stack
     );
-    println!("{}", res);
+    match res {
+        Err(e) => println!("{e}"),
+        Ok(result) => {
+            match result {
+                Value::Int(i) => println!("{i}"),
+                Value::Bool(b) => println!("{b}"),
+                Value::Record(hash_map) => println!("record"),
+                Value::Closure { param, body, env } => println!("closure"),
+                Value::Float(f) => println!("{f}"),
+            }
+        }
+    }
 }
