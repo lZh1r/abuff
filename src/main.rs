@@ -1,8 +1,11 @@
 mod ast;
 mod interpreter;
 mod env;
+mod parser;
 
-use crate::{ast::{Expr, Operation, Statement, Value}, env::Env, interpreter::eval_expr};
+use crate::{ast::{Expr, Operation, Statement, Value}, env::Env, interpreter::eval_expr, parser::parse};
+use ariadne::{Color, Label, Report, ReportKind, Source};
+use chumsky::Parser;
 
 fn run(statements: &[Statement], env: &mut Env) -> Result<Value, String> {
     let mut result = Ok(Value::Void);
@@ -27,47 +30,43 @@ fn run(statements: &[Statement], env: &mut Env) -> Result<Value, String> {
 fn main() {
     let mut stack = Env::new();
     
-    //AI slopo
-    let program = vec![
-        // 1. let sq_len = fn(pt) { pt.x * pt.x + pt.y * pt.y };
-        Statement::Let {
-            name: "sq_len".to_string(),
-            expr: Expr::Fun {
-                param: "pt".to_string(),
-                body: Box::new(Expr::Binary {
-                    left: Box::new(Expr::Binary { // pt.x * pt.x
-                        left: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "x".to_string())),
-                        operation: Operation::Multiply,
-                        right: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "x".to_string())),
-                    }),
-                    operation: Operation::Add,
-                    right: Box::new(Expr::Binary { // pt.y * pt.y
-                        left: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "y".to_string())),
-                        operation: Operation::Multiply,
-                        right: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "y".to_string())),
-                    }),
-                })
+    let src = r#"
+        let x = 10;
+        let y = 5;
+        
+        let make_adder = fun(base) {
+            fun(n) {
+                base + n
             }
-        },
-    
-        // 2. let p = { x: 3, y: 4 };
-        Statement::Let {
-            name: "p".to_string(),
-            expr: Expr::Record(vec![
-                ("x".to_string(), Expr::Int(3)),
-                ("y".to_string(), Expr::Int(4)),
-            ])
-        },
-    
-        // 3. sq_len(p) -> Expect 25 (9 + 16)
-        Statement::Expr(Expr::Call {
-            fun: Box::new(Expr::Var("sq_len".to_string())),
-            arg: Box::new(Expr::Var("p".to_string())),
-        })
-    ];
+        };
 
+        let add10 = make_adder(x);
+        
+        {
+            let temp = 2;
+            add10(temp * 3) + y
+        }
+    "#;
     
-    let res = run(&program, &mut stack);
+    let parsed = parse().parse(src);
+    
+    if parsed.has_errors() {
+        for error in parsed.errors() {
+            Report::build(ReportKind::Error, error.span().into_range())
+                .with_message(error.to_string())
+                .with_label(
+                    Label::new(error.span().into_range())
+                        .with_message(error.reason().to_string())
+                        .with_color(Color::Red),
+                )
+                .finish()
+                .print(Source::from(src))
+                .unwrap();
+        }
+        return;
+    }
+    
+    let res = run(&parsed.unwrap(), &mut stack);
     match res {
         Err(e) => println!("{e}"),
         Ok(result) => {

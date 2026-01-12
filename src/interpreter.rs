@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use chumsky::extra::Err;
-
 use crate::{Env, ast::{Expr, Operation, Statement, Value}};
 
 pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
