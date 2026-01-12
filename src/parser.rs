@@ -2,32 +2,54 @@ use chumsky::{prelude::*};
 
 use crate::ast::{Expr, Operation, Statement};
 
+enum PostfixOp<'a> {
+    Call(Expr),
+    Access(&'a str),
+}
+
 pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<Rich<'src, char>>> {
     recursive(|statement| {
         let expr = recursive(|expr| {
             let val = text::int(10)
-                    .map(|s: &str| Box::new(Expr::Int(s.parse().unwrap())))
+                    .map(|s: &str| Expr::Int(s.parse().unwrap()))
                     .padded();
-            let var = text::ident().map(|s: &str| Box::new(Expr::Var(s.to_string()))).padded();
+            
+            let var = text::ident().map(|s: &str| Expr::Var(s.to_string())).padded();
+            
+            let field = text::ident()
+                .map(|s: &str| s.to_string())
+                .then_ignore(just(':').padded())
+                .then(expr.clone())
+                .padded();
+            
+            let record = field
+                .separated_by(just(','))
+                .allow_trailing()
+                .collect()
+                .delimited_by(just('{'), just('}'))
+                .map(Expr::Record)
+                .padded();
             
             let block = statement.clone()
                 .repeated()
                 .collect()
-                .then(expr.clone().or_not())
+                .then(expr.clone().or_not().map(|o| o.map(Box::new)))
                 .delimited_by(just('{'), just('}'))
-                .map(|(statements, tail)| Box::new(Expr::Block(statements, tail)))
+                .map(|(statements, tail)| Expr::Block(statements, tail))
                 .padded();
             
             let func = text::keyword("fun")
-                .ignore_then(text::ident().delimited_by(just('('), just(')')))
+                .padded()
+                .ignore_then(text::ident().delimited_by(just('(').padded(), just(')').padded()))
                 .then(expr.clone())
-                .map(|(param, body): (&str, Box<Expr>)| Box::new(Expr::Fun { 
+                .map(|(param, body): (&str, Expr)| Expr::Fun { 
                     param: param.to_string(), 
-                    body: Box::new(*body) 
-                }));
+                    body: Box::new(body) 
+                });
             
             let atom = val
                 .or(func)
+                .or(record)
                 .or(block)
                 .or(var)
                 .or(expr.clone().delimited_by(just('('), just(')')))
@@ -35,26 +57,37 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
             
             let call = atom.clone()
                 .foldl(
-                    expr.clone()
-                        .delimited_by(just('('), just(')'))
-                        .padded()
-                        .repeated(), 
-                    |func, arg| Box::new(Expr::Call { 
-                        fun: func, 
-                        arg: Box::new(*arg) 
-                    })
+                    choice((
+                        expr.clone()
+                            .delimited_by(just('(').padded(), just(')').padded())
+                            .map(PostfixOp::Call),
+                        just('.')
+                            .padded()
+                            .ignore_then(text::ident().padded())
+                            .map(PostfixOp::Access),
+                    )).repeated(),
+                    |parent, op| match op {
+                        PostfixOp::Call(arg) => Expr::Call { 
+                            fun: Box::new(parent), 
+                            arg: Box::new(arg) 
+                        },
+                        PostfixOp::Access(field) => Expr::Get(
+                            Box::new(parent), 
+                            field.to_string()
+                        ),
+                    }
                 );
             
             let op_mul = just('*').to(Operation::Multiply).or(just('/').to(Operation::Divide));
             let product = call.clone().foldl(
                 op_mul.then(call).repeated(),
-                |l, (op, r)| Box::new(Expr::Binary { left: l, operation: op, right: r })
+                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
             
             let op_add = just('+').to(Operation::Add).or(just('-').to(Operation::Subtract));
             let sum = product.clone().foldl(
                 op_add.then(product).repeated(),
-                |l, (op, r)| Box::new(Expr::Binary { left: l, operation: op, right: r })
+                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
         
             sum
@@ -65,11 +98,11 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
             .then_ignore(just('='))
             .then(expr.clone())
             .then_ignore(just(';'))
-            .map(|(name, e): (&str, Box<Expr>)| Statement::Let { name: name.to_string(), expr: *e });
+            .map(|(name, e): (&str, Expr)| Statement::Let { name: name.to_string(), expr: e });
         
         let expr_stmt = expr.clone()
             .then_ignore(just(';'))
-            .map(|expr| Statement::Expr(*expr));
+            .map(|expr| Statement::Expr(expr));
         
         let_stmt.or(expr_stmt).padded()
     })

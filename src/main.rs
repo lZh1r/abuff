@@ -31,21 +31,8 @@ fn main() {
     let mut stack = Env::new();
     
     let src = r#"
-        let x = 10;
-        let y = 5;
-        
-        let make_adder = fun(base) {
-            fun(n) {
-                base + n
-            }
-        };
-
-        let add10 = make_adder(x);
-        
-        {
-            let temp = 2;
-            (add10(temp * 3) + y - 1) / 5
-        };
+        let p = fun ( x ) { x + 1 };
+        p ( 2 ) ;
     "#;
     
     let parsed = parse().parse(src);
