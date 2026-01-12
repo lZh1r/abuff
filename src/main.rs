@@ -1,43 +1,10 @@
-use std::{collections::HashMap};
-
-
-use crate::{ast::{Expr, Operation, Statement, Value}, interpreter::eval_expr};
-
-#[derive(Debug, Clone)]
-pub struct Env {
-    stack: Vec<HashMap<String, Value>>,
-}
-
-impl Env {
-    pub fn get(&self, name: &String) -> Option<Value> {
-        for scope in self.stack.iter().rev() {
-            if let Some(val) = scope.get(name) {
-                return Some(val.clone());
-            }
-        }
-        None
-    }
-    pub fn enter_scope(&mut self) -> () {
-        let new_scope = HashMap::new();
-        self.stack.push(new_scope);
-    }
-    pub fn exit_scope(&mut self) -> () {
-        self.stack.pop();
-    }
-    pub fn add_variable(&mut self, name: String, value: Value) -> () {
-        let last_scope = self.stack.last_mut();
-        match last_scope {
-            Some(scope) => scope.insert(name, value),
-            None => panic!(),
-        };
-    }
-}
-
 mod ast;
 mod interpreter;
+mod env;
+
+use crate::{ast::{Expr, Operation, Statement, Value}, env::Env, interpreter::eval_expr};
 
 fn run(statements: &[Statement], env: &mut Env) -> Result<Value, String> {
-    env.enter_scope();
     let mut result = Ok(Value::Void);
     for statement in statements {
         match statement {
@@ -53,51 +20,47 @@ fn run(statements: &[Statement], env: &mut Env) -> Result<Value, String> {
             },
         }
     };
-    env.exit_scope();
     
     result
 }
 
 fn main() {
-    let mut stack: Env = {
-        Env { stack: Vec::new() }
-    };
+    let mut stack = Env::new();
     
-    //AI slop (I am not writing it on my own)
+    //AI slopo
     let program: Vec<Statement> = vec![
-        // 1. let x = 10;
+        // 1. let make_adder = fn(x) { fn(y) { x + y } };
         Statement::Let {
-            name: "x".to_string(),
-            expr: Expr::Int(10),
-        },
-        
-        // 2. let y = { let x = 2; x * 3 };
-        Statement::Let {
-            name: "y".to_string(),
-            expr: Expr::Block(
-                // Statements inside the block
-                vec![
-                    Statement::Let {
-                        name: "x".to_string(), // Shadowing!
-                        expr: Expr::Int(2),
-                    }
-                ],
-                // Final expression of the block (implicit return)
-                Some(Box::new(Expr::Binary {
-                    left: Box::new(Expr::Var("x".to_string())),
-                    operation: Operation::Multiply,
-                    right: Box::new(Expr::Int(3)),
-                }))
-            ),
+            name: "make_adder".to_string(),
+            expr: Expr::Fun {
+                param: "x".to_string(),
+                body: Box::new(Expr::Fun { // The inner function
+                    param: "y".to_string(),
+                    body: Box::new(Expr::Binary {
+                        left: Box::new(Expr::Var("x".to_string())), // Captured from outer
+                        operation: Operation::Add,
+                        right: Box::new(Expr::Var("y".to_string())), // Local param
+                    })
+                })
+            }
         },
     
-        // 3. x + y (Expression Statement to verify result)
-        Statement::Expr(Expr::Binary {
-            left: Box::new(Expr::Var("x".to_string())), // Should be 10 (outer)
-            operation: Operation::Add,
-            right: Box::new(Expr::Var("y".to_string())), // Should be 6
-        }),
+        // 2. let add10 = make_adder(10);
+        Statement::Let {
+            name: "add10".to_string(),
+            expr: Expr::Call {
+                fun: Box::new(Expr::Var("make_adder".to_string())),
+                arg: Box::new(Expr::Int(10)),
+            }
+        },
+    
+        // 3. add10(5) -> Expect 15
+        Statement::Expr(Expr::Call {
+            fun: Box::new(Expr::Var("add10".to_string())),
+            arg: Box::new(Expr::Int(5)),
+        })
     ];
+
     
     let res = run(&program, &mut stack);
     match res {

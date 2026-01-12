@@ -1,6 +1,6 @@
 use std::{collections::HashMap};
 
-use crate::Env;
+use crate::env::Env;
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -8,8 +8,10 @@ pub enum Expr {
     Float(f64),
     Int(i64),
     Var(String),
-    Binary{left: Box<Expr>, operation: Operation, right: Box<Expr>},
-    Block(Vec<Statement>, Option<Box<Expr>>)
+    Binary {left: Box<Expr>, operation: Operation, right: Box<Expr>},
+    Block(Vec<Statement>, Option<Box<Expr>>),
+    Fun {param: String, body: Box<Expr>},
+    Call {fun: Box<Expr>, arg: Box<Expr>}
 }
 
 #[derive(Debug, Clone)]
