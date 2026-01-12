@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use chumsky::extra::Err;
+
 use crate::{Env, ast::{Expr, Operation, Statement, Value}};
 
 pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
@@ -14,6 +18,33 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
         Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
         Expr::Fun { param, body } => Ok(Value::Closure { param: param.clone(), body: body.clone(), env: env.clone() }),
         Expr::Call { fun, arg } => eval_closure(eval_expr(fun, env), eval_expr(arg, env)),
+        Expr::Record(fields) => {
+            let mut result = HashMap::new();
+            for (field_name, field_expr) in fields {
+                let field_value = {
+                    match eval_expr(field_expr, env) {
+                        Ok(v) => v,
+                        Err(e) => return Err(e),
+                    }
+                };
+                result.insert(field_name.clone(), field_value);
+            }
+            Ok(Value::Record(result))
+        },
+        Expr::Get(record_expr, field_name) => {
+            match eval_expr(record_expr, env) {
+                Ok(v) => match v {
+                    Value::Record(field_map) => {
+                        match field_map.get(field_name) {
+                            Some(value) => Ok(value.clone()),
+                            None => Err(format!("Property {field_name} does not exist on this object").to_string()),
+                        }
+                    },
+                    _ => Err("Cannot use an accessor on this".to_string())
+                },
+                Err(e) => Err(e),
+            }
+        },
         _ => Err("Unknown token".to_string())
     }
 }
@@ -72,16 +103,7 @@ fn eval_closure(fun: Result<Value, String>, arg: Result<Value, String>) -> Resul
 
 fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, env: &mut Env) -> Result<Value, String> {
     
-    let left_result = match &**left {
-        Expr::Int(i) => Ok(Value::Int(*i)),
-        Expr::Float(f) => Ok(Value::Float(*f)),
-        Expr::Var(_) => eval_expr(left, env),
-        Expr::Binary { left: l, operation: o, right: r } => 
-        eval_expr(&Expr::Binary {left: (l.clone()), operation: (o.clone()), right: (r.clone())}, env),
-        Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
-        Expr::Call {fun, arg} => eval_closure(eval_expr(fun, env), eval_expr(arg, env)),
-        _ => Err("Type error".to_string()),
-    };
+    let left_result = eval_expr(left, env);
     
     let left_value;
     
@@ -90,17 +112,7 @@ fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, 
         Ok(v) => left_value = v
     };
     
-    let right_result = match &**right {
-        Expr::Int(i) => Ok(Value::Int(*i)),
-        Expr::Float(f) => Ok(Value::Float(*f)),
-        Expr::Var(_) => eval_expr(right, env),
-        Expr::Bool(_) => Err("Type error".to_string()),
-        Expr::Binary { left: l, operation: o, right: r } => 
-        eval_expr(&Expr::Binary {left: (l.clone()), operation: (o.clone()), right: (r.clone())}, env),
-        Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
-        Expr::Call {fun, arg} => eval_closure(eval_expr(fun, env), eval_expr(arg, env)),
-        _ => Err("Type error".to_string()),
-    };
+    let right_result = eval_expr(right, env);
     
     let right_value;
     

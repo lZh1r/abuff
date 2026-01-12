@@ -11,7 +11,9 @@ pub enum Expr {
     Binary {left: Box<Expr>, operation: Operation, right: Box<Expr>},
     Block(Vec<Statement>, Option<Box<Expr>>),
     Fun {param: String, body: Box<Expr>},
-    Call {fun: Box<Expr>, arg: Box<Expr>}
+    Call {fun: Box<Expr>, arg: Box<Expr>},
+    Record(Vec<(String, Expr)>),
+    Get(Box<Expr>, String)
 }
 
 #[derive(Debug, Clone)]

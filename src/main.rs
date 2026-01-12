@@ -28,36 +28,41 @@ fn main() {
     let mut stack = Env::new();
     
     //AI slopo
-    let program: Vec<Statement> = vec![
-        // 1. let make_adder = fn(x) { fn(y) { x + y } };
+    let program = vec![
+        // 1. let sq_len = fn(pt) { pt.x * pt.x + pt.y * pt.y };
         Statement::Let {
-            name: "make_adder".to_string(),
+            name: "sq_len".to_string(),
             expr: Expr::Fun {
-                param: "x".to_string(),
-                body: Box::new(Expr::Fun { // The inner function
-                    param: "y".to_string(),
-                    body: Box::new(Expr::Binary {
-                        left: Box::new(Expr::Var("x".to_string())), // Captured from outer
-                        operation: Operation::Add,
-                        right: Box::new(Expr::Var("y".to_string())), // Local param
-                    })
+                param: "pt".to_string(),
+                body: Box::new(Expr::Binary {
+                    left: Box::new(Expr::Binary { // pt.x * pt.x
+                        left: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "x".to_string())),
+                        operation: Operation::Multiply,
+                        right: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "x".to_string())),
+                    }),
+                    operation: Operation::Add,
+                    right: Box::new(Expr::Binary { // pt.y * pt.y
+                        left: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "y".to_string())),
+                        operation: Operation::Multiply,
+                        right: Box::new(Expr::Get(Box::new(Expr::Var("pt".to_string())), "y".to_string())),
+                    }),
                 })
             }
         },
     
-        // 2. let add10 = make_adder(10);
+        // 2. let p = { x: 3, y: 4 };
         Statement::Let {
-            name: "add10".to_string(),
-            expr: Expr::Call {
-                fun: Box::new(Expr::Var("make_adder".to_string())),
-                arg: Box::new(Expr::Int(10)),
-            }
+            name: "p".to_string(),
+            expr: Expr::Record(vec![
+                ("x".to_string(), Expr::Int(3)),
+                ("y".to_string(), Expr::Int(4)),
+            ])
         },
     
-        // 3. add10(5) -> Expect 15
+        // 3. sq_len(p) -> Expect 25 (9 + 16)
         Statement::Expr(Expr::Call {
-            fun: Box::new(Expr::Var("add10".to_string())),
-            arg: Box::new(Expr::Int(5)),
+            fun: Box::new(Expr::Var("sq_len".to_string())),
+            arg: Box::new(Expr::Var("p".to_string())),
         })
     ];
 
