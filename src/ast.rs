@@ -37,5 +37,5 @@ pub enum Operation {
     Add,
     Subtract,
     Multiply,
-    Devide
+    Divide
 }

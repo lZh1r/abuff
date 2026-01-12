@@ -50,14 +50,26 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                 op_mul.then(call).repeated(),
                 |l, (op, r)| Box::new(Expr::Binary { left: l, operation: op, right: r })
             );
-        
+            
+            let op_div = just('/').to(Operation::Divide);
+            let division = product.clone().foldl(
+                op_div.then(product).repeated(),
+                |l, (op, r)| Box::new(Expr::Binary { left: l, operation: op, right: r })
+            );
+            
             let op_add = just('+').to(Operation::Add);
-            let sum = product.clone().foldl(
-                op_add.then(product).repeated(),
+            let sum = division.clone().foldl(
+                op_add.then(division).repeated(),
+                |l, (op, r)| Box::new(Expr::Binary { left: l, operation: op, right: r })
+            );
+            
+            let op_sub = just('-').to(Operation::Subtract);
+            let subtract = sum.clone().foldl(
+                op_sub.then(sum).repeated(),
                 |l, (op, r)| Box::new(Expr::Binary { left: l, operation: op, right: r })
             );
         
-            sum
+            subtract
         });
         
         let let_stmt = text::keyword("let")

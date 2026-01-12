@@ -123,11 +123,11 @@ fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, 
         (Value::Int(l), Operation::Add, Value::Int(r)) => Ok(Value::Int(l + r)),
         (Value::Int(l), Operation::Subtract, Value::Int(r)) => Ok(Value::Int(l - r)),
         (Value::Int(l), Operation::Multiply, Value::Int(r)) => Ok(Value::Int(l * r)),
-        (Value::Int(l), Operation::Devide, Value::Int(r)) => Ok(Value::Int(l / r)),
+        (Value::Int(l), Operation::Divide, Value::Int(r)) => Ok(Value::Int(l / r)),
         (Value::Float(l), Operation::Add, Value::Float(r)) => Ok(Value::Float(l + r)),
         (Value::Float(l), Operation::Subtract, Value::Float(r)) => Ok(Value::Float(l - r)),
         (Value::Float(l), Operation::Multiply, Value::Float(r)) => Ok(Value::Float(l * r)),
-        (Value::Float(l), Operation::Devide, Value::Float(r)) => Ok(Value::Float(l / r)),
+        (Value::Float(l), Operation::Divide, Value::Float(r)) => Ok(Value::Float(l / r)),
         _ => Err("Type mismatch".to_string())
     }
 }

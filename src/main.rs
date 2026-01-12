@@ -44,8 +44,8 @@ fn main() {
         
         {
             let temp = 2;
-            add10(temp * 3) + y
-        }
+            (add10(temp * 3) + y - 1) / 5
+        };
     "#;
     
     let parsed = parse().parse(src);
