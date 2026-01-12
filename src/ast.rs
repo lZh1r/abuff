@@ -9,7 +9,13 @@ pub enum Expr {
     Int(i64),
     Var(String),
     Binary{left: Box<Expr>, operation: Operation, right: Box<Expr>},
-    Let{name: String, expr: Box<Expr>, body: Box<Expr>}
+    Block(Vec<Statement>, Option<Box<Expr>>)
+}
+
+#[derive(Debug, Clone)]
+pub enum Statement {
+    Let{name: String, expr: Expr},
+    Expr(Expr)
 }
 
 #[derive(Debug, Clone)]
@@ -18,7 +24,8 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Record(HashMap<String, Value>), 
-    Closure { param: String, body: Box<Expr>, env: Env }
+    Closure { param: String, body: Box<Expr>, env: Env },
+    Void
 }
 
 #[derive(Debug, Clone)]
