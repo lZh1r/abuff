@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Env, ast::{Expr, Operation, Statement, Value}};
+use crate::{env::Env, ast::{Expr, Operation, Statement, Value}};
 
 pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
     match expr {

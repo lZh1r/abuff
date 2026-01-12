@@ -1,9 +1,4 @@
-mod ast;
-mod interpreter;
-mod env;
-mod parser;
-
-use crate::{ast::{Expr, Operation, Statement, Value}, env::Env, interpreter::eval_expr, parser::parse};
+use gigalang::{ast::{Statement, Value}, env::Env, interpreter::eval_expr, parser::parse};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 
