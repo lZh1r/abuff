@@ -48,28 +48,30 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
 }
 
 fn eval_block(stmts: &[Statement], final_expr: &Option<Box<Expr>>, env: &mut Env) -> Result<Value, String> {
-    env.enter_scope();
+    let mut new_scope = env.enter_scope();
     for statement in stmts {
         match statement {
             Statement::Let { name, expr } => {
-                let val = eval_expr(expr, env);
+                let val = eval_expr(expr, &mut new_scope);
                 match val {
-                    Ok(v) => env.add_variable(name.clone(), v),
+                    Ok(v) => {
+                        println!("{name}");
+                        println!("{:?}", v);
+                        new_scope.add_variable(name.clone(), v)
+                    },
                     Err(e) => return Err(e),
                 }
             },
             Statement::Expr(expr) => {
-                eval_expr(expr, env)?;
+                eval_expr(expr, &mut new_scope)?;
             },
         }
     };
     
-    let result = match final_expr {
-        Some(expr) => eval_expr(expr, env),
+    match final_expr {
+        Some(expr) => eval_expr(expr, &mut new_scope),
         None => Ok(Value::Void),
-    };
-    
-    result
+    }
 }
 
 fn eval_closure(fun: Result<Value, String>, arg: Result<Value, String>) -> Result<Value, String> {
@@ -86,9 +88,9 @@ fn eval_closure(fun: Result<Value, String>, arg: Result<Value, String>) -> Resul
         Ok(v) => {
             match v {
                 Value::Closure { param, body, mut env } => {
-                    env.enter_scope();
-                    env.add_variable(param, arg_value);
-                    result = eval_expr(&*body, &mut env);
+                    let mut new_scope = env.enter_scope();
+                    new_scope.add_variable(param, arg_value);
+                    result = eval_expr(&*body, &mut new_scope);
                 },
                 _ => return Err("This expression is not callable".to_string())
             }

@@ -58,3 +58,34 @@ fn test_nested_records() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_nested_fun_calls() {
+    let ast = parse_code(r#"
+        let f = fun(x) {x+1};
+        f(f(f(f(f(1)))));
+    "#);
+    
+    match run(&ast).unwrap() {
+        Value::Int(i) => assert_eq!(i, 6),
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_fun_shadowing() {
+    let ast = parse_code(r#"
+        let a = 2;
+        let f = fun(x) {
+            let a = 0;
+            x+a
+        };
+        let a = 3;
+        f(1);
+    "#);
+    
+    match run(&ast).unwrap() {
+        Value::Int(i) => assert_eq!(i, 1),
+        _ => panic!()
+    };
+}
