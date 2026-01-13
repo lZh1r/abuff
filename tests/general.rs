@@ -35,3 +35,26 @@ fn test_block_and_anon_abuse() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_nested_records() {
+    let ast = parse_code(r#"
+        let obj = {
+            a: {
+                b: {
+                    c: {
+                        d: {
+                            e: 4
+                        }
+                    }
+                }
+            }
+        };
+        obj.a.b.c.d.e;
+    "#);
+    
+    match run(&ast).unwrap() {
+        Value::Int(i) => assert_eq!(i, 4),
+        _ => panic!()
+    };
+}
