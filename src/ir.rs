@@ -10,8 +10,8 @@ pub enum Expr {
     Var(String),
     Binary {left: Box<Expr>, operation: Operation, right: Box<Expr>},
     Block(Vec<Statement>, Option<Box<Expr>>),
-    Fun {param: Vec<String>, body: Box<Expr>},
-    Call {fun: Box<Expr>, arg: Vec<Expr>},
+    Fun {params: Vec<String>, body: Box<Expr>},
+    Call {fun: Box<Expr>, args: Vec<Expr>},
     Record(Vec<(String, Expr)>),
     Get(Box<Expr>, String)
 }
@@ -28,7 +28,7 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Record(HashMap<String, Value>), 
-    Closure { param: Vec<String>, body: Box<Expr>, env: Env },
+    Closure { params: Vec<String>, body: Box<Expr>, env: Env },
     Void
 }
 

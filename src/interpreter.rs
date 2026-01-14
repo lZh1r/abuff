@@ -14,8 +14,8 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
         },
         Expr::Binary { left, operation, right } => binary_operation(left, operation, right, env),
         Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
-        Expr::Fun { param, body } => Ok(Value::Closure { param: param.clone(), body: body.clone(), env: env.clone() }),
-        Expr::Call { fun, arg } => eval_closure(eval_expr(fun, env), {
+        Expr::Fun { params: param, body } => Ok(Value::Closure { params: param.clone(), body: body.clone(), env: env.clone() }),
+        Expr::Call { fun, args: arg } => eval_closure(eval_expr(fun, env), {
             let mut args = Vec::new();
             for a in arg.iter() {
                 args.push(eval_expr(a, env)?);
@@ -85,7 +85,7 @@ fn eval_closure(fun: Result<Value, String>, args: Vec<Value>) -> Result<Value, S
     match fun {
         Ok(v) => {
             match v {
-                Value::Closure { param, body, mut env } => {
+                Value::Closure { params: param, body, mut env } => {
                     let mut new_scope = env.enter_scope();
                     for (par, arg) in param.iter().zip(args.iter()) {
                         new_scope.add_variable(par.clone(), arg.clone());

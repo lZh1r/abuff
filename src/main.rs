@@ -56,7 +56,7 @@ fn main() {
                     Value::Int(i) => println!("{i}"),
                     Value::Bool(b) => println!("{b}"),
                     Value::Record(hash_map) => println!("record"),
-                    Value::Closure { param, body, env } => println!("closure"),
+                    Value::Closure { params: param, body, env } => println!("closure"),
                     Value::Float(f) => println!("{f}"),
                     Value::Void => println!("void"),
                 }

@@ -50,7 +50,7 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                         .delimited_by(just('(').padded(), just(')').padded()))
                 .then(expr.clone())
                 .map(|(param, body)| Expr::Fun { 
-                    param: param, 
+                    params: param, 
                     body: Box::new(body) 
                 });
             
@@ -80,7 +80,7 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                     |parent, op| match op {
                         PostfixOp::Call(args) => Expr::Call { 
                             fun: Box::new(parent), 
-                            arg: args 
+                            args 
                         },
                         PostfixOp::Access(field) => Expr::Get(
                             Box::new(parent), 
