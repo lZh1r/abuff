@@ -5,6 +5,7 @@ use crate::{env::Env, ir::{Expr, Operation, Statement, Value}};
 pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
     match expr {
         Expr::Int(n) => Ok(Value::Int(*n)),
+        Expr::Float(f) => Ok(Value::Float(*f)),
         Expr::Var(v) => {
             let result = env.get(v);
             match result {

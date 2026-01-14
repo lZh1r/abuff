@@ -10,9 +10,18 @@ enum PostfixOp<'a> {
 pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<Rich<'src, char>>> {
     recursive(|statement| {
         let expr = recursive(|expr| {
-            let val = text::int(10)
+            let int = text::int(10)
                     .map(|s: &str| Expr::Int(s.parse().unwrap()))
                     .padded();
+            
+            let float = text::int(10)
+                .then(just('.'))
+                .then(text::int(10))
+                .map(|((int_part, _), frac_part): ((&str, char), &str)| {
+                    let s = format!("{}.{}", int_part, frac_part);
+                    Expr::Float(s.parse().unwrap())
+                })
+                .padded();
             
             let var = text::ident().map(|s: &str| Expr::Var(s.to_string())).padded();
             
@@ -54,7 +63,8 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                     body: Box::new(body) 
                 });
             
-            let atom = val
+            let atom = float
+                .or(int)
                 .or(func)
                 .or(record)
                 .or(block)
