@@ -1,9 +1,9 @@
 use chumsky::{prelude::*};
 
-use crate::ast::{Expr, Operation, Statement};
+use crate::ir::{Expr, Operation, Statement};
 
 enum PostfixOp<'a> {
-    Call(Expr),
+    Call(Vec<Expr>),
     Access(&'a str),
 }
 
@@ -40,10 +40,17 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
             
             let func = text::keyword("fun")
                 .padded()
-                .ignore_then(text::ident().delimited_by(just('(').padded(), just(')').padded()))
+                .ignore_then(
+                    text::ident()
+                        .padded()
+                        .map(|s: &str| s.to_string())
+                        .separated_by(just(','))
+                        .allow_trailing()
+                        .collect()
+                        .delimited_by(just('(').padded(), just(')').padded()))
                 .then(expr.clone())
-                .map(|(param, body): (&str, Expr)| Expr::Fun { 
-                    param: param.to_string(), 
+                .map(|(param, body)| Expr::Fun { 
+                    param: param, 
                     body: Box::new(body) 
                 });
             
@@ -59,6 +66,10 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                 .foldl(
                     choice((
                         expr.clone()
+                            .padded()
+                            .separated_by(just(','))
+                            .allow_trailing()
+                            .collect()
                             .delimited_by(just('(').padded(), just(')').padded())
                             .map(PostfixOp::Call),
                         just('.')
@@ -67,9 +78,9 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                             .map(PostfixOp::Access),
                     )).repeated(),
                     |parent, op| match op {
-                        PostfixOp::Call(arg) => Expr::Call { 
+                        PostfixOp::Call(args) => Expr::Call { 
                             fun: Box::new(parent), 
-                            arg: Box::new(arg) 
+                            arg: args 
                         },
                         PostfixOp::Access(field) => Expr::Get(
                             Box::new(parent), 

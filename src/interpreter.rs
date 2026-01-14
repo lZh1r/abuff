@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{env::Env, ast::{Expr, Operation, Statement, Value}};
+use crate::{env::Env, ir::{Expr, Operation, Statement, Value}};
 
 pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
     match expr {
@@ -15,7 +15,13 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
         Expr::Binary { left, operation, right } => binary_operation(left, operation, right, env),
         Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
         Expr::Fun { param, body } => Ok(Value::Closure { param: param.clone(), body: body.clone(), env: env.clone() }),
-        Expr::Call { fun, arg } => eval_closure(eval_expr(fun, env), eval_expr(arg, env)),
+        Expr::Call { fun, arg } => eval_closure(eval_expr(fun, env), {
+            let mut args = Vec::new();
+            for a in arg.iter() {
+                args.push(eval_expr(a, env)?);
+            };
+            args
+        }),
         Expr::Record(fields) => {
             let mut result = HashMap::new();
             for (field_name, field_expr) in fields {
@@ -74,22 +80,17 @@ fn eval_block(stmts: &[Statement], final_expr: &Option<Box<Expr>>, env: &mut Env
     }
 }
 
-fn eval_closure(fun: Result<Value, String>, arg: Result<Value, String>) -> Result<Value, String> {
-    let arg_value;
-    match arg {
-        Ok(v) => {
-            arg_value = v;
-        },
-        Err(e) => return Err(e),
-    };
-    
+fn eval_closure(fun: Result<Value, String>, args: Vec<Value>) -> Result<Value, String> {
     let result;
     match fun {
         Ok(v) => {
             match v {
                 Value::Closure { param, body, mut env } => {
                     let mut new_scope = env.enter_scope();
-                    new_scope.add_variable(param, arg_value);
+                    for (par, arg) in param.iter().zip(args.iter()) {
+                        new_scope.add_variable(par.clone(), arg.clone());
+                    }
+                    
                     result = eval_expr(&*body, &mut new_scope);
                 },
                 _ => return Err("This expression is not callable".to_string())

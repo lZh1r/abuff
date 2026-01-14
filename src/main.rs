@@ -1,6 +1,4 @@
-use std::process::Stdio;
-
-use gigalang::{ast::{Statement, Value}, env::Env, interpreter::eval_expr, parser::parse};
+use gigalang::{ir::{Statement, Value}, env::Env, interpreter::eval_expr, parser::parse};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 

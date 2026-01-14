@@ -10,15 +10,15 @@ pub enum Expr {
     Var(String),
     Binary {left: Box<Expr>, operation: Operation, right: Box<Expr>},
     Block(Vec<Statement>, Option<Box<Expr>>),
-    Fun {param: String, body: Box<Expr>, return_type: TypeInfo},
-    Call {fun: Box<Expr>, arg: Box<Expr>},
+    Fun {param: Vec<String>, body: Box<Expr>},
+    Call {fun: Box<Expr>, arg: Vec<Expr>},
     Record(Vec<(String, Expr)>),
     Get(Box<Expr>, String)
 }
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Let {name: String, expr: Expr, type_info: TypeInfo},
+    Let{name: String, expr: Expr},
     Expr(Expr)
 }
 
@@ -28,7 +28,7 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Record(HashMap<String, Value>), 
-    Closure { param: String, body: Box<Expr>, env: Env },
+    Closure { param: Vec<String>, body: Box<Expr>, env: Env },
     Void
 }
 
@@ -38,9 +38,4 @@ pub enum Operation {
     Subtract,
     Multiply,
     Divide
-}
-
-#[derive(Debug, Clone)]
-pub enum TypeInfo {
-    
 }

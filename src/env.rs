@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::ast::Value;
+use crate::ir::Value;
 
 #[derive(Debug, Clone)]
 pub struct Scope {

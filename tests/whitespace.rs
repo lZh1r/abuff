@@ -1,4 +1,4 @@
-use gigalang::ast::Value;
+use gigalang::ir::Value;
 
 use crate::common::{parse_code, run};
 
