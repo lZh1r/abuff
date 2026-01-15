@@ -289,6 +289,17 @@ fn unwrap_custom_type(type_info: TypeInfo, env: &mut TypeEnv) -> Result<TypeInfo
             }
             Ok(TypeInfo::Record(new_fields))
         },
+        TypeInfo::Fun { args, return_type } => {
+            let mut new_args = Vec::new();
+            for (name, ti) in args {
+                match unwrap_custom_type(ti.clone(), env) {
+                    Ok(t) => new_args.push((name, t)),
+                    Err(e) => return Err(e),
+                }
+            }
+            let new_return_type = unwrap_custom_type(*return_type, env)?;
+            Ok(TypeInfo::Fun { args: new_args, return_type: Box::new(new_return_type) })
+        },
         _ => Ok(type_info)
     }
 }
