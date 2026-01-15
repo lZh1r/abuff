@@ -1,5 +1,5 @@
 use chumsky::Parser;
-use gigalang::{ir::{Statement, Value}, env::Env, interpreter::eval_expr, parser::parse};
+use gigalang::{ir::{Statement, Value}, env::Env, interpreter::eval_expr, legacy_parser::parse};
 
 pub fn parse_code(src: &str) -> Vec<Statement> {
     parse().parse(src).into_result().expect("Failed to parse")
