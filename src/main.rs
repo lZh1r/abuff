@@ -81,6 +81,9 @@ fn main() {
                             Value::Closure { params, body, env: _ } => println!("closure: {params:?}, {body:?}"),
                             Value::Float(f) => println!("{f}"),
                             Value::Void => println!("void"),
+                            Value::String(s) => println!("\"{s}\""),
+                            Value::Char(c) => println!("\'{c}\'"),
+                            Value::Null => println!("null"),
                         }
                     }
                 }

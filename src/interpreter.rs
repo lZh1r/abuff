@@ -123,15 +123,19 @@ fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, 
         Ok(v) => right_value = v
     };
     
-    match (left_value, operation, right_value) {
-        (Value::Int(l), Operation::Add, Value::Int(r)) => Ok(Value::Int(l + r)),
-        (Value::Int(l), Operation::Subtract, Value::Int(r)) => Ok(Value::Int(l - r)),
-        (Value::Int(l), Operation::Multiply, Value::Int(r)) => Ok(Value::Int(l * r)),
-        (Value::Int(l), Operation::Divide, Value::Int(r)) => Ok(Value::Int(l / r)),
-        (Value::Float(l), Operation::Add, Value::Float(r)) => Ok(Value::Float(l + r)),
-        (Value::Float(l), Operation::Subtract, Value::Float(r)) => Ok(Value::Float(l - r)),
-        (Value::Float(l), Operation::Multiply, Value::Float(r)) => Ok(Value::Float(l * r)),
-        (Value::Float(l), Operation::Divide, Value::Float(r)) => Ok(Value::Float(l / r)),
-        _ => Err("Type mismatch".to_string())
+    match operation {
+        Operation::Add => left_value.add(right_value),
+        Operation::Subtract => left_value.subtract(right_value),
+        Operation::Multiply => left_value.multiply(right_value),
+        Operation::Divide => left_value.divide(right_value),
+        Operation::Eq => Ok(Value::Bool(left_value == right_value)),
+        Operation::LessThan => left_value.less_than(right_value),
+        Operation::GreaterThan => left_value.greater_than(right_value),
+        Operation::NotEq => Ok(Value::Bool(left_value != right_value)),
+        Operation::LessThanEq => left_value.less_than_eq(right_value),
+        Operation::GreaterThanEq => left_value.greater_than_eq(right_value),
+        Operation::And => Ok(left_value.logic_and(right_value)),
+        Operation::Or => Ok(left_value.logic_or(right_value)),
+        Operation::Modulo => left_value.modulo(right_value),
     }
 }

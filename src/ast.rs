@@ -24,7 +24,16 @@ pub enum Operation {
     Add,
     Subtract,
     Multiply,
-    Divide
+    Divide,
+    Modulo,
+    Eq,
+    NotEq,
+    LessThan,
+    LessThanEq,
+    GreaterThan,
+    GreaterThanEq,
+    And,
+    Or
 }
 
 #[derive(Debug, Clone, PartialEq)]

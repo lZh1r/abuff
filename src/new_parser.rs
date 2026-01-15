@@ -134,7 +134,8 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                     }
                 );
             
-            let op_mul = just('*').to(Operation::Multiply).or(just('/').to(Operation::Divide));
+            let op_mul = just('*').to(Operation::Multiply).or(just('/').to(Operation::Divide))
+                .or(just('%').to(Operation::Modulo));
             let product = call.clone().foldl(
                 op_mul.then(call).repeated(),
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
@@ -145,8 +146,21 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 op_add.then(product).repeated(),
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
-        
-            sum
+            
+            let op_comparison = just(">=").to(Operation::GreaterThanEq)
+                .or(just("<=").to(Operation::LessThanEq))
+                .or(just('>').to(Operation::GreaterThan))
+                .or(just('<').to(Operation::LessThan))
+                .or(just("&&").to(Operation::And))
+                .or(just("||").to(Operation::Or))
+                .or(just("==").to(Operation::Eq))
+                .or(just("!=").to(Operation::NotEq));
+            let comparison = sum.clone().foldl(
+                op_comparison.then(sum).repeated(),
+                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+            );
+            
+            comparison
         });
         
         let let_stmt = text::keyword("let")

@@ -96,6 +96,15 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
                         ast::Operation::Subtract => ir::Operation::Subtract,
                         ast::Operation::Multiply => ir::Operation::Multiply,
                         ast::Operation::Divide => ir::Operation::Divide,
+                        ast::Operation::Eq => ir::Operation::Eq,
+                        ast::Operation::LessThan => ir::Operation::LessThan,
+                        ast::Operation::GreaterThan => ir::Operation::GreaterThan,
+                        ast::Operation::NotEq => ir::Operation::NotEq,
+                        ast::Operation::LessThanEq => ir::Operation::LessThanEq,
+                        ast::Operation::GreaterThanEq => ir::Operation::GreaterThanEq,
+                        ast::Operation::And => ir::Operation::And,
+                        ast::Operation::Or => ir::Operation::Or,
+                        ast::Operation::Modulo => ir::Operation::Modulo,
                     }, 
                     right: Box::new(lower_expr(right, env)?)
                 })
@@ -167,11 +176,6 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                 Some(t) => Ok(unwrap_custom_type(t, env)?),
                 None => Err(format!("Type of \"{name}\" is unknown")),
             }
-            // type Func = (point: {x: Int, y: Int}) -> Int; type Point = {x: Int, y: Int}; let f: Func = fun (point: Point) {4};
-            // 
-            // let p: Point = {x: 3, y: 4};
-            // let f: Func = fun(point: Point) {point.x + point.y};
-            // 
         },
         ast::Expr::Binary { left, operation: _, right } => {
             let left_type = unwrap_custom_type(get_type(left, env)?, env)?;
