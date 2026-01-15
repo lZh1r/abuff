@@ -1,4 +1,4 @@
-use gigalang::{checker::lower, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{Statement, Value}, new_parser::parser, parser::parse};
+use gigalang::{checker::lower, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{Statement, Value}, new_parser::parser};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 
