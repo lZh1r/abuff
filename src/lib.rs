@@ -4,3 +4,4 @@ pub mod env;
 pub mod parser;
 pub mod new_parser;
 pub mod ir;
+pub mod checker;

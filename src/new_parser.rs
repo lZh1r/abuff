@@ -17,13 +17,13 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
         
         let arg = text::ident().padded().map(ToString::to_string)
                         .then_ignore(just(':').padded())
-                        .then(ty.clone());
+                        .then(ty.clone()).padded();
 
-        let fun = arg.separated_by(just(',')).allow_trailing().collect()
+        let fun = arg.separated_by(just(',')).allow_trailing().collect().or_not()
             .delimited_by(just('(').padded(), just(')').padded())
-            .then_ignore(text::keyword("->"))
+            .then_ignore(just("->").padded())
             .then(ty.clone())
-            .map(|(input, output)| TypeInfo::Fun { args: input, return_type: Box::new(output) });
+            .map(|(input, output)| TypeInfo::Fun { args: input.unwrap_or_default(), return_type: Box::new(output) });
         
         let record = text::ident().map(|s: &str| s.to_string()).padded()
             .then_ignore(just(':').padded())
@@ -33,7 +33,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
             .delimited_by(just('{').padded(), just('}').padded())
             .map(TypeInfo::Record).padded();
         
-        let custom = text::ident().map(|s: &str| TypeInfo::Custom(s.to_string()));
+        let custom = text::ident().padded().map(|s: &str| TypeInfo::Custom(s.to_string()));
 
         leaf.or(record).or(fun).or(custom)
     });
@@ -82,8 +82,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                             .then(type_parser.clone());
             
             let func = text::keyword("fun").padded()
-                .ignore_then(text::ident().padded().map(ToString::to_string).or_not())
-                .then(
+                .ignore_then(
                     arg.separated_by(just(',')).allow_trailing().collect()
                         .delimited_by(just('(').padded(), just(')').padded())
                 )
@@ -93,8 +92,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                         .or_not()
                 )
                 .then(expr.clone())
-                .map(|(((name, params), return_type), body): (((Option<String>, Vec<(String, TypeInfo)>), Option<TypeInfo>), Expr)| Expr::Fun { 
-                    name: name,
+                .map(|((params, return_type), body): ((Vec<(String, TypeInfo)>, Option<TypeInfo>), Expr)| Expr::Fun { 
                     params, 
                     return_type,
                     body: Box::new(body) 

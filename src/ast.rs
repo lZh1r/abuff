@@ -1,26 +1,25 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Bool(bool),
     Float(f64),
     Int(i64),
     Var(String),
-    Type(String),
     Binary {left: Box<Expr>, operation: Operation, right: Box<Expr>},
     Block(Vec<Statement>, Option<Box<Expr>>),
-    Fun {name: Option<String>, params: Vec<(String, TypeInfo)>, body: Box<Expr>, return_type: Option<TypeInfo>},
+    Fun {params: Vec<(String, TypeInfo)>, body: Box<Expr>, return_type: Option<TypeInfo>},
     Call {fun: Box<Expr>, args: Vec<Expr>},
     Record(Vec<(String, Expr)>),
     Get(Box<Expr>, String)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let {name: String, expr: Expr, type_info: Option<TypeInfo>},
     TypeDef {name: String, type_info: TypeInfo},
     Expr(Expr)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Operation {
     Add,
     Subtract,
@@ -28,7 +27,7 @@ pub enum Operation {
     Divide
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeInfo {
     Int,
     Float,
@@ -37,6 +36,7 @@ pub enum TypeInfo {
     Bool,
     Void,
     Null,
+    Unknown,
     Fun {args: Vec<(String, TypeInfo)>, return_type: Box<TypeInfo>},
     Record(Vec<(String, TypeInfo)>),
     Custom(String)

@@ -1,4 +1,4 @@
-use gigalang::{ir::{Statement, Value}, env::Env, interpreter::eval_expr, parser::parse};
+use gigalang::{checker::lower, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{Statement, Value}, new_parser::parser, parser::parse};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 
@@ -23,14 +23,33 @@ fn run(statements: &[Statement], env: &mut Env) -> Result<Value, String> {
 }
 
 fn main() {
+    let mut type_env = TypeEnv::new();
     let mut stack = Env::new();
     
     loop {
         let mut src = String::new();
         
-        std::io::stdin().read_line(&mut src);
+        let _ = std::io::stdin().read_line(&mut src);
+         
+        // let src = r#"
+        //     type Coord = Int;
+        //     type Vector2 = { x: Coord, y: Coord };
+        //     type Entity = { pos: Vector2, id: Int };
+        //     type Player = Entity;
+            
+        //     let get_player_x = fun(p: Player) -> Int {
+        //         p.pos.x
+        //     };
+            
+        //     let raw_data = {
+        //         pos: { x: 100, y: 200 },
+        //         id: 1
+        //     };
+            
+        //     get_player_x(raw_data);
+        // "#;
         
-        let parsed = parse().parse(&src);
+        let parsed = parser().parse(&src);
         
         if parsed.has_errors() {
             for error in parsed.errors() {
@@ -48,17 +67,22 @@ fn main() {
             continue;
         }
         
-        let res = run(&parsed.unwrap(), &mut stack);
+        let res = lower(&parsed.unwrap(), &mut type_env);
         match res {
             Err(e) => println!("{e}"),
             Ok(result) => {
-                match result {
-                    Value::Int(i) => println!("{i}"),
-                    Value::Bool(b) => println!("{b}"),
-                    Value::Record(hash_map) => println!("record"),
-                    Value::Closure { params: param, body, env } => println!("closure"),
-                    Value::Float(f) => println!("{f}"),
-                    Value::Void => println!("void"),
+                match run(&result, &mut stack) {
+                    Err(e) => println!("{e}"),
+                    Ok(result) => {
+                        match result {
+                            Value::Int(i) => println!("{i}"),
+                            Value::Bool(b) => println!("{b}"),
+                            Value::Record(hash_map) => println!("record"),
+                            Value::Closure { params: param, body, env } => println!("closure"),
+                            Value::Float(f) => println!("{f}"),
+                            Value::Void => println!("void"),
+                        }
+                    }
                 }
             }
         }
