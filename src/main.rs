@@ -77,8 +77,8 @@ fn main() {
                         match result {
                             Value::Int(i) => println!("{i}"),
                             Value::Bool(b) => println!("{b}"),
-                            Value::Record(hash_map) => println!("record"),
-                            Value::Closure { params: param, body, env } => println!("closure"),
+                            Value::Record(hash_map) => println!("{hash_map:?}"),
+                            Value::Closure { params, body, env: _ } => println!("closure: {params:?}, {body:?}"),
                             Value::Float(f) => println!("{f}"),
                             Value::Void => println!("void"),
                         }
