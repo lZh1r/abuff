@@ -154,17 +154,17 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
         let let_stmt = text::keyword("let")
             .ignore_then(text::ident().padded())
             .then(just(':').padded().ignore_then(type_parser.clone()).or_not())
-            .then_ignore(just('='))
+            .then_ignore(just('=').padded())
             .then(expr.clone())
             .then_ignore(just(';'))
             .map(|((name, type_name), e): ((&str, Option<TypeInfo>), Expr)| Statement::Let { name: name.to_string(), type_info: type_name, expr: e });
         
         let type_def = text::keyword("type")
             .ignore_then(text::ident().padded())
-            .ignore_then(just('=').padded())
+            .then_ignore(just('=').padded())
             .then(type_parser.clone())
             .then_ignore(just(';'))
-            .map(|(type_name, type_info)| Statement::TypeDef { name: type_name.to_string(), type_info });
+            .map(|(type_name, type_info): (&str, TypeInfo)| Statement::TypeDef { name: type_name.to_string(), type_info });
         
         let expr_stmt = expr.clone()
             .then_ignore(just(';'))
