@@ -103,9 +103,10 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
             }
             while check_condition(condition, env)? {
                 eval_expr(body, env);
-            } 
+            }
             Ok(Value::Void)
         },
+        Expr::String(s) => Ok(Value::String(s.clone())),
     }
 }
 
@@ -129,7 +130,7 @@ fn eval_block(stmts: &[Statement], final_expr: &Option<Box<Expr>>, env: &mut Env
             },
         }
     };
-    
+
     match final_expr {
         Some(expr) => eval_expr(expr, &mut new_scope),
         None => Ok(Value::Void),
@@ -146,7 +147,7 @@ fn eval_closure(fun: Result<Value, String>, args: Vec<Value>) -> Result<Value, S
                     for (par, arg) in param.iter().zip(args.iter()) {
                         new_scope.add_variable(par.clone(), arg.clone());
                     }
-                    
+
                     result = eval_expr(&*body, &mut new_scope);
                 },
                 _ => return Err("This expression is not callable".to_string())
@@ -154,30 +155,30 @@ fn eval_closure(fun: Result<Value, String>, args: Vec<Value>) -> Result<Value, S
         },
         Err(e) => return Err(e),
     };
-    
+
     result
 }
 
 fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, env: &mut Env) -> Result<Value, String> {
-    
+
     let left_result = eval_expr(left, env);
-    
+
     let left_value;
-    
+
     match left_result {
         Result::Err(e) => return Err(e),
         Ok(v) => left_value = v
     };
-    
+
     let right_result = eval_expr(right, env);
-    
+
     let right_value;
-    
+
     match right_result {
         Result::Err(e) => return Err(e),
         Ok(v) => right_value = v
     };
-    
+
     match operation {
         Operation::Add => left_value.add(right_value),
         Operation::Subtract => left_value.subtract(right_value),

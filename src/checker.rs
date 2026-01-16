@@ -224,6 +224,7 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
                 Err("While condition should return Bool and the body should return Void".to_string())
             }
         },
+        ast::Expr::String(s) => Ok(ir::Expr::String(s.clone())),
     }
 }
 
@@ -364,6 +365,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
             }
         },
         ast::Expr::While { condition, body } => Ok(TypeInfo::Void),
+        ast::Expr::String(_) => Ok(TypeInfo::String),
     }
 }
 

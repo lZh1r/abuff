@@ -40,6 +40,24 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
 
     recursive(|statement| {
         let expr = recursive(|expr| {
+            let string_literal = just('"')
+                .ignore_then(
+                    just('\\')
+                        .ignore_then(
+                            just('\\').to('\\')
+                            .or(just('"').to('"'))
+                            .or(just('n').to('\n'))
+                            .or(just('r').to('\r'))
+                            .or(just('t').to('\t'))
+                        )
+                    .or(none_of("\\\"")) 
+                    .repeated()
+                    .collect::<String>()
+                )
+                .then_ignore(just('"'))
+                .map(Expr::String)
+                .padded();
+            
             let int = text::int(10)
                     .map(|s: &str| Expr::Int(s.parse().unwrap()))
                     .padded();
@@ -111,6 +129,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
 
             let atom = float
                 .or(int)
+                .or(string_literal)
                 .or(func)
                 .or(if_else)
                 .or(while_loop)

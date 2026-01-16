@@ -7,6 +7,7 @@ pub enum Expr {
     Bool(bool),
     Float(f64),
     Int(i64),
+    String(String),
     Var(String),
     Binary {left: Box<Expr>, operation: Operation, right: Box<Expr>},
     Block(Vec<Statement>, Option<Box<Expr>>),
