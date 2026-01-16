@@ -38,3 +38,21 @@ fn test_logic_precedence() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_factorial() {
+    let src = r#"
+        let n = 5;
+        let acc = 1;
+        while (n > 0) {
+            acc = acc * n;
+            n = n - 1;
+        };
+        acc;
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        Value::Int(i) => assert_eq!(i, 120),
+        _ => panic!()
+    };
+}

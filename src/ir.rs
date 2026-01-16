@@ -15,7 +15,9 @@ pub enum Expr {
     Record(Vec<(String, Expr)>),
     Get(Box<Expr>, String),
     Assign {target: Box<Expr>, value: Box<Expr>},
-    Unary(UnaryOp, Box<Expr>)
+    Unary(UnaryOp, Box<Expr>),
+    If {condition: Box<Expr>, body: Box<Expr>, else_block: Option<Box<Expr>>},
+    While {condition: Box<Expr>, body: Box<Expr>}
 }
 
 #[derive(Debug, Clone)]

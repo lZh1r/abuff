@@ -77,7 +77,35 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
                 },
             }
         },
-        _ => Err("Unknown token".to_string())
+        Expr::Bool(b) => Ok(Value::Bool(*b)),
+        Expr::If { condition, body, else_block } => {
+            let condition_value = eval_expr(condition, env)?;
+            match condition_value {
+                Value::Bool(b) => {
+                    if b {
+                        eval_expr(body, env)
+                    } else {
+                        match else_block {
+                            Some(e) => eval_expr(e, env),
+                            None => Ok(Value::Void),
+                        }
+                    }
+                },
+                _ => Err(format!("{condition_value:?} is not a valid condition"))
+            }
+        },
+        Expr::While { condition, body } => {
+            fn check_condition(condition: &Box<Expr>, env: &mut Env) -> Result<bool, String> {
+                match eval_expr(condition, env)? {
+                    Value::Bool(b) => Ok(b),
+                    v => Err(format!("{v:?} is not a vlid condition value"))
+                }
+            }
+            while check_condition(condition, env)? {
+                eval_expr(body, env);
+            } 
+            Ok(Value::Void)
+        },
     }
 }
 

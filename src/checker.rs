@@ -191,6 +191,39 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
                 },
             }
         },
+        ast::Expr::If { condition, body, else_block } => {
+            if get_type(condition, env)? == TypeInfo::Bool {
+                match else_block {
+                    Some(b) => {
+                        let body_type = get_type(body, env)?;
+                        let else_type = get_type(b, env)?;
+                        if body_type == else_type {
+                            Ok(ir::Expr::If { 
+                                condition: Box::new(lower_expr(condition, env)?),
+                                body: Box::new(lower_expr(body, env)?),
+                                else_block: Some(Box::new(lower_expr(b, env)?)) 
+                            })
+                        } else {
+                            Err(format!("If branches have incompatible types: {body_type:?} and {else_type:?}"))
+                        }
+                    },
+                    None => Ok(ir::Expr::If { 
+                        condition: Box::new(lower_expr(condition, env)?),
+                        body: Box::new(lower_expr(body, env)?),
+                        else_block: None 
+                    }),
+                }
+            } else {
+                return Err("If condition should return Bool".to_string());
+            }
+        },
+        ast::Expr::While { condition, body } => {
+            if get_type(condition, env)? == TypeInfo::Bool && get_type(body, env)? == TypeInfo::Void {
+                Ok(ir::Expr::While { condition: Box::new(lower_expr(condition, env)?), body: Box::new(lower_expr(body, env)?) })
+            } else {
+                Err("While condition should return Bool and the body should return Void".to_string())
+            }
+        },
     }
 }
 
@@ -231,7 +264,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                 match stmt {
                     ast::Statement::Let { name, expr, type_info } => {
                         let expr_type = get_type(expr, &mut inner_env)?;
-        
+
                         let final_type = match type_info {
                             Some(ann) => {
                                 ann.clone() 
@@ -312,6 +345,25 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
         },
         ast::Expr::Assign { target: _, value: _ } => Ok(TypeInfo::Void),
         ast::Expr::Unary(_, expr) => Ok(get_type(expr, env)?),
+        ast::Expr::If { condition, body, else_block } => {
+            if get_type(condition, env)? == TypeInfo::Bool {
+                let body_type = get_type(body, env)?;
+                match else_block {
+                    Some(b) => {
+                        let else_type = get_type(b, env)?;
+                        if body_type == else_type {
+                            Ok(body_type)
+                        } else {
+                            Err(format!("If branches have incompatible types: {body_type:?} and {else_type:?}"))
+                        }
+                    },
+                    None => Ok(body_type),
+                }
+            } else {
+                return Err("If condition should return Bool".to_string());
+            }
+        },
+        ast::Expr::While { condition, body } => Ok(TypeInfo::Void),
     }
 }
 
