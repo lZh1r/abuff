@@ -21,6 +21,7 @@ pub enum Statement {
     Expr(Expr)
 }
 
+//TODO: nullish coalescence
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operation {
     Add,

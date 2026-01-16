@@ -30,24 +30,6 @@ fn main() {
         let mut src = String::new();
         
         let _ = std::io::stdin().read_line(&mut src);
-         
-        // let src = r#"
-        //     type Coord = Int;
-        //     type Vector2 = { x: Coord, y: Coord };
-        //     type Entity = { pos: Vector2, id: Int };
-        //     type Player = Entity;
-            
-        //     let get_player_x = fun(p: Player) -> Int {
-        //         p.pos.x
-        //     };
-            
-        //     let raw_data = {
-        //         pos: { x: 100, y: 200 },
-        //         id: 1
-        //     };
-            
-        //     get_player_x(raw_data);
-        // "#;
         
         let parsed = parser().parse(&src);
         

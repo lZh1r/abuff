@@ -165,14 +165,17 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
             
-            let op_logic = just("&&").to(Operation::And)
-                .or(just("||").to(Operation::Or));
-            let logic = comparison.clone().foldl(
-                op_logic.then(comparison).repeated(),
+            let and_logic = comparison.clone().foldl(
+                just("&&").to(Operation::And).then(comparison).repeated(),
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
             
-            let assign = logic.clone()
+            let or_logic = and_logic.clone().foldl(
+                just("||").to(Operation::Or).then(and_logic).repeated(),
+                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+            );
+            
+            let assign = or_logic.clone()
                 .then(
                     just('=').padded()
                         .ignore_then(expr.clone())

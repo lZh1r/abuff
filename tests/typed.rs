@@ -30,7 +30,7 @@ fn test_custom_type_spam() {
 #[test]
 fn test_logic_precedence() {
     let src = r#"
-        !(!(4 < 5) && (5 % 2 == 1 || 8 - 3 == 1));
+        !(!(4 < 5) && (3 % 3 == 0 && 5 % 2 == 1 || 8 - 3 == 5 && 3 % 3 == 1));
     "#;
     
     match run_typed(src.to_string()).unwrap() {
