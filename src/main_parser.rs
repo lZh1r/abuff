@@ -160,7 +160,18 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
             
-            comparison
+            let assign = comparison.clone()
+                .then(
+                    just('=').padded()
+                        .ignore_then(expr.clone())
+                        .or_not()
+                )
+                .map(|(lhs, rhs_opt)| match rhs_opt {
+                        Some(rhs) => Expr::Assign { target: Box::new(lhs), value: Box::new(rhs) },
+                        None => lhs,
+                });
+            
+            assign
         });
         
         let let_stmt = text::keyword("let")

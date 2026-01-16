@@ -44,6 +44,20 @@ impl Env {
     pub fn add_variable(&mut self, name: String, value: Value) -> () {
         self.0.borrow_mut().values.insert(name, value);
     }
+    
+    pub fn set_variable(&mut self, name: String, value: Value) -> Option<()> {
+        let mut scope = self.0.borrow_mut();
+        
+        if let Some(_) = scope.values.get(&name) {
+            scope.values.insert(name, value);
+            return Some(());
+        }
+        
+        match &mut scope.parent {
+            Some(parent) => parent.set_variable(name, value),
+            None => None
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

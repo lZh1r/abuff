@@ -163,6 +163,15 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
         },
         ast::Expr::Record(items) => Ok(ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(expr, env).unwrap())).collect())),
         ast::Expr::Get(object, property_name) => Ok(ir::Expr::Get(Box::new(lower_expr(object, env)?), property_name.to_string())),
+        ast::Expr::Assign { target, value } => {
+            let target_type = get_type(target, env)?;
+            let value_type = get_type(value, env)?;
+            if target_type == value_type {
+                Ok(ir::Expr::Assign { target: Box::new(lower_expr(target, env)?), value: Box::new(lower_expr(value, env)?) })
+            } else {
+                Err(format!("Type {value_type:?} is not assignable to {target_type:?}"))
+            }
+        },
     }
 }
 
@@ -193,7 +202,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                 match stmt {
                     ast::Statement::Let { name, expr, type_info } => {
                         let expr_type = get_type(expr, &mut inner_env)?;
-                        
+                
                         let final_type = match type_info {
                             Some(ann) => {
                                 ann.clone() 
@@ -208,7 +217,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                     _ => {} 
                 }
             }
-        
+
             match tail_expr {
                 Some(e) => get_type(e, &mut inner_env),
                 None => Ok(TypeInfo::Void),
@@ -227,20 +236,20 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
         },
         ast::Expr::Call { fun, args } => {
             let fun_type = unwrap_custom_type(get_type(fun, env)?, env)?;
-                
+        
             match fun_type {
                 TypeInfo::Fun { args: params, return_type } => {
                     if params.len() != args.len() {
                         return Err(format!("Expected {} args, got {}", params.len(), args.len()));
                     }
-        
+
                     for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
                         let arg_type = get_type(arg_expr, env)?;
                         if unwrap_custom_type(param_type.clone(), env)? != unwrap_custom_type(arg_type, env)? {
                             return Err("Argument type mismatch".to_string());
                         }
                     }
-        
+
                     Ok(*return_type)
                 },
                 _ => Err(format!("Attempted to call non-function type: {:?}", fun_type)),
@@ -272,6 +281,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                 t => Err(format!("Type {t:?} does not have property {property_name}"))
             }
         },
+        ast::Expr::Assign { target: _, value: _ } => Ok(TypeInfo::Void),
     }
 }
 

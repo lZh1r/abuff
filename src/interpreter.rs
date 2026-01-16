@@ -50,6 +50,16 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
                 Err(e) => Err(e),
             }
         },
+        Expr::Assign { target, value } => {
+            match &**target {
+                Expr::Var(v) => {
+                    let new_value = eval_expr(value, env)?;
+                    env.set_variable(v.clone(), new_value);
+                    Ok(Value::Void)
+                },
+                t => Err(format!("Cannot assign to {t:?}"))
+            }
+        },
         _ => Err("Unknown token".to_string())
     }
 }

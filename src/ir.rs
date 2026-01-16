@@ -13,7 +13,8 @@ pub enum Expr {
     Fun {params: Vec<String>, body: Box<Expr>},
     Call {fun: Box<Expr>, args: Vec<Expr>},
     Record(Vec<(String, Expr)>),
-    Get(Box<Expr>, String)
+    Get(Box<Expr>, String),
+    Assign {target: Box<Expr>, value: Box<Expr>}
 }
 
 #[derive(Debug, Clone)]
