@@ -221,7 +221,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                     _ => Ok(left_type)
                 }
             } else {
-                Err(format!("Type {left_type:?} is not assignable to type {right_type:?}"))
+                Err(format!("Type {left_type:?} is not assignable to type {right_type:?} ({operation:?})"))
             }
         },
         ast::Expr::Block(statements, tail_expr) => {

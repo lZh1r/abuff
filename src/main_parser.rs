@@ -158,8 +158,6 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .or(just("<=").to(Operation::LessThanEq))
                 .or(just('>').to(Operation::GreaterThan))
                 .or(just('<').to(Operation::LessThan))
-                .or(just("&&").to(Operation::And))
-                .or(just("||").to(Operation::Or))
                 .or(just("==").to(Operation::Eq))
                 .or(just("!=").to(Operation::NotEq));
             let comparison = sum.clone().foldl(
@@ -167,7 +165,14 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
             
-            let assign = comparison.clone()
+            let op_logic = just("&&").to(Operation::And)
+                .or(just("||").to(Operation::Or));
+            let logic = comparison.clone().foldl(
+                op_logic.then(comparison).repeated(),
+                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+            );
+            
+            let assign = logic.clone()
                 .then(
                     just('=').padded()
                         .ignore_then(expr.clone())
