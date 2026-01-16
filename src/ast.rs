@@ -10,7 +10,8 @@ pub enum Expr {
     Call {fun: Box<Expr>, args: Vec<Expr>},
     Record(Vec<(String, Expr)>),
     Get(Box<Expr>, String),
-    Assign {target: Box<Expr>, value: Box<Expr>}
+    Assign {target: Box<Expr>, value: Box<Expr>},
+    Unary(UnaryOp, Box<Expr>)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +36,12 @@ pub enum Operation {
     GreaterThanEq,
     And,
     Or
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnaryOp {
+    Negate,
+    Not
 }
 
 #[derive(Debug, Clone, PartialEq)]

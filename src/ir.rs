@@ -1,6 +1,6 @@
 use std::{collections::HashMap};
 
-use crate::env::Env;
+use crate::{ast::UnaryOp, env::Env};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -14,7 +14,8 @@ pub enum Expr {
     Call {fun: Box<Expr>, args: Vec<Expr>},
     Record(Vec<(String, Expr)>),
     Get(Box<Expr>, String),
-    Assign {target: Box<Expr>, value: Box<Expr>}
+    Assign {target: Box<Expr>, value: Box<Expr>},
+    Unary(UnaryOp, Box<Expr>)
 }
 
 #[derive(Debug, Clone)]
@@ -142,19 +143,16 @@ impl Value {
             (a,b) => Err(format!("Cannot compare {a:?} to {b:?}"))
         }
     }
-    pub fn logic_and(self, other: Value) -> Value {
+    pub fn logic_and(self, other: Value) -> Result<Value, String> {
         match (self, other) {
-            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a && b),
-            (Value::Null, _) => Value::Null,
-            (_, Value::Null) => Value::Null,
-            (a, _) => a
+            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a && b)),
+            (a, b) => Err(format!("Cannot perform {a:?} AND {b:?}"))
         }
     }
-    pub fn logic_or(self, other: Value) -> Value {
+    pub fn logic_or(self, other: Value) -> Result<Value, String> {
         match (self, other) {
-            (Value::Bool(a), Value::Bool(b)) => Value::Bool(a || b),
-            (Value::Null, b) => b,
-            (a, _) => a
+            (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a || b)),
+            (a, b) => Err(format!("Cannot perform {a:?} OR {b:?}"))
         }
     }
 }

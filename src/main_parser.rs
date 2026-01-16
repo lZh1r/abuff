@@ -1,6 +1,6 @@
 use chumsky::{prelude::*};
 
-use crate::ast::{Expr, Operation, Statement, TypeInfo};
+use crate::ast::{Expr, Operation, Statement, TypeInfo, UnaryOp};
 
 enum PostfixOp<'a> {
     Call(Vec<Expr>),
@@ -134,10 +134,17 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                     }
                 );
             
+            let unary = choice((
+                    just('-').to(UnaryOp::Negate),
+                    just('!').to(UnaryOp::Not),
+                ))
+                .repeated()
+                .foldr(call, |op, rhs| Expr::Unary (op, Box::new(rhs)));
+            
             let op_mul = just('*').to(Operation::Multiply).or(just('/').to(Operation::Divide))
                 .or(just('%').to(Operation::Modulo));
-            let product = call.clone().foldl(
-                op_mul.then(call).repeated(),
+            let product = unary.clone().foldl(
+                op_mul.then(unary).repeated(),
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
             

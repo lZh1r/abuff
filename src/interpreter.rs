@@ -60,6 +60,23 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
                 t => Err(format!("Cannot assign to {t:?}"))
             }
         },
+        Expr::Unary(op, expr) => {
+            match op {
+                crate::ast::UnaryOp::Negate => {
+                    match eval_expr(expr, env)? {
+                        Value::Float(f) => Ok(Value::Float(-f)),
+                        Value::Int(i) => Ok(Value::Int(-i)),
+                        v => Err(format!("{v:?} cannot be negated"))
+                    }
+                },
+                crate::ast::UnaryOp::Not => {
+                    match eval_expr(expr, env)? {
+                        Value::Bool(b) => Ok(Value::Bool(!b)),
+                        v => Err(format!("{v:?} cannot be inverted"))
+                    }
+                },
+            }
+        },
         _ => Err("Unknown token".to_string())
     }
 }
@@ -144,8 +161,8 @@ fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, 
         Operation::NotEq => Ok(Value::Bool(left_value != right_value)),
         Operation::LessThanEq => left_value.less_than_eq(right_value),
         Operation::GreaterThanEq => left_value.greater_than_eq(right_value),
-        Operation::And => Ok(left_value.logic_and(right_value)),
-        Operation::Or => Ok(left_value.logic_or(right_value)),
+        Operation::And => Ok(left_value.logic_and(right_value)?),
+        Operation::Or => Ok(left_value.logic_or(right_value)?),
         Operation::Modulo => left_value.modulo(right_value),
     }
 }

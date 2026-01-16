@@ -172,6 +172,25 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
                 Err(format!("Type {value_type:?} is not assignable to {target_type:?}"))
             }
         },
+        ast::Expr::Unary(unary_op, expr) => {
+            match unary_op {
+                ast::UnaryOp::Negate => {
+                    let expr_type = get_type(expr, env)?;
+                    match expr_type {
+                        TypeInfo::Int => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(expr, env)?))),
+                        TypeInfo::Float => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(expr, env)?))),
+                        _ => Err(format!("Type {expr_type:?} cannot be negated"))
+                    }
+                },
+                ast::UnaryOp::Not => {
+                    let expr_type = get_type(expr, env)?;
+                    match expr_type {
+                        TypeInfo::Bool => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(expr, env)?))),
+                        _ => Err(format!("Type {expr_type:?} cannot be inverted"))
+                    }
+                },
+            }
+        },
     }
 }
 
@@ -186,11 +205,21 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                 None => Err(format!("Type of \"{name}\" is unknown")),
             }
         },
-        ast::Expr::Binary { left, operation: _, right } => {
+        ast::Expr::Binary { left, operation, right } => {
             let left_type = unwrap_custom_type(get_type(left, env)?, env)?;
             let right_type = unwrap_custom_type(get_type(right, env)?, env)?;
             if left_type == right_type {
-                Ok(left_type)
+                match operation {
+                    ast::Operation::Eq => Ok(TypeInfo::Bool),
+                    ast::Operation::NotEq => Ok(TypeInfo::Bool),
+                    ast::Operation::LessThan => Ok(TypeInfo::Bool),
+                    ast::Operation::LessThanEq => Ok(TypeInfo::Bool),
+                    ast::Operation::GreaterThan => Ok(TypeInfo::Bool),
+                    ast::Operation::GreaterThanEq => Ok(TypeInfo::Bool),
+                    ast::Operation::And => Ok(TypeInfo::Bool),
+                    ast::Operation::Or => Ok(TypeInfo::Bool),
+                    _ => Ok(left_type)
+                }
             } else {
                 Err(format!("Type {left_type:?} is not assignable to type {right_type:?}"))
             }
@@ -202,7 +231,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                 match stmt {
                     ast::Statement::Let { name, expr, type_info } => {
                         let expr_type = get_type(expr, &mut inner_env)?;
-                
+        
                         let final_type = match type_info {
                             Some(ann) => {
                                 ann.clone() 
@@ -236,7 +265,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
         },
         ast::Expr::Call { fun, args } => {
             let fun_type = unwrap_custom_type(get_type(fun, env)?, env)?;
-        
+
             match fun_type {
                 TypeInfo::Fun { args: params, return_type } => {
                     if params.len() != args.len() {
@@ -282,6 +311,7 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
             }
         },
         ast::Expr::Assign { target: _, value: _ } => Ok(TypeInfo::Void),
+        ast::Expr::Unary(_, expr) => Ok(get_type(expr, env)?),
     }
 }
 
