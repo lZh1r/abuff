@@ -44,11 +44,13 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .ignore_then(
                     just('\\')
                         .ignore_then(
-                            just('\\').to('\\')
-                            .or(just('"').to('"'))
-                            .or(just('n').to('\n'))
-                            .or(just('r').to('\r'))
-                            .or(just('t').to('\t'))
+                            choice((
+                                just('\\').to('\\'),
+                                just('"').to('"'),
+                                just('n').to('\n'),
+                                just('r').to('\r'),
+                                just('t').to('\t')
+                            ))
                         )
                     .or(none_of("\\\"")) 
                     .repeated()
@@ -96,8 +98,8 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .padded();
 
             let arg = text::ident().padded().map(ToString::to_string)
-                            .then_ignore(just(':').padded())
-                            .then(type_parser.clone());
+                .then_ignore(just(':').padded())
+                .then(type_parser.clone());
 
             let func = text::keyword("fun").padded()
                 .ignore_then(
@@ -127,17 +129,30 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .then(expr.clone())
                 .map(|(condition, body)| Expr::While {condition: Box::new(condition), body: Box::new(body)});
 
-            let atom = float
-                .or(int)
-                .or(string_literal)
-                .or(func)
-                .or(if_else)
-                .or(while_loop)
-                .or(record)
-                .or(block)
-                .or(var)
-                .or(expr.clone().delimited_by(just('('), just(')')))
-                .padded();
+            let atom = choice((
+                float,
+                int,
+                string_literal,
+                func,
+                if_else,
+                while_loop,
+                record,
+                block,
+                var,
+                expr.clone().delimited_by(just('('), just(')')).padded()
+            )).boxed();
+            
+            // let atom = float
+            //     .or(int)
+            //     .or(string_literal)
+            //     .or(func)
+            //     .or(if_else)
+            //     .or(while_loop)
+            //     .or(record)
+            //     .or(block)
+            //     .or(var)
+            //     .or(expr.clone().delimited_by(just('('), just(')')))
+            //     .padded();
 
             let call = atom.clone()
                 .foldl(
@@ -235,12 +250,41 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
             .then(type_parser.clone())
             .then_ignore(just(';'))
             .map(|(type_name, type_info): (&str, TypeInfo)| Statement::TypeDef { name: type_name.to_string(), type_info });
+        
+        let arg = text::ident().padded().map(ToString::to_string)
+            .then_ignore(just(':').padded())
+            .then(type_parser.clone());
+        
+        let fun_def = text::keyword("fun")
+            .ignore_then(text::ident().padded())
+            .then(
+                arg.separated_by(just(',')).allow_trailing().collect()
+                    .delimited_by(just('(').padded(), just(')').padded())
+            )
+            .then(
+                just("->").padded()
+                    .ignore_then(type_parser.clone())
+                    .or_not()
+            )
+            .then(expr.clone())
+            .then_ignore(just(';').padded())
+            .map(|(((name, params), return_type), body): (((&str, Vec<(String, TypeInfo)>), Option<TypeInfo>), Expr)| Statement::Fun {
+                name: name.to_string(),
+                params,
+                body,
+                return_type
+            });
 
         let expr_stmt = expr.clone()
             .then_ignore(just(';'))
             .map(|expr| Statement::Expr(expr));
 
-        let_stmt.or(type_def).or(expr_stmt).padded()
+        choice((
+            let_stmt,
+            fun_def,
+            type_def,
+            expr_stmt
+        )).padded().boxed()
     })
     .repeated()
     .collect()

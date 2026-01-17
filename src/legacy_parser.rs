@@ -70,7 +70,7 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                 .or(block)
                 .or(var)
                 .or(expr.clone().delimited_by(just('('), just(')')))
-                .padded();
+                .padded().boxed();
             
             let call = atom.clone()
                 .foldl(

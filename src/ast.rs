@@ -21,7 +21,8 @@ pub enum Expr {
 pub enum Statement {
     Let {name: String, expr: Expr, type_info: Option<TypeInfo>},
     TypeDef {name: String, type_info: TypeInfo},
-    Expr(Expr)
+    Expr(Expr),
+    Fun {name: String, params: Vec<(String, TypeInfo)>, body: Expr, return_type: Option<TypeInfo>}
 }
 
 //TODO: nullish coalescence

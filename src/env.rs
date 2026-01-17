@@ -82,8 +82,8 @@ impl TypeEnv {
     pub fn get_var_type(&self, name: &str) -> Option<TypeInfo> {
         let scope = self.0.borrow();
         
-        // println!("Resolving type of {name}");
-        // println!("Scope var types: {:?}", scope.variable_types.keys());
+        println!("Resolving type of {name}");
+        println!("Scope var types: {:?}", scope.variable_types.keys());
         
         if let Some(type_info) = scope.variable_types.get(name) {
             return Some(type_info.clone());

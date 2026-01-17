@@ -102,7 +102,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<Value, String> {
                 }
             }
             while check_condition(condition, env)? {
-                eval_expr(body, env);
+                eval_expr(body, env)?;
             }
             Ok(Value::Void)
         },
