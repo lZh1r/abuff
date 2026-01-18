@@ -105,6 +105,28 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
+    type_env.add_var_type("input".to_string(), TypeInfo::Fun { 
+        args: Vec::new(),
+        return_type: Box::new(TypeInfo::String) }
+    );
+    env.add_variable("input".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+        name: "input".to_string(),
+        max_args: Some(0),
+        function: Rc::new(Box::new(
+            |_| {
+                let mut buffer = String::new();
+                let input_string = std::io::stdin().read_line(&mut buffer);
+                
+                buffer.pop(); // \n gets added at the ebd of the buffer, so we need to pop it
+                
+                match input_string {
+                    Ok(_) => Ok(Value::String(buffer)),
+                    Err(_) => Err("Input failed".to_string()),
+                }
+            }
+        ))
+    }));
+    
     (env, type_env)
 }
 
