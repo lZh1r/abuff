@@ -59,6 +59,7 @@ pub enum TypeInfo {
     Void,
     Null,
     Unknown,
+    Any,
     Fun {args: Vec<(String, TypeInfo)>, return_type: Box<TypeInfo>},
     Record(Vec<(String, TypeInfo)>),
     Custom(String)

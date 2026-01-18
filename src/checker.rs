@@ -1,14 +1,14 @@
 use crate::{ast::{self, TypeInfo}, env::TypeEnv, ir};
 
-pub fn lower(statements: &[ast::Statement], env: &mut TypeEnv) -> Result<Vec<ir::Statement>, String> {
-    let mut lowered_statements: Vec<ir::Statement> = Vec::new();
+pub fn hoist(statements: &[ast::Statement], env: &mut TypeEnv) -> Result<Vec<ast::Statement>, String> {
+    let mut new_statements: Vec<ast::Statement> = Vec::new();
     for st in statements.iter() {
         match st {
             ast::Statement::TypeDef { name, type_info } => {
                 let resolved_type = unwrap_custom_type(type_info.clone(), env)?;
                 env.add_custom_type(name.clone(), resolved_type);
             },
-            _ => ()
+            s => new_statements.push(s.clone()),
         }
     }
     for st in statements.iter() {
@@ -31,39 +31,25 @@ pub fn lower(statements: &[ast::Statement], env: &mut TypeEnv) -> Result<Vec<ir:
                     },
                     None => env.add_var_type(name.clone(), inferred_type),
                 }
-                lowered_statements.push(ir::Statement::Let { name: name.clone(), expr: lower_expr(expr, env)? });
             },
             ast::Statement::Fun { name, params, body, return_type } => {
                 env.add_var_type(name.to_string(), TypeInfo::Fun { args: params.clone(), return_type: Box::new(return_type.clone().unwrap_or(TypeInfo::Void)) });
-                //fun fib (x: Int) -> Int {if (x <= 1) 1 else fib (x-2) + fib(x-1)};
+                
                 let mut new_scope = env.enter_scope();
                 for (param_name, param_type) in params.clone() {
                     new_scope.add_var_type(param_name.to_string(), param_type.clone());
                 }
                 let inferred_type = get_type(body, &mut new_scope)?;
                 let r_type = return_type.clone().unwrap_or(TypeInfo::Void);
-                if inferred_type == r_type {
-                    lowered_statements.push(ir::Statement::Let { 
-                        name: name.clone(),
-                        expr: lower_expr(&ast::Expr::Fun { params: params.clone(), body: Box::new(body.clone()), return_type: return_type.clone() }, env)?
-                    });
-                } else {
+                if inferred_type != r_type {
                     return Err(format!("Expected {r_type:?} but got {inferred_type:?}"))
                 }
             },
             _ => ()
         }
     }
-    for st in statements.iter() {
-        match st {
-            ast::Statement::Expr(expr) => {
-                lowered_statements.push(ir::Statement::Expr(lower_expr(expr, env)?));
-            },
-            _ => ()
-        }
-    }
     
-    Ok(lowered_statements)
+    Ok(new_statements)
 }
 
 pub fn lower_statement(statement: &ast::Statement, env: &mut TypeEnv) -> Result<Option<ir::Statement>, String> {
@@ -181,11 +167,14 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
         ast::Expr::Call { fun, args } => {
             match get_type(&**fun, env)? {
                 TypeInfo::Fun { args: params, return_type: _ } => {
-                    for ((_, ti), expr) in params.iter().zip(args.iter()) {
-                        if unwrap_custom_type(ti.clone(), env)? != get_type(expr, env)? {
-                            return Err("".to_string())
+                    if params.get(0).unwrap_or(&("_".to_string(), TypeInfo::Void)).1 != TypeInfo::Any {
+                        for ((_, ti), expr) in params.iter().zip(args.iter()) {
+                            if unwrap_custom_type(ti.clone(), env)? != get_type(expr, env)? {
+                                return Err("".to_string())
+                            }
                         }
                     }
+                    
                     Ok(ir::Expr::Call { 
                         fun: Box::new(lower_expr(fun, env)?), 
                         args: args.iter().map(|expr| lower_expr(expr, env).unwrap()).collect() 
@@ -336,20 +325,20 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
         },
         ast::Expr::Call { fun, args } => {
             let fun_type = unwrap_custom_type(get_type(fun, env)?, env)?;
-
+            
             match fun_type {
                 TypeInfo::Fun { args: params, return_type } => {
-                    if params.len() != args.len() {
-                        return Err(format!("Expected {} args, got {}", params.len(), args.len()));
-                    }
-
-                    for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
-                        let arg_type = get_type(arg_expr, env)?;
-                        if unwrap_custom_type(param_type.clone(), env)? != unwrap_custom_type(arg_type, env)? {
-                            return Err("Argument type mismatch".to_string());
+                    if params.get(0).unwrap_or(&("_".to_string(), TypeInfo::Void)).1 != TypeInfo::Any {
+                        if params.len() != args.len() {
+                            return Err(format!("Expected {} args, got {}", params.len(), args.len()));
+                        }
+                        for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
+                            let arg_type = get_type(arg_expr, env)?;
+                            if unwrap_custom_type(param_type.clone(), env)? != unwrap_custom_type(arg_type, env)? {
+                                return Err("Argument type mismatch".to_string());
+                            }
                         }
                     }
-
                     Ok(*return_type)
                 },
                 _ => Err(format!("Attempted to call non-function type: {:?}", fun_type)),

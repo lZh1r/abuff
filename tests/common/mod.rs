@@ -1,5 +1,5 @@
 use chumsky::Parser;
-use gigalang::{checker::lower, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{Statement, Value}, legacy_parser::parse, main_parser::parser};
+use gigalang::{checker::hoist, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{Statement, Value}, legacy_parser::parse, main_parser::parser};
 
 pub fn parse_code(src: &str) -> Vec<Statement> {
     parse().parse(src).into_result().expect("Failed to parse")
@@ -36,7 +36,7 @@ pub fn run_typed(src: String) -> Result<Value, String> {
         Err(_) => return Err("Parsing failed".to_string()),
     };
     
-    let res = lower(&parsed, &mut type_env);
+    let res = hoist(&parsed, &mut type_env);
     match res {
         Err(e) => Err(e),
         Ok(result) => {

@@ -118,8 +118,6 @@ fn eval_block(stmts: &[Statement], final_expr: &Option<Box<Expr>>, env: &mut Env
                 let val = eval_expr(expr, &mut new_scope);
                 match val {
                     Ok(v) => {
-                        println!("{name}");
-                        println!("{:?}", v);
                         new_scope.add_variable(name.clone(), v)
                     },
                     Err(e) => return Err(e),
@@ -137,7 +135,7 @@ fn eval_block(stmts: &[Statement], final_expr: &Option<Box<Expr>>, env: &mut Env
     }
 }
 
-fn eval_closure(fun: Result<Value, String>, args: Vec<Value>) -> Result<Value, String> {
+pub fn eval_closure(fun: Result<Value, String>, args: Vec<Value>) -> Result<Value, String> {
     let result;
     match fun {
         Ok(v) => {
@@ -150,6 +148,14 @@ fn eval_closure(fun: Result<Value, String>, args: Vec<Value>) -> Result<Value, S
 
                     result = eval_expr(&*body, &mut new_scope);
                 },
+                Value::NativeFun(native_fun) => {
+                    if args.len() <= native_fun.max_args.unwrap_or(999999) {
+                        result = (native_fun.function)(args);
+                    } else {
+                        result = Err(format!("Expected {} arguments, but got {}", native_fun.max_args.unwrap_or(999999), args.len()));
+                    }
+                    
+                }
                 _ => return Err("This expression is not callable".to_string())
             }
         },
