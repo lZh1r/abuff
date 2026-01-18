@@ -60,6 +60,11 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .map(Expr::String)
                 .padded();
             
+            let boolean = choice((
+                text::keyword("true").padded().to(true),
+                text::keyword("false").padded().to(false)
+            )).map(Expr::Bool);
+            
             let int = text::int(10)
                     .map(|s: &str| Expr::Int(s.parse().unwrap()))
                     .padded();
@@ -133,6 +138,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 float,
                 int,
                 string_literal,
+                boolean,
                 func,
                 if_else,
                 while_loop,

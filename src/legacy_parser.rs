@@ -63,14 +63,15 @@ pub fn parse<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<
                     body: Box::new(body) 
                 });
             
-            let atom = float
-                .or(int)
-                .or(func)
-                .or(record)
-                .or(block)
-                .or(var)
-                .or(expr.clone().delimited_by(just('('), just(')')))
-                .padded().boxed();
+            let atom = choice((
+                    float,
+                    int,
+                    func,
+                    record,
+                    block,
+                    var,
+                    expr.clone().delimited_by(just('('), just(')'))
+                )).padded().boxed();
             
             let call = atom.clone()
                 .foldl(
