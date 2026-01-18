@@ -54,48 +54,18 @@ pub fn hoist(statements: &[ast::Statement], env: &mut TypeEnv) -> Result<Vec<ast
 
 pub fn lower_statement(statement: &ast::Statement, env: &mut TypeEnv) -> Result<Option<ir::Statement>, String> {
     match statement {
-        ast::Statement::TypeDef { name, type_info } => {
-            env.add_custom_type(name.clone(), type_info.clone());
-            Ok(None)
-        },
+        ast::Statement::TypeDef { name: _, type_info: _ } => Ok(None),
         ast::Statement::Expr(expr) => {
             Ok(Some(ir::Statement::Expr(lower_expr(expr, env)?)))
         },
-        ast::Statement::Let { name, expr, type_info } => {
-            let inferred_type = unwrap_custom_type(get_type(expr, env)?, env)?;
-            match type_info {
-                Some(t) => {
-                    if unwrap_custom_type(t.clone(), env)? == inferred_type {
-                        env.add_var_type(name.clone(), t.clone());
-                    } else {
-                        return Err(
-                            format!(r#"
-                                Type mismatch when declaring {name}:
-                                expected {t:?}, but got {inferred_type:?}
-                            "#).to_string()
-                        )
-                    }
-                },
-                None => env.add_var_type(name.clone(), inferred_type),
-            }
+        ast::Statement::Let { name, expr, type_info: _ } => {
             Ok(Some(ir::Statement::Let { name: name.clone(), expr: lower_expr(expr, env)? }))
         }
         ast::Statement::Fun { name, params, body, return_type } => {
-            env.add_var_type(name.to_string(), TypeInfo::Fun { args: params.clone(), return_type: Box::new(return_type.clone().unwrap_or(TypeInfo::Void)) });
-            let mut new_scope = env.enter_scope();
-            for (param_name, param_type) in params {
-                new_scope.add_var_type(param_name.to_string(), param_type.clone());
-            }
-            let inferred_type = get_type(body, &mut new_scope)?;
-            let r_type = return_type.clone().unwrap_or(TypeInfo::Void);
-            if inferred_type == r_type {
-                Ok(Some(ir::Statement::Let { 
-                    name: name.clone(),
-                    expr: lower_expr(&ast::Expr::Fun { params: params.clone(), body: Box::new(body.clone()), return_type: return_type.clone() }, env)?
-                }))
-            } else {
-                Err(format!("Expected {r_type:?} but got {inferred_type:?}"))
-            }
+            Ok(Some(ir::Statement::Let { 
+                name: name.clone(),
+                expr: lower_expr(&ast::Expr::Fun { params: params.clone(), body: Box::new(body.clone()), return_type: return_type.clone() }, env)?
+            }))
         },
     }
 }

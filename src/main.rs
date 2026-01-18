@@ -166,7 +166,7 @@ fn main() {
                 }
                 match run(&lowered_statements, &mut stack) {
                     Err(e) => println!("{e}"),
-                    Ok(result) => {
+                    Ok(_) => {
                         // match result {
                         //     Value::Int(i) => println!("{i}"),
                         //     Value::Bool(b) => println!("{b}"),
