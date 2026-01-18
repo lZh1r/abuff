@@ -111,23 +111,23 @@ fn create_global_env() -> (Env, TypeEnv) {
 fn main() {
     let (mut stack, mut type_env) = create_global_env();
     
-    // loop {
-        // let mut src = String::new();
+    loop {
+        let mut src = String::new();
         
-        let src = r#"
-            fun fib(x: Int) -> Int {
-                if (x <= 1) 1
-                else fib(x-2) + fib(x-1)
-            };
-            let t1 = clock();
-            print(t1);
-            let f = fib(30);
-            let t2 = clock();
-            print(t2);
-            print(t2 - t1);
-        "#;
+        // let src = r#"
+        //     fun fib(x: Int) -> Int {
+        //         if (x <= 1) 1
+        //         else fib(x-2) + fib(x-1)
+        //     };
+        //     let t1 = clock();
+        //     print(t1);
+        //     let f = fib(30);
+        //     let t2 = clock();
+        //     print(t2);
+        //     print(t2 - t1);
+        // "#;
         
-        // let _ = std::io::stdin().read_line(&mut src);
+        let _ = std::io::stdin().read_line(&mut src);
         
         let parsed = parser().parse(&src);
         
@@ -144,7 +144,7 @@ fn main() {
                     .print(Source::from(src.clone()))
                     .unwrap();
             }
-            // continue;
+            continue;
         }
         
         let res = hoist(&parsed.unwrap(), &mut type_env);
@@ -183,5 +183,5 @@ fn main() {
                 }
             }
         }
-    // }
+    }
 }

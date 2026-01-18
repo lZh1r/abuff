@@ -227,8 +227,27 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 just("||").to(Operation::Or).then(and_logic).repeated(),
                 |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
             );
+            
+            let math_assign = or_logic.clone()
+                .then(
+                    choice((
+                        just("+=").padded().to(Operation::Add),
+                        just("-=").padded().to(Operation::Subtract),
+                        just("*=").padded().to(Operation::Multiply),
+                        just("/=").padded().to(Operation::Divide),
+                        just("%=").padded().to(Operation::Modulo),
+                    ))
+                    .then(expr.clone()).or_not()
+                )
+                .map(|(lhs, opt): (Expr, Option<(Operation, Expr)>)| match opt {
+                    Some((op, rhs)) => Expr::Assign {
+                        target: Box::new(lhs.clone()),
+                        value: Box::new(Expr::Binary {left: Box::new(lhs), operation: op, right: Box::new(rhs)}),
+                    },
+                    None => lhs
+                });
 
-            let assign = or_logic.clone()
+            let assign = math_assign.clone()
                 .then(
                     just('=').padded()
                         .ignore_then(expr.clone())
