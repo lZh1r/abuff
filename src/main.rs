@@ -127,6 +127,31 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
+    type_env.add_var_type("len".to_string(), TypeInfo::Fun { 
+        args: vec![("value".to_string(), TypeInfo::Any)],
+        return_type: Box::new(TypeInfo::String) }
+    );
+    env.add_variable("len".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+        name: "len".to_string(),
+        max_args: Some(1),
+        function: Rc::new(Box::new(
+            |args: Vec<Value>| {
+                let mut result = None;
+                for a in args {
+                    match a {
+                        Value::String(s) => result = Some(s.len()),
+                        Value::Record(hash_map) => result = Some(hash_map.len()),
+                        v => return Err(format!("Cannot measure a length of {v:?}"))
+                    }
+                };
+                match result {
+                    Some(l) => Ok(Value::Int(l as i64)),
+                    None => Err("No arguments provided to \"str\"".to_string()),
+                }
+            }
+        ))
+    }));
+    
     (env, type_env)
 }
 
