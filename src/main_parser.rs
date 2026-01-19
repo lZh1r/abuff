@@ -134,11 +134,21 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .then(expr.clone())
                 .map(|(condition, body)| Expr::While {condition: Box::new(condition), body: Box::new(body)});
 
+            let return_keyword = text::keyword("return").padded()
+                .ignore_then(expr.clone()).map(|exp| Expr::Return(Box::new(exp)));
+            
+            let control_flow = choice((
+                text::keyword("break").padded().to(Expr::Break),
+                text::keyword("continue").padded().to(Expr::Continue)
+            ));
+            
             let atom = choice((
                 float,
                 int,
                 string_literal,
                 boolean,
+                return_keyword,
+                control_flow,
                 func,
                 if_else,
                 while_loop,

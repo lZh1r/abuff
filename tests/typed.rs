@@ -1,4 +1,4 @@
-use gigalang::ir::Value;
+use gigalang::ir::{ControlFlow, Value};
 
 use crate::common::{run_typed};
 
@@ -22,7 +22,12 @@ fn test_custom_type_spam() {
     "#;
     
     match run_typed(src.to_string()).unwrap() {
-        Value::Int(i) => assert_eq!(i, 100),
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 100),
+                _ => panic!()
+            }
+        }
         _ => panic!()
     };
 }
@@ -34,7 +39,12 @@ fn test_logic_precedence() {
     "#;
     
     match run_typed(src.to_string()).unwrap() {
-        Value::Bool(b) => assert_eq!(b, true),
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Bool(i) => assert_eq!(i, true),
+                _ => panic!()
+            }
+        }
         _ => panic!()
     };
 }
@@ -52,7 +62,36 @@ fn test_factorial() {
     "#;
     
     match run_typed(src.to_string()).unwrap() {
-        Value::Int(i) => assert_eq!(i, 120),
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 120),
+                _ => panic!()
+            }
+        }
         _ => panic!()
     };
 }
+
+#[test]
+fn test_nested_function_return() {
+    let src = r#"
+        fun ff() -> (x: Int) -> Int {
+            fun (x: Int) -> Int {
+                if (x == 2) return 0;
+                x
+            }
+        };
+        ff()(2);
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 0),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+

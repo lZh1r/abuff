@@ -1,24 +1,27 @@
 use chumsky::Parser;
-use gigalang::{checker::hoist, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{Statement, Value}, legacy_parser::parse, main_parser::parser};
+use gigalang::{checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, legacy_parser::parse, main_parser::parser};
 
 pub fn parse_code(src: &str) -> Vec<Statement> {
     parse().parse(src).into_result().expect("Failed to parse")
 }
 
-pub fn run(statements: &[Statement]) -> Result<Value, String> {
+pub fn run(statements: &[Statement]) -> Result<ControlFlow, String> {
     let mut env = Env::new();
-    let mut result = Ok(Value::Void);
+    let mut result = Ok(ControlFlow::Value(Value::Void));
     for statement in statements {
         match statement {
             Statement::Let { name, expr } => {
-                let val = eval_expr(expr, &mut env);
-                match val {
-                    Ok(v) => env.add_variable(name.clone(), v),
-                    Err(e) => return Err(e),
+                match eval_expr(expr, &mut env)? {
+                    ControlFlow::Value(v) => env.add_variable(name.clone(), v),
+                    cf => return Ok(cf),
                 }
             },
             Statement::Expr(expr) => {
-                result = eval_expr(expr, &mut env);
+                let cf = eval_expr(expr, &mut env)?;
+                match cf {
+                    ControlFlow::Value(_) => result = Ok(cf),
+                    _ => return Ok(cf),
+                }
             },
         }
     };
@@ -26,7 +29,7 @@ pub fn run(statements: &[Statement]) -> Result<Value, String> {
     result
 }
 
-pub fn run_typed(src: String) -> Result<Value, String> {
+pub fn run_typed(src: String) -> Result<ControlFlow, String> {
     let mut type_env = TypeEnv::new();
     
     let parsed_result = parser().parse(&src);
@@ -39,7 +42,14 @@ pub fn run_typed(src: String) -> Result<Value, String> {
     let res = hoist(&parsed, &mut type_env);
     match res {
         Err(e) => Err(e),
-        Ok(result) => {
+        Ok(statements) => {
+            let mut result = Vec::new();
+            for s in statements {
+                match lower_statement(&s, &mut type_env)? {
+                    None => (),
+                    Some(st) => result.push(st)
+                }
+            }
             match run(&result) {
                 Err(e) => Err(e),
                 Ok(result) => Ok(result)

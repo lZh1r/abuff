@@ -1,4 +1,4 @@
-use gigalang::ir::Value;
+use gigalang::ir::{ControlFlow, Value};
 
 use crate::common::{parse_code, run};
 
@@ -11,7 +11,10 @@ fn test_precedence_math() {
     "#);
     
     match run(&ast).unwrap() {
-        Value::Int(i) => assert_eq!(i, -8),
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, -8),
+            _ => panic!()
+        }
         _ => panic!()
     };
 }
@@ -31,7 +34,10 @@ fn test_block_and_anon_abuse() {
     "#);
     
     match run(&ast).unwrap() {
-        Value::Int(i) => assert_eq!(i, 22),
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, 22),
+            _ => panic!()
+        }
         _ => panic!()
     };
 }
@@ -54,7 +60,10 @@ fn test_nested_records() {
     "#);
     
     match run(&ast).unwrap() {
-        Value::Int(i) => assert_eq!(i, 4),
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, 4),
+            _ => panic!()
+        }
         _ => panic!()
     };
 }
@@ -67,7 +76,10 @@ fn test_nested_fun_calls() {
     "#);
     
     match run(&ast).unwrap() {
-        Value::Int(i) => assert_eq!(i, 6),
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, 6),
+            _ => panic!()
+        }
         _ => panic!()
     };
 }
@@ -85,7 +97,10 @@ fn test_fun_shadowing() {
     "#);
     
     match run(&ast).unwrap() {
-        Value::Int(i) => assert_eq!(i, 1),
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, 1),
+            _ => panic!()
+        }
         _ => panic!()
     };
 }
@@ -102,7 +117,10 @@ fn test_whitespace_max() {
     "#);
     
     match run(&ast).unwrap() {
-        Value::Int(i) => assert_eq!(i, 14),
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, 14),
+            _ => panic!()
+        }
         _ => panic!()
     };
 }
@@ -112,7 +130,10 @@ fn test_whitespace_min() {
     let ast = parse_code(r#"let a=12;let mega_function=fun(x){a+x};let b={bb:2};mega_function(b.bb);"#);
     
     match run(&ast).unwrap() {
-        Value::Int(i) => assert_eq!(i, 14),
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, 14),
+            _ => panic!()
+        }
         _ => panic!()
     };
 }

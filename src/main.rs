@@ -1,24 +1,27 @@
 use std::{fs::{self, write}, io::Error, rc::Rc, sync::OnceLock, time::Instant};
 
-use gigalang::{ast::TypeInfo, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value}, main_parser::parser};
+use gigalang::{ast::TypeInfo, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value, ControlFlow}, main_parser::parser};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
 
-fn run(statements: &[Statement], env: &mut Env) -> Result<Value, String> {
-    let mut result = Ok(Value::Void);
+fn run(statements: &[Statement], env: &mut Env) -> Result<ControlFlow, String> {
+    let mut result = Ok(ControlFlow::Value(Value::Void));
     for statement in statements {
         match statement {
             Statement::Let { name, expr } => {
-                let val = eval_expr(expr, env);
-                match val {
-                    Ok(v) => env.add_variable(name.clone(), v),
-                    Err(e) => return Err(e),
+                match eval_expr(expr, env)? {
+                    ControlFlow::Value(v) => env.add_variable(name.clone(), v),
+                    cf => return Ok(cf),
                 }
             },
             Statement::Expr(expr) => {
-                result = eval_expr(expr, env);
+                let cf = eval_expr(expr, env)?;
+                match cf {
+                    ControlFlow::Value(_) => result = Ok(cf),
+                    _ => return Ok(cf),
+                }
             },
         }
     };
@@ -285,20 +288,14 @@ fn main() {
                 }
                 match run(&lowered_statements, &mut stack) {
                     Err(e) => println!("{e}"),
-                    Ok(_) => ()
-                        // match result {
-                        //     Value::Int(i) => println!("{i}"),
-                        //     Value::Bool(b) => println!("{b}"),
-                        //     Value::Record(hash_map) => println!("{hash_map:?}"),
-                        //     Value::Closure { params, body, env: _ } => println!("closure: {params:?}, {body:?}"),
-                        //     Value::Float(f) => println!("{f}"),
-                        //     Value::Void => println!("void"),
-                        //     Value::String(s) => println!("\"{s}\""),
-                        //     Value::Char(c) => println!("\'{c}\'"),
-                        //     Value::Null => println!("null"),
-                        //     Value::NativeFun(native_fun) => println!("{native_fun:?}"),
-                        // }
-                    
+                    Ok(cf) => {
+                        match cf {
+                            ControlFlow::Value(_) => (),
+                            ControlFlow::Return(_) => println!("Error: Return outside of function"),
+                            ControlFlow::Break => println!("Error: Break outside of loop"),
+                            ControlFlow::Continue => println!("Error: Continue outside of loop"),
+                        }
+                    }
                 }
             }
         }

@@ -19,7 +19,10 @@ pub enum Expr {
     Assign {target: Box<Expr>, value: Box<Expr>},
     Unary(UnaryOp, Box<Expr>),
     If {condition: Box<Expr>, body: Box<Expr>, else_block: Option<Box<Expr>>},
-    While {condition: Box<Expr>, body: Box<Expr>}
+    While {condition: Box<Expr>, body: Box<Expr>},
+    Break,
+    Continue,
+    Return(Box<Expr>)
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +59,14 @@ impl fmt::Debug for NativeFun {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "native fun \"{}\"", self.name)
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ControlFlow {
+    Value(Value),
+    Return(Value),
+    Break,
+    Continue
 }
 
 #[derive(Debug, Clone)]
