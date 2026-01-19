@@ -1,6 +1,6 @@
-use std::{path::Display, rc::Rc, sync::OnceLock, time::{self, Instant, SystemTime, UNIX_EPOCH}};
+use std::{fs::{self, write}, io::Error, rc::Rc, sync::OnceLock, time::Instant};
 
-use gigalang::{ast::TypeInfo, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_closure, eval_expr}, ir::{Statement, Value}, main_parser::parser};
+use gigalang::{ast::TypeInfo, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value}, main_parser::parser};
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 
@@ -141,12 +141,84 @@ fn create_global_env() -> (Env, TypeEnv) {
                     match a {
                         Value::String(s) => result = Some(s.len()),
                         Value::Record(hash_map) => result = Some(hash_map.len()),
-                        v => return Err(format!("Cannot measure a length of {v:?}"))
+                        v => return Err(format!("Cannot measure length of {v:?}"))
                     }
                 };
                 match result {
                     Some(l) => Ok(Value::Int(l as i64)),
                     None => Err("No arguments provided to \"str\"".to_string()),
+                }
+            }
+        ))
+    }));
+    
+    type_env.add_var_type("read".to_string(), TypeInfo::Fun { 
+        args: vec![("path".to_string(), TypeInfo::String)],
+        return_type: Box::new(TypeInfo::String) }
+    );
+    env.add_variable("read".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+        name: "read".to_string(),
+        max_args: Some(1),
+        function: Rc::new(Box::new(
+            |args: Vec<Value>| {
+                let mut result = Err(Error::new(std::io::ErrorKind::InvalidData, "File IO failed"));
+                
+                if args.len() < 1 {
+                    return Err("No arguments provided".to_string());
+                }
+                
+                for a in args {
+                    match a {
+                        Value::String(s) => result = fs::read_to_string(s),
+                        _ => return Err(format!(""))
+                    }
+                };
+                
+                match result {
+                    Ok(s) => Ok(Value::String(s)),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+        ))
+    }));
+    
+    type_env.add_var_type("write".to_string(), TypeInfo::Fun { 
+        args: vec![
+            ("path".to_string(), TypeInfo::String),
+            ("content".to_string(), TypeInfo::String)
+        ],
+        return_type: Box::new(TypeInfo::String) }
+    );
+    env.add_variable("write".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+        name: "write".to_string(),
+        max_args: Some(2),
+        function: Rc::new(Box::new(
+            |args: Vec<Value>| {
+                if args.len() < 2 {
+                    return Err(format!("Expected 2 arguments, but got {}", args.len()));
+                }
+                
+                let path = match args.get(0) {
+                    Some(v) => match v {
+                        Value::String(s) => s,
+                        a => return Err(format!("{a} is not a valid path"))
+                    },
+                    None => return Err("No path provided".to_string()),
+                };
+                
+                let content = match args.get(1) {
+                    Some(v) => match v {
+                        Value::String(s) => s,
+                        a => return Err(format!("{a} is not valid content"))
+                    },
+                    None => return Err("No content provided".to_string()),
+                };
+                
+                let result = write(path, content);
+                
+                match result {
+                    Ok(_) => Ok(Value::Bool(true)),
+                    Err(e) => Err(e.to_string()),
                 }
             }
         ))
@@ -207,13 +279,13 @@ fn main() {
                         },
                         Err(e) => {
                             println!("{e}");
-                            return;
+                            continue
                         },
                     }
                 }
                 match run(&lowered_statements, &mut stack) {
                     Err(e) => println!("{e}"),
-                    Ok(_) => {
+                    Ok(_) => ()
                         // match result {
                         //     Value::Int(i) => println!("{i}"),
                         //     Value::Bool(b) => println!("{b}"),
@@ -226,7 +298,7 @@ fn main() {
                         //     Value::Null => println!("null"),
                         //     Value::NativeFun(native_fun) => println!("{native_fun:?}"),
                         // }
-                    }
+                    
                 }
             }
         }
