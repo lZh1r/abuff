@@ -138,10 +138,14 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
             match get_type(&**fun, env)? {
                 TypeInfo::Fun { args: params, return_type: _ } => {
                     if params.get(0).unwrap_or(&("_".to_string(), TypeInfo::Void)).1 != TypeInfo::Any {
+                        let mut position = 0;
                         for ((_, ti), expr) in params.iter().zip(args.iter()) {
-                            if unwrap_custom_type(ti.clone(), env)? != get_type(expr, env)? {
-                                return Err("".to_string())
+                            let expected_type = unwrap_custom_type(ti.clone(), env)?;
+                            let actual_type = get_type(expr, env)?;
+                            if expected_type != actual_type {
+                                return Err(format!("Argument type mismatch: expected argument #{position} to be {expected_type:?}, but got {actual_type:?}"))
                             }
+                            position += 1;
                         }
                     }
                     
