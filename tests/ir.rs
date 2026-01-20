@@ -1,4 +1,4 @@
-use gigalang::ir::{ControlFlow, Value};
+use abuff::ir::{ControlFlow, Value};
 
 use crate::common::{parse_code, run};
 

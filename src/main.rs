@@ -1,7 +1,7 @@
 use std::{fs::{self, write}, io::Error, rc::Rc, sync::OnceLock, time::Instant};
 
 use chumsky::span::{SimpleSpan, Span as SpanTrait};
-use gigalang::{ast::{TypeInfo, Spanned, Span}, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value, ControlFlow}, main_parser::parser};
+use abuff::{ast::{TypeInfo, Spanned, Span}, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value, ControlFlow}, main_parser::parser};
 
 fn spanned<T>(inner: T) -> Spanned<T> {
     Spanned { inner, span: Span::new((), 0..0) }
@@ -45,7 +45,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         }, 
         span: SimpleSpan::from(0..0) 
     });
-    env.add_variable("print".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("print".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "print".to_string(),
         max_args: None,
         function: Rc::new(Box::new(
@@ -72,7 +72,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         },
         span: SimpleSpan::from(0..0)
     });
-    env.add_variable("debug".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("debug".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "debug".to_string(),
         max_args: None,
         function: Rc::new(Box::new(
@@ -99,7 +99,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         }, 
         span: SimpleSpan::from(0..0)
     });
-    env.add_variable("str".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("str".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "str".to_string(),
         max_args: Some(1),
         function: Rc::new(Box::new(
@@ -123,7 +123,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         },
         span: SimpleSpan::from(0..0)
     });
-    env.add_variable("clock".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("clock".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "clock".to_string(),
         max_args: Some(0),
         function: Rc::new(Box::new(
@@ -141,7 +141,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         },
         span: SimpleSpan::from(0..0)
     });
-    env.add_variable("input".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("input".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "input".to_string(),
         max_args: Some(0),
         function: Rc::new(Box::new(
@@ -166,7 +166,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         },
         span: SimpleSpan::from(0..0)
     });
-    env.add_variable("len".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("len".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "len".to_string(),
         max_args: Some(1),
         function: Rc::new(Box::new(
@@ -194,7 +194,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         },
         span: SimpleSpan::from(0..0)
     });
-    env.add_variable("read".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("read".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "read".to_string(),
         max_args: Some(1),
         function: Rc::new(Box::new(
@@ -230,7 +230,7 @@ fn create_global_env() -> (Env, TypeEnv) {
         },
         span: SimpleSpan::from(0..0)
     });
-    env.add_variable("write".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
+    env.add_variable("write".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "write".to_string(),
         max_args: Some(2),
         function: Rc::new(Box::new(

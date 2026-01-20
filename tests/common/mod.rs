@@ -1,5 +1,5 @@
 use chumsky::{Parser, span::SimpleSpan};
-use gigalang::{ast::Spanned, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, legacy_parser::parse, main_parser::parser};
+use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, legacy_parser::parse, main_parser::parser};
 
 pub fn parse_code(src: &str) -> Vec<Statement> {
     parse().parse(src).into_result().expect("Failed to parse")
