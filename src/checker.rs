@@ -196,7 +196,7 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
         ast::Expr::Assign { target, value } => {
             let target_type = get_type(&target, env)?;
             let value_type = get_type(&value, env)?;
-            if target_type == value_type {
+            if target_type.inner == value_type.inner {
                 Ok(ir::Expr::Assign { target: Box::new(lower_expr(&target, env)?), value: Box::new(lower_expr(&value, env)?) })
             } else {
                 Err(Spanned { 
