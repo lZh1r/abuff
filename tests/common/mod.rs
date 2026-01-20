@@ -1,5 +1,5 @@
-use chumsky::Parser;
-use gigalang::{checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, legacy_parser::parse, main_parser::parser};
+use chumsky::{Parser, span::SimpleSpan};
+use gigalang::{ast::Spanned, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, legacy_parser::parse, main_parser::parser};
 
 pub fn parse_code(src: &str) -> Vec<Statement> {
     parse().parse(src).into_result().expect("Failed to parse")
@@ -29,14 +29,17 @@ pub fn run(statements: &[Statement]) -> Result<ControlFlow, String> {
     result
 }
 
-pub fn run_typed(src: String) -> Result<ControlFlow, String> {
+pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<String>> {
     let mut type_env = TypeEnv::new();
     
     let parsed_result = parser().parse(&src);
     
     let parsed = match parsed_result.into_result() {
         Ok(v) => v,
-        Err(_) => return Err("Parsing failed".to_string()),
+        Err(_) => return Err(Spanned {
+            inner: "Parsing failed".to_string(),
+            span: SimpleSpan::from(0..0)
+        }),
     };
     
     let res = hoist(&parsed, &mut type_env);
@@ -51,7 +54,10 @@ pub fn run_typed(src: String) -> Result<ControlFlow, String> {
                 }
             }
             match run(&result) {
-                Err(e) => Err(e),
+                Err(e) => Err(Spanned {
+                    inner: e,
+                    span: SimpleSpan::from(0..0)
+                }),
                 Ok(result) => Ok(result)
             }
         }

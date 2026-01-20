@@ -1,19 +1,23 @@
-use chumsky::{prelude::*};
+use chumsky::prelude::*;
 
-use crate::ast::{Expr, Operation, Statement, TypeInfo, UnaryOp};
+use crate::ast::{Expr, Operation, Statement, TypeInfo, UnaryOp, Spanned, Span};
 
-enum PostfixOp<'a> {
-    Call(Vec<Expr>),
-    Access(&'a str),
+enum PostfixOp {
+    Call(Vec<Spanned<Expr>>),
+    Access(String),
 }
 
-pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err<Rich<'src, char>>> {
+pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, extra::Err<Rich<'src, char>>> {
     let type_parser = recursive(|ty| {
-        let leaf = text::keyword("Int").map(|s: &str| s.to_string()).to(TypeInfo::Int)
-            .or(text::keyword("Bool").map(|s: &str| s.to_string()).to(TypeInfo::Bool))
-            .or(text::keyword("Float").map(|s: &str| s.to_string()).to(TypeInfo::Float))
-            .or(text::keyword("String").map(|s: &str| s.to_string()).to(TypeInfo::String))
-            .padded();
+        let leaf = choice((
+            text::keyword("Int").to(TypeInfo::Int),
+            text::keyword("Bool").to(TypeInfo::Bool),
+            text::keyword("Float").to(TypeInfo::Float),
+            text::keyword("String").to(TypeInfo::String)
+        )).padded().map_with(|s, extra| Spanned {
+            inner: s,
+            span: extra.span()
+        });
 
         let arg = text::ident().padded().map(ToString::to_string)
                         .then_ignore(just(':').padded())
@@ -23,7 +27,10 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
             .delimited_by(just('(').padded(), just(')').padded())
             .then_ignore(just("->").padded())
             .then(ty.clone())
-            .map(|(input, output)| TypeInfo::Fun { args: input.unwrap_or_default(), return_type: Box::new(output) });
+            .map_with(|(input, output), extra| Spanned {
+                inner: TypeInfo::Fun { args: input.unwrap_or_default(), return_type: Box::new(output) },
+                span: extra.span()
+            });
 
         let record = text::ident().map(|s: &str| s.to_string()).padded()
             .then_ignore(just(':').padded())
@@ -31,11 +38,24 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
             .separated_by(just(',').padded())
             .allow_trailing().collect()
             .delimited_by(just('{').padded(), just('}').padded())
-            .map(TypeInfo::Record).padded();
+            .map_with(|s, extra| Spanned {
+                inner: TypeInfo::Record(s),
+                span: extra.span()
+            }).padded();
 
-        let custom = text::ident().padded().map(|s: &str| TypeInfo::Custom(s.to_string()));
+        let custom = text::ident().padded().map_with(|s: &str, extra| Spanned {
+            inner: TypeInfo::Custom(s.to_string()),
+            span: extra.span()
+        });
 
-        leaf.or(record).or(fun).or(custom)
+        choice((
+            leaf,
+            record,
+            fun.clone().delimited_by(just('(').padded(), just(')').padded()),
+            fun,
+            custom
+        ))
+        
     });
 
     recursive(|statement| {
@@ -57,28 +77,46 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                     .collect::<String>()
                 )
                 .then_ignore(just('"'))
-                .map(Expr::String)
+                .map_with(|s, extra| Spanned {
+                    inner: Expr::String(s),
+                    span: extra.span()
+                })
                 .padded();
             
             let boolean = choice((
                 text::keyword("true").padded().to(true),
                 text::keyword("false").padded().to(false)
-            )).map(Expr::Bool);
+            )).map_with(|b, extra| Spanned {
+                inner: Expr::Bool(b),
+                span: extra.span()
+            });
             
             let int = text::int(10)
-                    .map(|s: &str| Expr::Int(s.parse().unwrap()))
-                    .padded();
+                .map_with(|i: &str, extra| Spanned {
+                    inner: Expr::Int(i.parse().unwrap()),
+                    span: extra.span()
+                })
+                .padded();
 
             let float = text::int(10)
                 .then(just('.'))
                 .then(text::int(10))
-                .map(|((int_part, _), frac_part): ((&str, char), &str)| {
+                .map_with(|((int_part, _), frac_part): ((&str, char), &str), extra| {
                     let s = format!("{}.{}", int_part, frac_part);
-                    Expr::Float(s.parse().unwrap())
+                    Spanned {
+                        inner: Expr::Float(s.parse().unwrap()),
+                        span: extra.span()
+                    }
+                    
                 })
                 .padded();
 
-            let var = text::ident().map(|s: &str| Expr::Var(s.to_string())).padded();
+            let var = text::ident()
+                .map_with(|s: &str, extra| Spanned {
+                    inner: Expr::Var(s.to_string()),
+                    span: extra.span()
+                })
+                .padded();
 
             let field = text::ident()
                 .map(|s: &str| s.to_string())
@@ -91,7 +129,10 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .allow_trailing()
                 .collect()
                 .delimited_by(just('{'), just('}'))
-                .map(Expr::Record)
+                .map_with(|fields, extra| Spanned {
+                    inner: Expr::Record(fields),
+                    span: extra.span()
+                })
                 .padded();
 
             let block = statement.clone()
@@ -99,7 +140,10 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .collect()
                 .then(expr.clone().or_not().map(|o| o.map(Box::new)))
                 .delimited_by(just('{'), just('}'))
-                .map(|(statements, tail)| Expr::Block(statements, tail))
+                .map_with(|(statements, tail), extra| Spanned {
+                    inner: Expr::Block(statements, tail),
+                    span: extra.span()
+                })
                 .padded();
 
             let arg = text::ident().padded().map(ToString::to_string)
@@ -117,29 +161,48 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                         .or_not()
                 )
                 .then(expr.clone())
-                .map(|((params, return_type), body): ((Vec<(String, TypeInfo)>, Option<TypeInfo>), Expr)| Expr::Fun {
-                    params,
-                    return_type,
-                    body: Box::new(body)
+                .map_with(|((params, return_type), body), extra| Spanned {
+                    inner: Expr::Fun {
+                        params,
+                        return_type,
+                        body: Box::new(body)
+                    },
+                    span: extra.span()
                 });
 
             let if_else = text::keyword("if").padded()
                 .ignore_then(expr.clone().delimited_by(just('(').padded(), just(')').padded()))
                 .then(expr.clone())
                 .then(text::keyword("else").ignore_then(expr.clone().map(Box::new)).or_not())
-                .map(|((condition, body), else_block)| Expr::If {condition: Box::new(condition), body: Box::new(body), else_block});
+                .map_with(|((condition, body), else_block), extra| Spanned {
+                    inner: Expr::If {condition: Box::new(condition), body: Box::new(body), else_block},
+                    span: extra.span()
+                });
             
             let while_loop = text::keyword("while").padded()
                 .ignore_then(expr.clone().delimited_by(just('(').padded(), just(')').padded()))
                 .then(expr.clone())
-                .map(|(condition, body)| Expr::While {condition: Box::new(condition), body: Box::new(body)});
+                .map_with(|(condition, body), extra| Spanned {
+                    inner: Expr::While {condition: Box::new(condition), body: Box::new(body)},
+                    span: extra.span()
+                });
 
             let return_keyword = text::keyword("return").padded()
-                .ignore_then(expr.clone()).map(|exp| Expr::Return(Box::new(exp)));
+                .ignore_then(expr.clone())
+                .map_with(|exp, extra| Spanned {
+                    inner: Expr::Return(Box::new(exp)),
+                    span: extra.span()
+                });
             
             let control_flow = choice((
-                text::keyword("break").padded().to(Expr::Break),
-                text::keyword("continue").padded().to(Expr::Continue)
+                text::keyword("break").padded().map_with(|_, extra| Spanned {
+                    inner: Expr::Break,
+                    span: extra.span()
+                }),
+                text::keyword("continue").padded().map_with(|_, extra| Spanned {
+                    inner: Expr::Continue,
+                    span: extra.span()
+                })
             ));
             
             let atom = choice((
@@ -157,18 +220,6 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 var,
                 expr.clone().delimited_by(just('('), just(')')).padded()
             )).boxed();
-            
-            // let atom = float
-            //     .or(int)
-            //     .or(string_literal)
-            //     .or(func)
-            //     .or(if_else)
-            //     .or(while_loop)
-            //     .or(record)
-            //     .or(block)
-            //     .or(var)
-            //     .or(expr.clone().delimited_by(just('('), just(')')))
-            //     .padded();
 
             let call = atom.clone()
                 .foldl(
@@ -179,21 +230,30 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                             .allow_trailing()
                             .collect()
                             .delimited_by(just('(').padded(), just(')').padded())
-                            .map(PostfixOp::Call),
+                            .map_with(|args, extra| (PostfixOp::Call(args), extra.span())),
                         just('.')
                             .padded()
                             .ignore_then(text::ident().padded())
-                            .map(PostfixOp::Access),
+                            .map_with(|field: &str, extra| (PostfixOp::Access(field.to_string()), extra.span())),
                     )).repeated(),
-                    |parent, op| match op {
-                        PostfixOp::Call(args) => Expr::Call {
-                            fun: Box::new(parent),
-                            args
-                        },
-                        PostfixOp::Access(field) => Expr::Get(
-                            Box::new(parent),
-                            field.to_string()
-                        ),
+                    |parent: Spanned<Expr>, (op, op_span): (PostfixOp, Span)| {
+                        let new_span = Span::new((), parent.span.start..op_span.end);
+                        match op {
+                            PostfixOp::Call(args) => Spanned {
+                                inner: Expr::Call {
+                                    fun: Box::new(parent),
+                                    args
+                                },
+                                span: new_span
+                            },
+                            PostfixOp::Access(field) => Spanned {
+                                inner: Expr::Get(
+                                    Box::new(parent),
+                                    field
+                                ),
+                                span: new_span
+                            },
+                        }
                     }
                 );
 
@@ -201,20 +261,39 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                     just('-').to(UnaryOp::Negate),
                     just('!').to(UnaryOp::Not),
                 ))
+                .map_with(|op, extra| (op, extra.span()))
                 .repeated()
-                .foldr(call, |op, rhs| Expr::Unary (op, Box::new(rhs)));
+                .foldr(call, |(op, op_span): (UnaryOp, Span), rhs: Spanned<Expr>| {
+                    let new_span = Span::new((), op_span.start..rhs.span.end);
+                    Spanned {
+                        inner: Expr::Unary(op, Box::new(rhs)),
+                        span: new_span
+                    }
+                });
 
             let op_mul = just('*').to(Operation::Multiply).or(just('/').to(Operation::Divide))
                 .or(just('%').to(Operation::Modulo));
             let product = unary.clone().foldl(
                 op_mul.then(unary).repeated(),
-                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+                |l: Spanned<Expr>, (op, r): (Operation, Spanned<Expr>)| {
+                    let new_span = Span::new((), l.span.start..r.span.end);
+                    Spanned {
+                        inner: Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) },
+                        span: new_span
+                    }
+                }
             );
 
             let op_add = just('+').to(Operation::Add).or(just('-').to(Operation::Subtract));
             let sum = product.clone().foldl(
                 op_add.then(product).repeated(),
-                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+                |l: Spanned<Expr>, (op, r): (Operation, Spanned<Expr>)| {
+                    let new_span = Span::new((), l.span.start..r.span.end);
+                    Spanned {
+                        inner: Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) },
+                        span: new_span
+                    }
+                }
             );
 
             let op_comparison = just(">=").to(Operation::GreaterThanEq)
@@ -225,17 +304,35 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                 .or(just("!=").to(Operation::NotEq));
             let comparison = sum.clone().foldl(
                 op_comparison.then(sum).repeated(),
-                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+                |l: Spanned<Expr>, (op, r): (Operation, Spanned<Expr>)| {
+                    let new_span = Span::new((), l.span.start..r.span.end);
+                    Spanned {
+                        inner: Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) },
+                        span: new_span
+                    }
+                }
             );
 
             let and_logic = comparison.clone().foldl(
                 just("&&").to(Operation::And).then(comparison).repeated(),
-                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+                |l: Spanned<Expr>, (op, r): (Operation, Spanned<Expr>)| {
+                    let new_span = Span::new((), l.span.start..r.span.end);
+                    Spanned {
+                        inner: Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) },
+                        span: new_span
+                    }
+                }
             );
 
             let or_logic = and_logic.clone().foldl(
                 just("||").to(Operation::Or).then(and_logic).repeated(),
-                |l, (op, r)| Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) }
+                |l: Spanned<Expr>, (op, r): (Operation, Spanned<Expr>)| {
+                    let new_span = Span::new((), l.span.start..r.span.end);
+                    Spanned {
+                        inner: Expr::Binary { left: Box::new(l), operation: op, right: Box::new(r) },
+                        span: new_span
+                    }
+                }
             );
             
             let math_assign = or_logic.clone()
@@ -249,12 +346,27 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                     ))
                     .then(expr.clone()).or_not()
                 )
-                .map(|(lhs, opt): (Expr, Option<(Operation, Expr)>)| match opt {
-                    Some((op, rhs)) => Expr::Assign {
-                        target: Box::new(lhs.clone()),
-                        value: Box::new(Expr::Binary {left: Box::new(lhs), operation: op, right: Box::new(rhs)}),
-                    },
-                    None => lhs
+                .map_with(|(lhs, opt): (Spanned<Expr>, Option<(Operation, Spanned<Expr>)>), extra| {
+                    match opt {
+                        Some((op, rhs)) => {
+                            let binary_span = Span::new((), lhs.span.start..rhs.span.end);
+                            Spanned {
+                                inner: Expr::Assign {
+                                    target: Box::new(lhs.clone()),
+                                    value: Box::new(Spanned {
+                                        inner: Expr::Binary {
+                                            left: Box::new(lhs),
+                                            operation: op,
+                                            right: Box::new(rhs)
+                                        },
+                                        span: binary_span
+                                    }),
+                                },
+                                span: extra.span()
+                            }
+                        },
+                        None => lhs
+                    }
                 });
 
             let assign = math_assign.clone()
@@ -263,9 +375,14 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
                         .ignore_then(expr.clone())
                         .or_not()
                 )
-                .map(|(lhs, rhs_opt)| match rhs_opt {
-                        Some(rhs) => Expr::Assign { target: Box::new(lhs), value: Box::new(rhs) },
+                .map_with(|(lhs, rhs_opt): (Spanned<Expr>, Option<Spanned<Expr>>), extra| {
+                    match rhs_opt {
+                        Some(rhs) => Spanned {
+                            inner: Expr::Assign { target: Box::new(lhs), value: Box::new(rhs) },
+                            span: extra.span()
+                        },
                         None => lhs,
+                    }
                 });
 
             assign
@@ -277,14 +394,20 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
             .then_ignore(just('=').padded())
             .then(expr.clone())
             .then_ignore(just(';'))
-            .map(|((name, type_name), e): ((&str, Option<TypeInfo>), Expr)| Statement::Let { name: name.to_string(), type_info: type_name, expr: e });
+            .map_with(|((name, type_name), e): ((&str, Option<Spanned<TypeInfo>>), Spanned<Expr>), extra| Spanned {
+                inner: Statement::Let { name: name.to_string(), type_info: type_name, expr: e },
+                span: extra.span()
+            });
 
         let type_def = text::keyword("type")
             .ignore_then(text::ident().padded())
             .then_ignore(just('=').padded())
             .then(type_parser.clone())
             .then_ignore(just(';'))
-            .map(|(type_name, type_info): (&str, TypeInfo)| Statement::TypeDef { name: type_name.to_string(), type_info });
+            .map_with(|(type_name, type_info): (&str, Spanned<TypeInfo>), extra| Spanned {
+                inner: Statement::TypeDef { name: type_name.to_string(), type_info },
+                span: extra.span()
+            });
         
         let arg = text::ident().padded().map(ToString::to_string)
             .then_ignore(just(':').padded())
@@ -303,16 +426,22 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Statement>, extra::Err
             )
             .then(expr.clone())
             .then_ignore(just(';').padded())
-            .map(|(((name, params), return_type), body): (((&str, Vec<(String, TypeInfo)>), Option<TypeInfo>), Expr)| Statement::Fun {
-                name: name.to_string(),
-                params,
-                body,
-                return_type
+            .map_with(|(((name, params), return_type), body): (((&str, Vec<(String, Spanned<TypeInfo>)>), Option<Spanned<TypeInfo>>), Spanned<Expr>), extra| Spanned {
+                inner: Statement::Fun {
+                    name: name.to_string(),
+                    params,
+                    body,
+                    return_type
+                },
+                span: extra.span()
             });
 
         let expr_stmt = expr.clone()
             .then_ignore(just(';'))
-            .map(|expr| Statement::Expr(expr));
+            .map_with(|expr, extra| Spanned {
+                inner: Statement::Expr(expr),
+                span: extra.span()
+            });
 
         choice((
             let_stmt,

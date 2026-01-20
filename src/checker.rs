@@ -1,49 +1,56 @@
-use crate::{ast::{self, TypeInfo}, env::TypeEnv, ir};
+use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir};
 
-pub fn hoist(statements: &[ast::Statement], env: &mut TypeEnv) -> Result<Vec<ast::Statement>, String> {
-    let mut new_statements: Vec<ast::Statement> = Vec::new();
+pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Result<Vec<Spanned<ast::Statement>>, Spanned<String>> {
+    let mut new_statements: Vec<Spanned<ast::Statement>> = Vec::new();
     for st in statements.iter() {
-        match st {
+        match &st.inner {
             ast::Statement::TypeDef { name, type_info } => {
                 let resolved_type = unwrap_custom_type(type_info.clone(), env)?;
                 env.add_custom_type(name.clone(), resolved_type);
             },
-            s => new_statements.push(s.clone()),
+            _ => new_statements.push(st.clone()),
         }
     }
     for st in statements.iter() {
-        match st {
+        match &st.inner {
             ast::Statement::Let { name, expr, type_info } => {
-                let inferred_type = unwrap_custom_type(get_type(expr, env)?, env)?;
+                let inferred_type = unwrap_custom_type(get_type(&expr, env)?, env)?;
                 match type_info {
                     Some(t) => {
                         let unwrapped_ti = unwrap_custom_type(t.clone(), env)?;
-                        if unwrapped_ti == inferred_type {
+                        if unwrapped_ti.inner == inferred_type.inner {
                             env.add_var_type(name.clone(), unwrapped_ti);
                         } else {
-                            return Err(
-                                format!(r#"
-                                    Type mismatch when declaring {name}:
-                                    expected {unwrapped_ti:?}, but got {inferred_type:?}
-                                "#).to_string()
-                            )
+                            return Err( Spanned {
+                                inner: format!("Type mismatch when declaring {name}: expected {:?}, but got {:?}", unwrapped_ti.inner, inferred_type.inner),
+                                span: st.span
+                            })
                         }
                     },
                     None => env.add_var_type(name.clone(), inferred_type),
                 }
             },
             ast::Statement::Fun { name, params, body, return_type } => {
-                env.add_var_type(name.to_string(), TypeInfo::Fun { args: params.clone(), return_type: Box::new(return_type.clone().unwrap_or(TypeInfo::Void)) });
+                let r_type = return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span});
+                env.add_var_type(name.to_string(), Spanned {
+                    inner: TypeInfo::Fun { 
+                        args: params.clone(), 
+                        return_type: Box::new(r_type.clone()) 
+                    },
+                    span: st.span
+                });
                 
                 let mut new_scope = env.enter_scope();
                 for (param_name, param_type) in params.clone() {
-                    new_scope.add_var_type(param_name.to_string(), param_type.clone());
+                    new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                 }
-                let r_type = return_type.clone().unwrap_or(TypeInfo::Void);
                 new_scope.add_var_type("&return".to_string(), r_type.clone());
-                let inferred_type = get_type(body, &mut new_scope)?;
-                if inferred_type != r_type {
-                    return Err(format!("Expected {r_type:?} but got {inferred_type:?}"))
+                let inferred_type = get_type(&body, &mut new_scope)?;
+                if inferred_type.inner != r_type.inner {
+                    return Err(Spanned {
+                        inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
+                        span: st.span
+                    })
                 }
             },
             _ => ()
@@ -53,36 +60,43 @@ pub fn hoist(statements: &[ast::Statement], env: &mut TypeEnv) -> Result<Vec<ast
     Ok(new_statements)
 }
 
-pub fn lower_statement(statement: &ast::Statement, env: &mut TypeEnv) -> Result<Option<ir::Statement>, String> {
-    match statement {
+pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -> Result<Option<ir::Statement>, Spanned<String>> {
+    match &statement.inner {
         ast::Statement::TypeDef { name: _, type_info: _ } => Ok(None),
         ast::Statement::Expr(expr) => {
-            Ok(Some(ir::Statement::Expr(lower_expr(expr, env)?)))
+            Ok(Some(ir::Statement::Expr(lower_expr(&expr, env)?)))
         },
         ast::Statement::Let { name, expr, type_info: _ } => {
-            Ok(Some(ir::Statement::Let { name: name.clone(), expr: lower_expr(expr, env)? }))
+            Ok(Some(ir::Statement::Let { name: name.clone(), expr: lower_expr(&expr, env)? }))
         }
         ast::Statement::Fun { name, params, body, return_type } => {
             Ok(Some(ir::Statement::Let { 
                 name: name.clone(),
-                expr: lower_expr(&ast::Expr::Fun { params: params.clone(), body: Box::new(body.clone()), return_type: return_type.clone() }, env)?
+                expr: lower_expr(&Spanned {
+                    inner: ast::Expr::Fun { 
+                        params: params.clone(), 
+                        body: Box::new(body.clone()), 
+                        return_type: return_type.clone() 
+                    },
+                    span: statement.span
+                }, env)?
             }))
         },
     }
 }
 
-pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, String> {
-    match expr {
+pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Expr, Spanned<String>> {
+    match &expr.inner {
         ast::Expr::Bool(b) => Ok(ir::Expr::Bool(*b)),
         ast::Expr::Float(f) => Ok(ir::Expr::Float(*f)),
         ast::Expr::Int(i) => Ok(ir::Expr::Int(*i)),
         ast::Expr::Var(v) => Ok(ir::Expr::Var(v.clone())),
         ast::Expr::Binary { left, operation, right } => {
-            let left_type = get_type(left, env)?;
-            let right_type = get_type(right, env)?;
-            if left_type == right_type {
+            let left_type = get_type(&left, env)?;
+            let right_type = get_type(&right, env)?;
+            if left_type.inner == right_type.inner {
                 Ok(ir::Expr::Binary { 
-                    left: Box::new(lower_expr(left, env)?),
+                    left: Box::new(lower_expr(&left, env)?),
                     operation: match operation {
                         ast::Operation::Add => ir::Operation::Add,
                         ast::Operation::Subtract => ir::Operation::Subtract,
@@ -98,10 +112,13 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
                         ast::Operation::Or => ir::Operation::Or,
                         ast::Operation::Modulo => ir::Operation::Modulo,
                     }, 
-                    right: Box::new(lower_expr(right, env)?)
+                    right: Box::new(lower_expr(&right, env)?)
                 })
             } else {
-                Err(format!("Type {left_type:?} is not assignable to type {right_type:?}"))
+                Err(Spanned { 
+                    inner: format!("Type {:?} is not assignable to type {:?}", left_type.inner, right_type.inner),
+                    span: expr.span
+                })
             }
         },
         ast::Expr::Block(statements, expr) => {
@@ -117,7 +134,7 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
                 }
             }
             let final_expr = match expr {
-                Some(e) => Some(Box::new(lower_expr(e, &mut new_scope)?)),
+                Some(e) => Some(Box::new(lower_expr(&e, &mut new_scope)?)),
                 None => None,
             };
             Ok(ir::Expr::Block(lowered_statements, final_expr))
@@ -127,146 +144,217 @@ pub fn lower_expr(expr: &ast::Expr, env: &mut TypeEnv) -> Result<ir::Expr, Strin
             for (param_name, param_type) in params {
                 new_scope.add_var_type(param_name.to_string(), param_type.clone());
             }
-            let r_type = return_type.clone().unwrap_or(TypeInfo::Void);
+            let r_type = return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span});
             new_scope.add_var_type("&return".to_string(), r_type.clone());
-            let inferred_type = get_type(body, &mut new_scope)?;
+            let inferred_type = get_type(&body, &mut new_scope)?;
             
-            if r_type == inferred_type {
-                Ok(ir::Expr::Fun { params: params.iter().map(|(name, _)| name.to_string()).collect(), body: Box::new(lower_expr(body, &mut new_scope)?) })
+            if r_type.inner == inferred_type.inner {
+                Ok(ir::Expr::Fun { params: params.iter().map(|(name, _)| name.to_string()).collect(), body: Box::new(lower_expr(&body, &mut new_scope)?) })
             } else {
-                Err(format!("Expected {r_type:?} but got {inferred_type:?}"))
+                Err(Spanned { 
+                    inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
+                    span: expr.span 
+                })
             }
         },
         ast::Expr::Call { fun, args } => {
-            match get_type(&**fun, env)? {
+            match get_type(&fun, env)?.inner {
                 TypeInfo::Fun { args: params, return_type: _ } => {
-                    if params.get(0).unwrap_or(&("_".to_string(), TypeInfo::Void)).1 != TypeInfo::Any {
+                    let first_param_type = params.get(0).map(|(_, t)| &t.inner).unwrap_or(&TypeInfo::Void);
+                    if *first_param_type != TypeInfo::Any {
                         let mut position = 0;
                         for ((_, ti), expr) in params.iter().zip(args.iter()) {
                             let expected_type = unwrap_custom_type(ti.clone(), env)?;
-                            let actual_type = get_type(expr, env)?;
-                            if expected_type != actual_type {
-                                return Err(format!("Argument type mismatch: expected argument #{position} to be {expected_type:?}, but got {actual_type:?}"))
+                            let actual_type = get_type(&expr, env)?;
+                            if expected_type.inner != actual_type.inner {
+                                return Err(Spanned {
+                                    inner: format!(
+                                        "Argument type mismatch: expected argument #{position} to be {:?}, but got {:?}",
+                                        expected_type.inner,
+                                        actual_type.inner
+                                    ),
+                                    span: ti.span
+                                })
                             }
                             position += 1;
                         }
                     }
             
                     Ok(ir::Expr::Call { 
-                        fun: Box::new(lower_expr(fun, env)?), 
-                        args: args.iter().map(|expr| lower_expr(expr, env).unwrap()).collect() 
+                        fun: Box::new(lower_expr(&fun, env)?), 
+                        args: args.iter().map(|expr| lower_expr(&expr, env).unwrap()).collect() 
                     })
                 },
-                t => Err(format!("Type {t:?} is not callable"))
+                t => Err(Spanned {
+                    inner: format!("Type {t:?} is not callable"),
+                    span: expr.span
+                })
             }
         },
-        ast::Expr::Record(items) => Ok(ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(expr, env).unwrap())).collect())),
-        ast::Expr::Get(object, property_name) => Ok(ir::Expr::Get(Box::new(lower_expr(object, env)?), property_name.to_string())),
+        ast::Expr::Record(items) => Ok(ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(&expr, env).unwrap())).collect())),
+        ast::Expr::Get(object, property_name) => Ok(ir::Expr::Get(Box::new(lower_expr(&object, env)?), property_name.to_string())),
         ast::Expr::Assign { target, value } => {
-            let target_type = get_type(target, env)?;
-            let value_type = get_type(value, env)?;
+            let target_type = get_type(&target, env)?;
+            let value_type = get_type(&value, env)?;
             if target_type == value_type {
-                Ok(ir::Expr::Assign { target: Box::new(lower_expr(target, env)?), value: Box::new(lower_expr(value, env)?) })
+                Ok(ir::Expr::Assign { target: Box::new(lower_expr(&target, env)?), value: Box::new(lower_expr(&value, env)?) })
             } else {
-                Err(format!("Type {value_type:?} is not assignable to {target_type:?}"))
+                Err(Spanned { 
+                    inner: format!("Type {:?} is not assignable to {:?}", value_type.inner, target_type.inner), 
+                    span: expr.span 
+                })
             }
         },
         ast::Expr::Unary(unary_op, expr) => {
             match unary_op {
                 ast::UnaryOp::Negate => {
-                    let expr_type = get_type(expr, env)?;
-                    match expr_type {
-                        TypeInfo::Int => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(expr, env)?))),
-                        TypeInfo::Float => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(expr, env)?))),
-                        _ => Err(format!("Type {expr_type:?} cannot be negated"))
+                    let expr_type = get_type(&expr, env)?;
+                    match expr_type.inner {
+                        TypeInfo::Int => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?))),
+                        TypeInfo::Float => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?))),
+                        _ => Err(Spanned {
+                            inner: format!("Type {:?} cannot be negated", expr_type.inner),
+                            span: expr.span
+                        })
                     }
                 },
                 ast::UnaryOp::Not => {
-                    let expr_type = get_type(expr, env)?;
-                    match expr_type {
-                        TypeInfo::Bool => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(expr, env)?))),
-                        _ => Err(format!("Type {expr_type:?} cannot be inverted"))
+                    let expr_type = get_type(&expr, env)?;
+                    match expr_type.inner {
+                        TypeInfo::Bool => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?))),
+                        _ => Err(Spanned {
+                            inner: format!("Type {:?} cannot be inverted", expr_type.inner),
+                            span: expr.span
+                        })
                     }
                 },
             }
         },
         ast::Expr::If { condition, body, else_block } => {
-            if get_type(condition, env)? == TypeInfo::Bool {
+            if get_type(&condition, env)?.inner == TypeInfo::Bool {
                 match else_block {
                     Some(b) => {
-                        let body_type = get_type(body, env)?;
-                        let else_type = get_type(b, env)?;
-                        if body_type == else_type {
+                        let body_type = get_type(&body, env)?;
+                        let else_type = get_type(&b, env)?;
+                        if body_type.inner == else_type.inner {
                             Ok(ir::Expr::If { 
-                                condition: Box::new(lower_expr(condition, env)?),
-                                body: Box::new(lower_expr(body, env)?),
-                                else_block: Some(Box::new(lower_expr(b, env)?)) 
+                                condition: Box::new(lower_expr(&condition, env)?),
+                                body: Box::new(lower_expr(&body, env)?),
+                                else_block: Some(Box::new(lower_expr(&b, env)?)) 
                             })
                         } else {
-                            Err(format!("If branches have incompatible types: {body_type:?} and {else_type:?}"))
+                            Err(Spanned {
+                                inner: format!("If branches have incompatible types: {:?} and {:?}", body_type.inner, else_type.inner),
+                                span: expr.span
+                            })
                         }
                     },
                     None => Ok(ir::Expr::If { 
-                        condition: Box::new(lower_expr(condition, env)?),
-                        body: Box::new(lower_expr(body, env)?),
+                        condition: Box::new(lower_expr(&condition, env)?),
+                        body: Box::new(lower_expr(&body, env)?),
                         else_block: None 
                     }),
                 }
             } else {
-                return Err("If condition should return Bool".to_string());
+                return Err(Spanned {
+                    inner: "If condition should return Bool".to_string(),
+                    span: expr.span
+                });
             }
         },
         ast::Expr::While { condition, body } => {
-            if get_type(condition, env)? == TypeInfo::Bool && get_type(body, env)? == TypeInfo::Void {
-                Ok(ir::Expr::While { condition: Box::new(lower_expr(condition, env)?), body: Box::new(lower_expr(body, env)?) })
+            if get_type(&condition, env)?.inner == TypeInfo::Bool && get_type(&body, env)?.inner == TypeInfo::Void {
+                Ok(ir::Expr::While { condition: Box::new(lower_expr(&condition, env)?), body: Box::new(lower_expr(&body, env)?) })
             } else {
-                Err("While condition should return Bool and the body should return Void".to_string())
+                Err(Spanned {
+                    inner: "While condition should return Bool and the body should return Void".to_string(),
+                    span: expr.span
+                })
             }
         },
         ast::Expr::String(s) => Ok(ir::Expr::String(s.clone())),
         ast::Expr::Break => Ok(ir::Expr::Break),
         ast::Expr::Continue => Ok(ir::Expr::Continue),
-        ast::Expr::Return(expr) => Ok(ir::Expr::Return(Box::new(lower_expr(expr, env)?))),
+        ast::Expr::Return(expr) => Ok(ir::Expr::Return(Box::new(lower_expr(&expr, env)?))),
     }
 }
 
-fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
-    match expr {
-        ast::Expr::Bool(_) => Ok(TypeInfo::Bool),
-        ast::Expr::Float(_) => Ok(TypeInfo::Float),
-        ast::Expr::Int(_) => Ok(TypeInfo::Int),
+fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+    match &expr.inner {
+        ast::Expr::Bool(_) => Ok(Spanned{
+            inner: TypeInfo::Bool,
+            span: expr.span
+        }),
+        ast::Expr::Float(_) => Ok(Spanned{
+            inner: TypeInfo::Float,
+            span: expr.span
+        }),
+        ast::Expr::Int(_) => Ok(Spanned{
+            inner: TypeInfo::Int,
+            span: expr.span
+        }),
         ast::Expr::Var(name) => {
-            match env.get_var_type(name) {
+            match env.get_var_type(&name) {
                 Some(t) => Ok(unwrap_custom_type(t, env)?),
-                None => Err(format!("Type of \"{name}\" is unknown")),
+                None => Err(Spanned {
+                    inner: format!("Type of \"{name}\" is unknown"),
+                    span: expr.span
+                }),
             }
         },
         ast::Expr::Binary { left, operation, right } => {
-            let left_type = unwrap_custom_type(get_type(left, env)?, env)?;
-            let right_type = unwrap_custom_type(get_type(right, env)?, env)?;
-            if left_type == right_type {
+            let left_type = unwrap_custom_type(get_type(&left, env)?, env)?;
+            let right_type = unwrap_custom_type(get_type(&right, env)?, env)?;
+            if left_type.inner == right_type.inner {
                 match operation {
-                    ast::Operation::Eq => Ok(TypeInfo::Bool),
-                    ast::Operation::NotEq => Ok(TypeInfo::Bool),
-                    ast::Operation::LessThan => Ok(TypeInfo::Bool),
-                    ast::Operation::LessThanEq => Ok(TypeInfo::Bool),
-                    ast::Operation::GreaterThan => Ok(TypeInfo::Bool),
-                    ast::Operation::GreaterThanEq => Ok(TypeInfo::Bool),
-                    ast::Operation::And => Ok(TypeInfo::Bool),
-                    ast::Operation::Or => Ok(TypeInfo::Bool),
+                    ast::Operation::Eq => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
+                    ast::Operation::NotEq => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
+                    ast::Operation::LessThan => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
+                    ast::Operation::LessThanEq => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
+                    ast::Operation::GreaterThan => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
+                    ast::Operation::GreaterThanEq => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
+                    ast::Operation::And => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
+                    ast::Operation::Or => Ok(Spanned{
+                        inner: TypeInfo::Bool,
+                        span: expr.span
+                    }),
                     _ => Ok(left_type)
                 }
             } else {
-                Err(format!("Type {left_type:?} is not assignable to type {right_type:?} ({operation:?})"))
+                Err(Spanned {
+                    inner: format!("Type {left_type:?} is not assignable to type {right_type:?} ({operation:?})"),
+                    span: expr.span
+                })
             }
         },
         ast::Expr::Block(statements, tail_expr) => {
             let mut inner_env = env.enter_scope(); 
 
             for stmt in statements {
-                match stmt {
+                match &stmt.inner {
                     ast::Statement::Let { name, expr, type_info } => {
-                        let expr_type = get_type(expr, &mut inner_env)?;
+                        let expr_type = get_type(&expr, &mut inner_env)?;
 
                         let final_type = match type_info {
                             Some(ann) => {
@@ -280,18 +368,21 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                         inner_env.add_custom_type(name.clone(), type_info.clone());
                     },
                     ast::Statement::Expr(expr) => {
-                        get_type(expr, &mut inner_env)?;
+                        get_type(&expr, &mut inner_env)?;
                     },
                     ast::Statement::Fun { name, params, body, return_type } => {
                         let mut new_scope = env.enter_scope();
                         for (param_name, param_type) in params {
                             new_scope.add_var_type(param_name.to_string(), param_type.clone());
                         }
-                        let r_type = unwrap_custom_type(return_type.clone().or(Some(TypeInfo::Void)).unwrap(), env)?;
+                        let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: stmt.span}), env)?;
                         new_scope.add_var_type("&return".to_string(), r_type.clone());
-                        let inferred_type = unwrap_custom_type(get_type(body, &mut new_scope)?, &mut new_scope)?;
-                        if r_type != inferred_type {
-                            return Err(format!("Expected {r_type:?} but got {inferred_type:?}"))
+                        let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope)?;
+                        if r_type.inner != inferred_type.inner {
+                            return Err(Spanned {
+                                inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
+                                span: stmt.span
+                            })
                         } else {
                             inner_env.add_var_type(name.to_string(), r_type);
                         }
@@ -300,8 +391,8 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
             }
 
             match tail_expr {
-                Some(e) => get_type(e, &mut inner_env),
-                None => Ok(TypeInfo::Void),
+                Some(e) => get_type(&e, &mut inner_env),
+                None => Ok(Spanned {inner: TypeInfo::Void, span: expr.span}),
             }
         },
         ast::Expr::Fun { params, body, return_type } => {
@@ -309,49 +400,68 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
             for (param_name, param_type) in params {
                 new_scope.add_var_type(param_name.to_string(), param_type.clone());
             }
-            let r_type = unwrap_custom_type(return_type.clone().or(Some(TypeInfo::Void)).unwrap(), env)?;
+            let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
             new_scope.add_var_type("&return".to_string(), r_type.clone());
-            let inferred_type = unwrap_custom_type(get_type(body, &mut new_scope)?, &mut new_scope)?;
+            let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope)?;
             
-            if r_type != inferred_type {
-                return Err(format!("Expected {r_type:?} but got {inferred_type:?}"))
+            if r_type.inner != inferred_type.inner {
+                return Err(Spanned {
+                    inner: format!("Expected {:?} but got {:?}", r_type.inner, inferred_type.inner),
+                    span: r_type.span
+                })
             }
-            Ok(TypeInfo::Fun { 
-                args: params.iter().map(|(name, ti)| (name.to_string(), unwrap_custom_type(ti.clone(), &mut new_scope).unwrap())).collect(), 
-                return_type: Box::new(r_type) 
+            Ok(Spanned {
+                inner: TypeInfo::Fun { 
+                    args: params.clone(), 
+                    return_type: Box::new(r_type)
+                },
+                span: expr.span
             })
         },
         ast::Expr::Call { fun, args } => {
-            let fun_type = unwrap_custom_type(get_type(fun, env)?, env)?;
+            let fun_type = unwrap_custom_type(get_type(&fun, env)?, env)?;
     
-            match fun_type {
+            match fun_type.inner {
                 TypeInfo::Fun { args: params, return_type } => {
-                    if params.get(0).unwrap_or(&("_".to_string(), TypeInfo::Void)).1 != TypeInfo::Any {
+                    let first_param_type = params.get(0).map(|(_, t)| &t.inner).unwrap_or(&TypeInfo::Void);
+                    if *first_param_type != TypeInfo::Any {
                         if params.len() != args.len() {
-                            return Err(format!("Expected {} args, got {}", params.len(), args.len()));
+                            return Err(Spanned {
+                                inner: format!("Expected {} args, got {}", params.len(), args.len()),
+                                span: expr.span
+                            });
                         }
                         for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
-                            let arg_type = get_type(arg_expr, env)?;
-                            if unwrap_custom_type(param_type.clone(), env)? != unwrap_custom_type(arg_type, env)? {
-                                return Err("Argument type mismatch".to_string());
+                            let arg_type = get_type(&arg_expr, env)?;
+                            if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
+                                return Err(Spanned {
+                                    inner: "Argument type mismatch".to_string(),
+                                    span: arg_expr.span
+                                });
                             }
                         }
                     }
-                    Ok(*return_type)
+                    Ok(*return_type.clone())
                 },
-                _ => Err(format!("Attempted to call non-function type: {:?}", fun_type)),
+                _ => Err(Spanned {
+                    inner: format!("Attempted to call non-function type: {:?}", fun_type.inner),
+                    span: expr.span
+                }),
             }
         },
         ast::Expr::Record(items) => {
             let mut record_type = Vec::new();
             for (property_name, expr) in items {
-                record_type.push((property_name.to_string(), get_type(expr, env)?));
+                record_type.push((property_name.to_string(), get_type(&expr, env)?));
             }
-            Ok(TypeInfo::Record(record_type))
+            Ok(Spanned {
+                inner: TypeInfo::Record(record_type),
+                span: expr.span
+            })
         },
         ast::Expr::Get(expr, property_name) => {
-            let record_type = get_type(expr, env)?;
-            match unwrap_custom_type(record_type.clone(), env)? {
+            let record_type = get_type(&expr, env)?;
+            match unwrap_custom_type(record_type.clone(), env)?.inner {
                 TypeInfo::Record(items) => {
                     let mut result = None;
                     for (prop_name, prop_type) in items {
@@ -362,59 +472,95 @@ fn get_type(expr: &ast::Expr, env: &mut TypeEnv) -> Result<TypeInfo, String> {
                     }
                     match result {
                         Some(t) => Ok(t),
-                        None => Err(format!("Property {property_name} does not exist on type {record_type:?}")),
+                        None => Err(Spanned {
+                            inner: format!("Property {property_name} does not exist on type {:?}", record_type.inner),
+                            span: expr.span
+                        }),
                     }
                 },
-                t => Err(format!("Type {t:?} does not have property {property_name}"))
+                t => Err(Spanned {
+                    inner: format!("Type {t:?} does not have property {property_name}"),
+                    span: expr.span
+                })
             }
         },
-        ast::Expr::Assign { target: _, value: _ } => Ok(TypeInfo::Void),
-        ast::Expr::Unary(_, expr) => Ok(get_type(expr, env)?),
+        ast::Expr::Assign { target: _, value: _ } => Ok(Spanned {
+            inner: TypeInfo::Void,
+            span: expr.span
+        }),
+        ast::Expr::Unary(_, expr) => Ok(get_type(&expr, env)?),
         ast::Expr::If { condition, body, else_block } => {
-            if get_type(condition, env)? == TypeInfo::Bool {
-                let body_type = get_type(body, env)?;
+            if get_type(&condition, env)?.inner == TypeInfo::Bool {
+                let body_type = get_type(&body, env)?;
                 match else_block {
                     Some(b) => {
-                        let else_type = get_type(b, env)?;
-                        if body_type == else_type {
+                        let else_type = get_type(&b, env)?;
+                        if body_type.inner == else_type.inner {
                             Ok(body_type)
                         } else {
-                            Err(format!("If branches have incompatible types: {body_type:?} and {else_type:?}"))
+                            Err(Spanned {
+                                inner: format!("If branches have incompatible types: {:?} and {:?}", body_type.inner, else_type.inner),
+                                span: b.span
+                            })
                         }
                     },
                     None => Ok(body_type),
                 }
             } else {
-                return Err("If condition should return Bool".to_string());
+                return Err(Spanned {
+                    inner: "If condition should return Bool".to_string(),
+                    span: expr.span
+                });
             }
         },
-        ast::Expr::While { condition, body } => Ok(TypeInfo::Void),
-        ast::Expr::String(_) => Ok(TypeInfo::String),
-        ast::Expr::Break => Ok(TypeInfo::Void),
-        ast::Expr::Continue => Ok(TypeInfo::Void),
+        ast::Expr::While { condition: _, body: _ } => Ok(Spanned {
+            inner: TypeInfo::Void,
+            span: expr.span
+        }),
+        ast::Expr::String(_) => Ok(Spanned {
+            inner: TypeInfo::String,
+            span: expr.span
+        }),
+        ast::Expr::Break => Ok(Spanned {
+            inner: TypeInfo::Void,
+            span: expr.span
+        }),
+        ast::Expr::Continue => Ok(Spanned {
+            inner: TypeInfo::Void,
+            span: expr.span
+        }),
         ast::Expr::Return(expr) => {
-            let return_type = get_type(expr, env)?;
+            let return_type = get_type(&expr, env)?;
             let expected_type = env.get_var_type("&return");
             match expected_type {
                 Some(ti) => {
-                    if return_type == ti {
+                    if return_type.inner == ti.inner {
                         Ok(return_type)
                     } else {
-                        Err(format!("Return type mismatch: expected {ti:?}, but got {return_type:?}"))
+                        Err(Spanned { 
+                            inner: format!("Return type mismatch: expected {:?}, but got {:?}", ti.inner, return_type.inner),
+                            span: ti.span
+                        })
                     }
                 },
-                None => Err("Unexpected return".to_string()),
+                None => Err(Spanned { 
+                    inner: "Unexpected return".to_string(),
+                    span: expr.span
+                }),
             }
         },
     }
 }
 
-fn unwrap_custom_type(type_info: TypeInfo, env: &mut TypeEnv) -> Result<TypeInfo, String> {
-    match type_info {
+fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+    match type_info.inner {
         TypeInfo::Custom(type_name) => {
             match env.resolve_type(type_name.as_str()) {
                 Some(ti) => Ok(unwrap_custom_type(ti, env)?),
-                None => Err(format!("Cannot resolve type {type_name}")),
+                None => Err(Spanned {
+                    inner: format!("Cannot resolve type {type_name}"),
+                    span: type_info.span
+                }),
             }
         },
         TypeInfo::Record(fields) => {
@@ -425,7 +571,10 @@ fn unwrap_custom_type(type_info: TypeInfo, env: &mut TypeEnv) -> Result<TypeInfo
                     Err(e) => return Err(e),
                 }
             }
-            Ok(TypeInfo::Record(new_fields))
+            Ok(Spanned {
+                inner: TypeInfo::Record(new_fields),
+                span: type_info.span
+            })
         },
         TypeInfo::Fun { args, return_type } => {
             let mut new_args = Vec::new();
@@ -435,8 +584,11 @@ fn unwrap_custom_type(type_info: TypeInfo, env: &mut TypeEnv) -> Result<TypeInfo
                     Err(e) => return Err(e),
                 }
             }
-            let new_return_type = unwrap_custom_type(*return_type, env)?;
-            Ok(TypeInfo::Fun { args: new_args, return_type: Box::new(new_return_type) })
+            let new_return_type = unwrap_custom_type(*return_type.clone(), env)?;
+            Ok(Spanned {
+                inner: TypeInfo::Fun { args: new_args, return_type: Box::new(new_return_type) },
+                span: type_info.span
+            })
         },
         _ => Ok(type_info)
     }

@@ -1,6 +1,11 @@
 use std::{fs::{self, write}, io::Error, rc::Rc, sync::OnceLock, time::Instant};
 
-use gigalang::{ast::TypeInfo, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value, ControlFlow}, main_parser::parser};
+use chumsky::span::{SimpleSpan, Span as SpanTrait};
+use gigalang::{ast::{TypeInfo, Spanned, Span}, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value, ControlFlow}, main_parser::parser};
+
+fn spanned<T>(inner: T) -> Spanned<T> {
+    Spanned { inner, span: Span::new((), 0..0) }
+}
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 
@@ -33,7 +38,13 @@ fn create_global_env() -> (Env, TypeEnv) {
     let mut type_env = TypeEnv::new();
     let mut env = Env::new();
     
-    type_env.add_var_type("print".to_string(), TypeInfo::Fun { args: vec![("args".to_string(), TypeInfo::Any)], return_type: Box::new(TypeInfo::Void) });
+    type_env.add_var_type("print".to_string(), Spanned { 
+        inner: TypeInfo::Fun {
+            args: vec![("args".to_string(), spanned(TypeInfo::Any))], 
+            return_type: Box::new(spanned(TypeInfo::Void)) 
+        }, 
+        span: SimpleSpan::from(0..0) 
+    });
     env.add_variable("print".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "print".to_string(),
         max_args: None,
@@ -54,7 +65,13 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
-    type_env.add_var_type("debug".to_string(), TypeInfo::Fun { args: vec![("args".to_string(), TypeInfo::Any)], return_type: Box::new(TypeInfo::Void) });
+    type_env.add_var_type("debug".to_string(), Spanned { 
+        inner: TypeInfo::Fun { 
+            args: vec![("args".to_string(), spanned(TypeInfo::Any))], 
+            return_type: Box::new(spanned(TypeInfo::Void))
+        },
+        span: SimpleSpan::from(0..0)
+    });
     env.add_variable("debug".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "debug".to_string(),
         max_args: None,
@@ -75,7 +92,13 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
-    type_env.add_var_type("str".to_string(), TypeInfo::Fun { args: vec![("value".to_string(), TypeInfo::Any)], return_type: Box::new(TypeInfo::String) });
+    type_env.add_var_type("str".to_string(), Spanned { 
+        inner: TypeInfo::Fun {
+            args: vec![("value".to_string(), spanned(TypeInfo::Any))],
+            return_type: Box::new(spanned(TypeInfo::String)) 
+        }, 
+        span: SimpleSpan::from(0..0)
+    });
     env.add_variable("str".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "str".to_string(),
         max_args: Some(1),
@@ -93,10 +116,13 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
-    type_env.add_var_type("clock".to_string(), TypeInfo::Fun { 
-        args: Vec::new(),
-        return_type: Box::new(TypeInfo::Int) }
-    );
+    type_env.add_var_type("clock".to_string(), Spanned { 
+        inner: TypeInfo::Fun { 
+            args: Vec::new(),
+            return_type: Box::new(spanned(TypeInfo::Int)) 
+        },
+        span: SimpleSpan::from(0..0)
+    });
     env.add_variable("clock".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "clock".to_string(),
         max_args: Some(0),
@@ -108,10 +134,13 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
-    type_env.add_var_type("input".to_string(), TypeInfo::Fun { 
-        args: Vec::new(),
-        return_type: Box::new(TypeInfo::String) }
-    );
+    type_env.add_var_type("input".to_string(), Spanned { 
+        inner: TypeInfo::Fun { 
+            args: Vec::new(),
+            return_type: Box::new(spanned(TypeInfo::String)) 
+        },
+        span: SimpleSpan::from(0..0)
+    });
     env.add_variable("input".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "input".to_string(),
         max_args: Some(0),
@@ -130,10 +159,13 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
-    type_env.add_var_type("len".to_string(), TypeInfo::Fun { 
-        args: vec![("value".to_string(), TypeInfo::Any)],
-        return_type: Box::new(TypeInfo::String) }
-    );
+    type_env.add_var_type("len".to_string(), Spanned { 
+        inner: TypeInfo::Fun { 
+            args: vec![("value".to_string(), spanned(TypeInfo::Any))],
+            return_type: Box::new(spanned(TypeInfo::String)) 
+        },
+        span: SimpleSpan::from(0..0)
+    });
     env.add_variable("len".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "len".to_string(),
         max_args: Some(1),
@@ -155,10 +187,13 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
-    type_env.add_var_type("read".to_string(), TypeInfo::Fun { 
-        args: vec![("path".to_string(), TypeInfo::String)],
-        return_type: Box::new(TypeInfo::String) }
-    );
+    type_env.add_var_type("read".to_string(), Spanned {
+        inner: TypeInfo::Fun { 
+            args: vec![("path".to_string(), spanned(TypeInfo::String))],
+            return_type: Box::new(spanned(TypeInfo::String)) 
+        },
+        span: SimpleSpan::from(0..0)
+    });
     env.add_variable("read".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "read".to_string(),
         max_args: Some(1),
@@ -185,13 +220,16 @@ fn create_global_env() -> (Env, TypeEnv) {
         ))
     }));
     
-    type_env.add_var_type("write".to_string(), TypeInfo::Fun { 
-        args: vec![
-            ("path".to_string(), TypeInfo::String),
-            ("content".to_string(), TypeInfo::String)
-        ],
-        return_type: Box::new(TypeInfo::String) }
-    );
+    type_env.add_var_type("write".to_string(), Spanned {
+        inner: TypeInfo::Fun { 
+            args: vec![
+                ("path".to_string(), spanned(TypeInfo::String)),
+                ("content".to_string(), spanned(TypeInfo::String))
+            ],
+            return_type: Box::new(spanned(TypeInfo::String)) 
+        },
+        span: SimpleSpan::from(0..0)
+    });
     env.add_variable("write".to_string(), Value::NativeFun(gigalang::ir::NativeFun { 
         name: "write".to_string(),
         max_args: Some(2),
@@ -271,7 +309,16 @@ fn main() {
         
         let res = hoist(&parsed.unwrap(), &mut type_env);
         match res {
-            Err(e) => println!("{e}"),
+            Err(e) => {Report::build(ReportKind::Error, e.span.into_range())
+                .with_message(e.to_string())
+                .with_label(
+                    Label::new(e.span.into_range())
+                        .with_message(e.inner)
+                        .with_color(Color::Red),
+                )
+                .finish()
+                .print(Source::from(src.clone()))
+                .unwrap();},
             Ok(result) => {
                 let mut lowered_statements = Vec::new();
                 for s in result {
@@ -281,7 +328,7 @@ fn main() {
                             None => continue,
                         },
                         Err(e) => {
-                            println!("{e}");
+                            println!("{}", e.inner);
                             continue
                         },
                     }

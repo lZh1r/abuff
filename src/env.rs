@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{ast::TypeInfo, ir::Value};
+use crate::{ast::{Spanned, TypeInfo}, ir::Value};
 
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -62,8 +62,8 @@ impl Env {
 
 #[derive(Debug, Clone)]
 pub struct TypeScope {
-    variable_types: HashMap<String, TypeInfo>,
-    custom_types: HashMap<String, TypeInfo>,
+    variable_types: HashMap<String, Spanned<TypeInfo>>,
+    custom_types: HashMap<String, Spanned<TypeInfo>>,
     parent: Option<TypeEnv>,
 }
 
@@ -79,7 +79,7 @@ impl TypeEnv {
         })))
     }
     
-    pub fn get_var_type(&self, name: &str) -> Option<TypeInfo> {
+    pub fn get_var_type(&self, name: &str) -> Option<Spanned<TypeInfo>> {
         let scope = self.0.borrow();
         
         // println!("Resolving type of {name}");
@@ -95,7 +95,7 @@ impl TypeEnv {
         }
     }
     
-    pub fn resolve_type(&self, type_name: &str) -> Option<TypeInfo> {
+    pub fn resolve_type(&self, type_name: &str) -> Option<Spanned<TypeInfo>> {
         let scope = self.0.borrow();
         
         if let Some(type_info) = scope.custom_types.get(type_name) {
@@ -118,11 +118,11 @@ impl TypeEnv {
         )
     }
     
-    pub fn add_var_type(&mut self, name: String, type_info: TypeInfo) -> () {
+    pub fn add_var_type(&mut self, name: String, type_info: Spanned<TypeInfo>) -> () {
         self.0.borrow_mut().variable_types.insert(name, type_info);
     }
     
-    pub fn add_custom_type(&mut self, name: String, type_info: TypeInfo) -> () {
+    pub fn add_custom_type(&mut self, name: String, type_info: Spanned<TypeInfo>) -> () {
         self.0.borrow_mut().custom_types.insert(name, type_info);
     }
 }
