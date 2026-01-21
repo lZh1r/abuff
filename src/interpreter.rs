@@ -1,20 +1,23 @@
 use std::collections::HashMap;
 
-use crate::{env::Env, ir::{Expr, Operation, Statement, Value, ControlFlow}};
+use crate::{ast::Spanned, env::Env, ir::{Expr, Operation, Statement, Value, ControlFlow}};
 
-pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<ControlFlow, String> {
-    match expr {
+pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
+    match &expr.inner {
         Expr::Int(n) => Ok(ControlFlow::Value(Value::Int(*n))),
         Expr::Float(f) => Ok(ControlFlow::Value(Value::Float(*f))),
         Expr::Var(v) => {
             let result = env.get(v);
             match result {
                 Some(value) => Ok(ControlFlow::Value(value)),
-                _ => Err(format!("Cannot resolve {v}").to_string())
+                _ => Err(Spanned {
+                    inner: format!("Cannot resolve {v}"),
+                    span: expr.span
+                })
             }
         },
-        Expr::Binary { left, operation, right } => binary_operation(left, operation, right, env),
-        Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
+        Expr::Binary { left, operation, right } => binary_operation(left, operation, right, env, expr.span),
+        Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env, expr.span),
         Expr::Fun { params: param, body } => Ok(ControlFlow::Value(Value::Closure { params: param.clone(), body: body.clone(), env: env.clone() })),
         Expr::Call { fun, args: arg } => {
             let fun_cf = eval_expr(fun, env)?;
@@ -25,7 +28,7 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<ControlFlow, String> {
                     cf => return Ok(cf),
                 }
             };
-            eval_closure(fun_cf, args)
+            eval_closure(fun_cf, args, expr.span)
         },
         Expr::Record(fields) => {
             let mut result = HashMap::new();
@@ -46,16 +49,22 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<ControlFlow, String> {
                     Value::Record(field_map) => {
                         match field_map.get(field_name) {
                             Some(value) => Ok(ControlFlow::Value(value.clone())),
-                            None => Err(format!("Property {field_name} does not exist on this object").to_string()),
+                            None => Err(Spanned {
+                                inner: format!("Property {field_name} does not exist on this object"),
+                                span: expr.span
+                            }),
                         }
                     },
-                    _ => Err("Cannot use an accessor on this".to_string())
+                    _ => Err(Spanned {
+                        inner: "Cannot use an accessor on this".to_string(),
+                        span: expr.span
+                    })
                 },
                 cf => Ok(cf),
             }
         },
         Expr::Assign { target, value } => {
-            match &**target {
+            match &target.inner {
                 Expr::Var(v) => {
                     let new_value = match eval_expr(value, env)? {
                         ControlFlow::Value(v) => v,
@@ -64,24 +73,33 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<ControlFlow, String> {
                     env.set_variable(v.clone(), new_value);
                     Ok(ControlFlow::Value(Value::Void))
                 },
-                t => Err(format!("Cannot assign to {t:?}"))
+                t => Err(Spanned {
+                    inner: format!("Cannot assign to {t:?}"),
+                    span: expr.span
+                })
             }
         },
-        Expr::Unary(op, expr) => {
-            match eval_expr(expr, env)? {
+        Expr::Unary(op, inner_expr) => {
+            match eval_expr(inner_expr, env)? {
                 ControlFlow::Value(v) => {
                     match op {
                         crate::ast::UnaryOp::Negate => {
                             match v {
                                 Value::Float(f) => Ok(ControlFlow::Value(Value::Float(-f))),
                                 Value::Int(i) => Ok(ControlFlow::Value(Value::Int(-i))),
-                                v => Err(format!("{v:?} cannot be negated"))
+                                v => Err(Spanned {
+                                    inner: format!("{v:?} cannot be negated"),
+                                    span: expr.span
+                                })
                             }
                         },
                         crate::ast::UnaryOp::Not => {
                             match v {
                                 Value::Bool(b) => Ok(ControlFlow::Value(Value::Bool(!b))),
-                                v => Err(format!("{v:?} cannot be inverted"))
+                                v => Err(Spanned {
+                                    inner: format!("{v:?} cannot be inverted"),
+                                    span: expr.span
+                                })
                             }
                         },
                     }
@@ -104,7 +122,10 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<ControlFlow, String> {
                                 }
                             }
                         },
-                        _ => Err(format!("{condition_value:?} is not a valid condition"))
+                        _ => Err(Spanned {
+                            inner: format!("{condition_value:?} is not a valid condition"),
+                            span: expr.span
+                        })
                     }
                 },
                 cf => Ok(cf),
@@ -114,7 +135,10 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<ControlFlow, String> {
             loop {
                 let cond = match eval_expr(condition, env)? {
                     ControlFlow::Value(Value::Bool(b)) => b,
-                    ControlFlow::Value(v) => return Err(format!("{v:?} is not a valid condition value")),
+                    ControlFlow::Value(v) => return Err(Spanned {
+                        inner: format!("{v:?} is not a valid condition value"),
+                        span: expr.span
+                    }),
                     cf => return Ok(cf),
                 };
                 
@@ -132,21 +156,27 @@ pub fn eval_expr(expr: &Expr, env: &mut Env) -> Result<ControlFlow, String> {
         Expr::String(s) => Ok(ControlFlow::Value(Value::String(s.clone()))),
         Expr::Break => Ok(ControlFlow::Break),
         Expr::Continue => Ok(ControlFlow::Continue),
-        Expr::Return(expr) => {
-            match eval_expr(expr, env)? {
+        Expr::Return(inner_expr) => {
+            match eval_expr(inner_expr, env)? {
                 ControlFlow::Value(value) => Ok(ControlFlow::Return(value)),
                 ControlFlow::Return(value) => Ok(ControlFlow::Return(value)),
-                ControlFlow::Break => Err("Expected a value, but found \"break\"".to_string()),
-                ControlFlow::Continue => Err("Expected a value, but found \"continue\"".to_string()),
+                ControlFlow::Break => Err(Spanned {
+                    inner: "Expected a value, but found \"break\"".to_string(),
+                    span: expr.span
+                }),
+                ControlFlow::Continue => Err(Spanned {
+                    inner: "Expected a value, but found \"continue\"".to_string(),
+                    span: expr.span
+                }),
             }
         },
     }
 }
 
-fn eval_block(stmts: &[Statement], final_expr: &Option<Box<Expr>>, env: &mut Env) -> Result<ControlFlow, String> {
+fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr>>>, env: &mut Env, span: crate::ast::Span) -> Result<ControlFlow, Spanned<String>> {
     let mut new_scope = env.enter_scope();
     for statement in stmts {
-        match statement {
+        match &statement.inner {
             Statement::Let { name, expr } => {
                 match eval_expr(expr, &mut new_scope)? {
                     ControlFlow::Value(v) => new_scope.add_variable(name.clone(), v),
@@ -168,7 +198,7 @@ fn eval_block(stmts: &[Statement], final_expr: &Option<Box<Expr>>, env: &mut Env
     }
 }
 
-pub fn eval_closure(fun: ControlFlow, args: Vec<Value>) -> Result<ControlFlow, String> {
+pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) -> Result<ControlFlow, Spanned<String>> {
     match fun {
         ControlFlow::Value(v) => {
             match v {
@@ -178,7 +208,7 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>) -> Result<ControlFlow, S
                         new_scope.add_variable(par.clone(), arg.clone());
                     }
 
-                    match eval_expr(&*body, &mut new_scope)? {
+                    match eval_expr(&body, &mut new_scope)? {
                         ControlFlow::Return(v) => Ok(ControlFlow::Value(v)),
                         ControlFlow::Value(v) => Ok(ControlFlow::Value(v)),
                         cf => Ok(cf), // Break/Continue in a function body? Should probably be handled by checker, but here we propagate.
@@ -188,21 +218,30 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>) -> Result<ControlFlow, S
                     if args.len() <= native_fun.max_args.unwrap_or(999999) {
                         match (native_fun.function)(args) {
                             Ok(v) => Ok(ControlFlow::Value(v)),
-                            Err(e) => Err(e),
+                            Err(e) => Err(Spanned {
+                                inner: e,
+                                span
+                            }),
                         }
                     } else {
-                        Err(format!("Expected {} arguments, but got {}", native_fun.max_args.unwrap_or(999999), args.len()))
+                        Err(Spanned {
+                            inner: format!("Expected {} arguments, but got {}", native_fun.max_args.unwrap_or(999999), args.len()),
+                            span
+                        })
                     }
                     
                 }
-                _ => Err("This expression is not callable".to_string())
+                _ => Err(Spanned {
+                    inner: "This expression is not callable".to_string(),
+                    span
+                })
             }
         },
         cf => Ok(cf),
     }
 }
 
-fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, env: &mut Env) -> Result<ControlFlow, String> {
+fn binary_operation(left: &Box<Spanned<Expr>>, operation: &Operation, right: &Box<Spanned<Expr>>, env: &mut Env, span: crate::ast::Span) -> Result<ControlFlow, Spanned<String>> {
     let left_value = match eval_expr(left, env)? {
         ControlFlow::Value(v) => v,
         cf => return Ok(cf),
@@ -214,18 +253,18 @@ fn binary_operation(left: &Box<Expr>, operation: &Operation, right: &Box<Expr>, 
     };
 
     match operation {
-        Operation::Add => Ok(ControlFlow::Value(left_value.add(right_value)?)),
-        Operation::Subtract => Ok(ControlFlow::Value(left_value.subtract(right_value)?)),
-        Operation::Multiply => Ok(ControlFlow::Value(left_value.multiply(right_value)?)),
-        Operation::Divide => Ok(ControlFlow::Value(left_value.divide(right_value)?)),
+        Operation::Add => Ok(ControlFlow::Value(left_value.add(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::Subtract => Ok(ControlFlow::Value(left_value.subtract(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::Multiply => Ok(ControlFlow::Value(left_value.multiply(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::Divide => Ok(ControlFlow::Value(left_value.divide(right_value).map_err(|e| Spanned { inner: e, span })?)),
         Operation::Eq => Ok(ControlFlow::Value(Value::Bool(left_value == right_value))),
-        Operation::LessThan => Ok(ControlFlow::Value(left_value.less_than(right_value)?)),
-        Operation::GreaterThan => Ok(ControlFlow::Value(left_value.greater_than(right_value)?)),
+        Operation::LessThan => Ok(ControlFlow::Value(left_value.less_than(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::GreaterThan => Ok(ControlFlow::Value(left_value.greater_than(right_value).map_err(|e| Spanned { inner: e, span })?)),
         Operation::NotEq => Ok(ControlFlow::Value(Value::Bool(left_value != right_value))),
-        Operation::LessThanEq => Ok(ControlFlow::Value(left_value.less_than_eq(right_value)?)),
-        Operation::GreaterThanEq => Ok(ControlFlow::Value(left_value.greater_than_eq(right_value)?)),
-        Operation::And => Ok(ControlFlow::Value(left_value.logic_and(right_value)?)),
-        Operation::Or => Ok(ControlFlow::Value(left_value.logic_or(right_value)?)),
-        Operation::Modulo => Ok(ControlFlow::Value(left_value.modulo(right_value)?)),
+        Operation::LessThanEq => Ok(ControlFlow::Value(left_value.less_than_eq(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::GreaterThanEq => Ok(ControlFlow::Value(left_value.greater_than_eq(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::And => Ok(ControlFlow::Value(left_value.logic_and(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::Or => Ok(ControlFlow::Value(left_value.logic_or(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::Modulo => Ok(ControlFlow::Value(left_value.modulo(right_value).map_err(|e| Spanned { inner: e, span })?)),
     }
 }

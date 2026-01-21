@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{collections::HashMap, rc::Rc};
 
-use crate::{ast::UnaryOp, env::Env};
+use crate::{ast::{Spanned, UnaryOp}, env::Env};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -10,25 +10,25 @@ pub enum Expr {
     Int(i64),
     String(String),
     Var(String),
-    Binary {left: Box<Expr>, operation: Operation, right: Box<Expr>},
-    Block(Vec<Statement>, Option<Box<Expr>>),
-    Fun {params: Vec<String>, body: Box<Expr>},
-    Call {fun: Box<Expr>, args: Vec<Expr>},
-    Record(Vec<(String, Expr)>),
-    Get(Box<Expr>, String),
-    Assign {target: Box<Expr>, value: Box<Expr>},
-    Unary(UnaryOp, Box<Expr>),
-    If {condition: Box<Expr>, body: Box<Expr>, else_block: Option<Box<Expr>>},
-    While {condition: Box<Expr>, body: Box<Expr>},
+    Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
+    Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
+    Fun {params: Vec<String>, body: Box<Spanned<Expr>>},
+    Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
+    Record(Vec<(String, Spanned<Expr>)>),
+    Get(Box<Spanned<Expr>>, String),
+    Assign {target: Box<Spanned<Expr>>, value: Box<Spanned<Expr>>},
+    Unary(UnaryOp, Box<Spanned<Expr>>),
+    If {condition: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>, else_block: Option<Box<Spanned<Expr>>>},
+    While {condition: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>},
     Break,
     Continue,
-    Return(Box<Expr>)
+    Return(Box<Spanned<Expr>>)
 }
 
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Let{name: String, expr: Expr},
-    Expr(Expr)
+    Let{name: String, expr: Spanned<Expr>},
+    Expr(Spanned<Expr>)
 }
 
 #[derive(Debug, Clone)]
@@ -78,7 +78,7 @@ pub enum Value {
     String(String),
     Char(char),
     Record(HashMap<String, Value>), 
-    Closure { params: Vec<String>, body: Box<Expr>, env: Env },
+    Closure { params: Vec<String>, body: Box<Spanned<Expr>>, env: Env },
     NativeFun(NativeFun),
     Null,
     Void

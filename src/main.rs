@@ -1,7 +1,7 @@
 use std::{fs::{self, write}, io::Error, rc::Rc, sync::OnceLock, time::Instant};
 
 use chumsky::span::{SimpleSpan, Span as SpanTrait};
-use abuff::{ast::{TypeInfo, Spanned, Span}, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, interpreter::{eval_expr}, ir::{Statement, Value, ControlFlow}, main_parser::parser};
+use abuff::{ast::{Span, Spanned, TypeInfo}, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, error::build_report, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, main_parser::parser};
 
 fn spanned<T>(inner: T) -> Spanned<T> {
     Spanned { inner, span: Span::new((), 0..0) }
@@ -11,18 +11,18 @@ use chumsky::Parser;
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
 
-fn run(statements: &[Statement], env: &mut Env) -> Result<ControlFlow, String> {
+fn run(statements: &[Spanned<Statement>], env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
     let mut result = Ok(ControlFlow::Value(Value::Void));
     for statement in statements {
-        match statement {
+        match statement.inner.clone() {
             Statement::Let { name, expr } => {
-                match eval_expr(expr, env)? {
+                match eval_expr(&expr, env)? {
                     ControlFlow::Value(v) => env.add_variable(name.clone(), v),
                     cf => return Ok(cf),
                 }
             },
             Statement::Expr(expr) => {
-                let cf = eval_expr(expr, env)?;
+                let cf = eval_expr(&expr, env)?;
                 match cf {
                     ControlFlow::Value(_) => result = Ok(cf),
                     _ => return Ok(cf),
@@ -309,16 +309,7 @@ fn main() {
         
         let res = hoist(&parsed.unwrap(), &mut type_env);
         match res {
-            Err(e) => {Report::build(ReportKind::Error, e.span.into_range())
-                .with_message(e.to_string())
-                .with_label(
-                    Label::new(e.span.into_range())
-                        .with_message(e.inner)
-                        .with_color(Color::Red),
-                )
-                .finish()
-                .print(Source::from(src.clone()))
-                .unwrap();},
+            Err(e) => build_report(e, &src),
             Ok(result) => {
                 let mut lowered_statements = Vec::new();
                 for s in result {
@@ -334,7 +325,7 @@ fn main() {
                     }
                 }
                 match run(&lowered_statements, &mut stack) {
-                    Err(e) => println!("{e}"),
+                    Err(e) => build_report(e, &src),
                     Ok(cf) => {
                         match cf {
                             ControlFlow::Value(_) => (),

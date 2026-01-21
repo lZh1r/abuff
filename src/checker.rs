@@ -60,59 +60,71 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
     Ok(new_statements)
 }
 
-pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -> Result<Option<ir::Statement>, Spanned<String>> {
+pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -> Result<Option<Spanned<ir::Statement>>, Spanned<String>> {
     match &statement.inner {
         ast::Statement::TypeDef { name: _, type_info: _ } => Ok(None),
         ast::Statement::Expr(expr) => {
-            Ok(Some(ir::Statement::Expr(lower_expr(&expr, env)?)))
+            Ok(Some(Spanned {
+                inner: ir::Statement::Expr(lower_expr(&expr, env)?),
+                span: statement.span
+            }))
         },
         ast::Statement::Let { name, expr, type_info: _ } => {
-            Ok(Some(ir::Statement::Let { name: name.clone(), expr: lower_expr(&expr, env)? }))
+            Ok(Some(Spanned {
+                inner: ir::Statement::Let { name: name.clone(), expr: lower_expr(&expr, env)? },
+                span: statement.span
+            }))
         }
         ast::Statement::Fun { name, params, body, return_type } => {
-            Ok(Some(ir::Statement::Let { 
-                name: name.clone(),
-                expr: lower_expr(&Spanned {
-                    inner: ast::Expr::Fun { 
-                        params: params.clone(), 
-                        body: Box::new(body.clone()), 
-                        return_type: return_type.clone() 
-                    },
-                    span: statement.span
-                }, env)?
+            Ok(Some(Spanned {
+                inner: ir::Statement::Let { 
+                    name: name.clone(),
+                    expr: lower_expr(&Spanned {
+                        inner: ast::Expr::Fun { 
+                            params: params.clone(), 
+                            body: Box::new(body.clone()), 
+                            return_type: return_type.clone() 
+                        },
+                        span: statement.span
+                    }, env)?
+                },
+                span: statement.span
             }))
         },
     }
 }
 
-pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Expr, Spanned<String>> {
+pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<ir::Expr>, Spanned<String>> {
     match &expr.inner {
-        ast::Expr::Bool(b) => Ok(ir::Expr::Bool(*b)),
-        ast::Expr::Float(f) => Ok(ir::Expr::Float(*f)),
-        ast::Expr::Int(i) => Ok(ir::Expr::Int(*i)),
-        ast::Expr::Var(v) => Ok(ir::Expr::Var(v.clone())),
+        ast::Expr::Bool(b) => Ok(Spanned { inner: ir::Expr::Bool(*b), span: expr.span }),
+        ast::Expr::Float(f) => Ok(Spanned { inner: ir::Expr::Float(*f), span: expr.span }),
+        ast::Expr::Int(i) => Ok(Spanned { inner: ir::Expr::Int(*i), span: expr.span }),
+        ast::Expr::Var(v) => Ok(Spanned { inner: ir::Expr::Var(v.clone()), span: expr.span }),
         ast::Expr::Binary { left, operation, right } => {
             let left_type = get_type(&left, env)?;
             let right_type = get_type(&right, env)?;
             if left_type.inner == right_type.inner {
-                Ok(ir::Expr::Binary { 
-                    left: Box::new(lower_expr(&left, env)?),
-                    operation: match operation {
-                        ast::Operation::Add => ir::Operation::Add,
-                        ast::Operation::Subtract => ir::Operation::Subtract,
-                        ast::Operation::Multiply => ir::Operation::Multiply,
-                        ast::Operation::Divide => ir::Operation::Divide,
-                        ast::Operation::Eq => ir::Operation::Eq,
-                        ast::Operation::LessThan => ir::Operation::LessThan,
-                        ast::Operation::GreaterThan => ir::Operation::GreaterThan,
-                        ast::Operation::NotEq => ir::Operation::NotEq,
-                        ast::Operation::LessThanEq => ir::Operation::LessThanEq,
-                        ast::Operation::GreaterThanEq => ir::Operation::GreaterThanEq,
-                        ast::Operation::And => ir::Operation::And,
-                        ast::Operation::Or => ir::Operation::Or,
-                        ast::Operation::Modulo => ir::Operation::Modulo,
-                    }, 
-                    right: Box::new(lower_expr(&right, env)?)
+                Ok(Spanned {
+                    inner: ir::Expr::Binary { 
+                        left: Box::new(lower_expr(&left, env)?),
+                        operation: match operation {
+                            ast::Operation::Add => ir::Operation::Add,
+                            ast::Operation::Subtract => ir::Operation::Subtract,
+                            ast::Operation::Multiply => ir::Operation::Multiply,
+                            ast::Operation::Divide => ir::Operation::Divide,
+                            ast::Operation::Eq => ir::Operation::Eq,
+                            ast::Operation::LessThan => ir::Operation::LessThan,
+                            ast::Operation::GreaterThan => ir::Operation::GreaterThan,
+                            ast::Operation::NotEq => ir::Operation::NotEq,
+                            ast::Operation::LessThanEq => ir::Operation::LessThanEq,
+                            ast::Operation::GreaterThanEq => ir::Operation::GreaterThanEq,
+                            ast::Operation::And => ir::Operation::And,
+                            ast::Operation::Or => ir::Operation::Or,
+                            ast::Operation::Modulo => ir::Operation::Modulo,
+                        }, 
+                        right: Box::new(lower_expr(&right, env)?)
+                    },
+                    span: expr.span
                 })
             } else {
                 Err(Spanned { 
@@ -121,11 +133,12 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                 })
             }
         },
-        ast::Expr::Block(statements, expr) => {
+        ast::Expr::Block(statements, f_expr) => {
             let mut new_scope = env.enter_scope();
+            let new_statements = hoist(statements, &mut new_scope)?;
             let mut lowered_statements = Vec::new();
-            for s in statements {
-                match lower_statement(s, env) {
+            for s in new_statements {
+                match lower_statement(&s, env) {
                     Ok(s) => match s {
                         Some(s) => lowered_statements.push(s),
                         None => (),
@@ -133,11 +146,11 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                     Err(e) => return Err(e),
                 }
             }
-            let final_expr = match expr {
+            let final_expr = match f_expr {
                 Some(e) => Some(Box::new(lower_expr(&e, &mut new_scope)?)),
                 None => None,
             };
-            Ok(ir::Expr::Block(lowered_statements, final_expr))
+            Ok(Spanned { inner: ir::Expr::Block(lowered_statements, final_expr), span: expr.span })
         },
         ast::Expr::Fun { params, body, return_type } => {
             let mut new_scope = env.enter_scope();
@@ -149,7 +162,10 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
             let inferred_type = get_type(&body, &mut new_scope)?;
             
             if r_type.inner == inferred_type.inner {
-                Ok(ir::Expr::Fun { params: params.iter().map(|(name, _)| name.to_string()).collect(), body: Box::new(lower_expr(&body, &mut new_scope)?) })
+                Ok(Spanned { 
+                    inner: ir::Expr::Fun { params: params.iter().map(|(name, _)| name.to_string()).collect(), body: Box::new(lower_expr(&body, &mut new_scope)?) },
+                    span: expr.span
+                })
             } else {
                 Err(Spanned { 
                     inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
@@ -180,9 +196,12 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                         }
                     }
             
-                    Ok(ir::Expr::Call { 
-                        fun: Box::new(lower_expr(&fun, env)?), 
-                        args: args.iter().map(|expr| lower_expr(&expr, env).unwrap()).collect() 
+                    Ok(Spanned {
+                        inner: ir::Expr::Call { 
+                            fun: Box::new(lower_expr(&fun, env)?), 
+                            args: args.iter().map(|expr| lower_expr(&expr, env).unwrap()).collect() 
+                        },
+                        span: expr.span
                     })
                 },
                 t => Err(Spanned {
@@ -191,13 +210,13 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                 })
             }
         },
-        ast::Expr::Record(items) => Ok(ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(&expr, env).unwrap())).collect())),
-        ast::Expr::Get(object, property_name) => Ok(ir::Expr::Get(Box::new(lower_expr(&object, env)?), property_name.to_string())),
+        ast::Expr::Record(items) => Ok(Spanned { inner: ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(&expr, env).unwrap())).collect()), span: expr.span }),
+        ast::Expr::Get(object, property_name) => Ok(Spanned { inner: ir::Expr::Get(Box::new(lower_expr(&object, env)?), property_name.to_string()), span: expr.span }),
         ast::Expr::Assign { target, value } => {
             let target_type = get_type(&target, env)?;
             let value_type = get_type(&value, env)?;
             if target_type.inner == value_type.inner {
-                Ok(ir::Expr::Assign { target: Box::new(lower_expr(&target, env)?), value: Box::new(lower_expr(&value, env)?) })
+                Ok(Spanned { inner: ir::Expr::Assign { target: Box::new(lower_expr(&target, env)?), value: Box::new(lower_expr(&value, env)?) }, span: expr.span })
             } else {
                 Err(Spanned { 
                     inner: format!("Type {:?} is not assignable to {:?}", value_type.inner, target_type.inner), 
@@ -210,8 +229,8 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                 ast::UnaryOp::Negate => {
                     let expr_type = get_type(&expr, env)?;
                     match expr_type.inner {
-                        TypeInfo::Int => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?))),
-                        TypeInfo::Float => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?))),
+                        TypeInfo::Int => Ok(Spanned { inner: ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?)), span: expr.span }),
+                        TypeInfo::Float => Ok(Spanned { inner: ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?)), span: expr.span }),
                         _ => Err(Spanned {
                             inner: format!("Type {:?} cannot be negated", expr_type.inner),
                             span: expr.span
@@ -221,7 +240,7 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                 ast::UnaryOp::Not => {
                     let expr_type = get_type(&expr, env)?;
                     match expr_type.inner {
-                        TypeInfo::Bool => Ok(ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?))),
+                        TypeInfo::Bool => Ok(Spanned { inner: ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(&expr, env)?)), span: expr.span }),
                         _ => Err(Spanned {
                             inner: format!("Type {:?} cannot be inverted", expr_type.inner),
                             span: expr.span
@@ -237,10 +256,13 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                         let body_type = get_type(&body, env)?;
                         let else_type = get_type(&b, env)?;
                         if body_type.inner == else_type.inner {
-                            Ok(ir::Expr::If { 
-                                condition: Box::new(lower_expr(&condition, env)?),
-                                body: Box::new(lower_expr(&body, env)?),
-                                else_block: Some(Box::new(lower_expr(&b, env)?)) 
+                            Ok(Spanned {
+                                inner: ir::Expr::If { 
+                                    condition: Box::new(lower_expr(&condition, env)?),
+                                    body: Box::new(lower_expr(&body, env)?),
+                                    else_block: Some(Box::new(lower_expr(&b, env)?)) 
+                                },
+                                span: expr.span
                             })
                         } else {
                             Err(Spanned {
@@ -249,10 +271,13 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                             })
                         }
                     },
-                    None => Ok(ir::Expr::If { 
-                        condition: Box::new(lower_expr(&condition, env)?),
-                        body: Box::new(lower_expr(&body, env)?),
-                        else_block: None 
+                    None => Ok(Spanned {
+                        inner: ir::Expr::If { 
+                            condition: Box::new(lower_expr(&condition, env)?),
+                            body: Box::new(lower_expr(&body, env)?),
+                            else_block: None 
+                        },
+                        span: expr.span
                     }),
                 }
             } else {
@@ -264,7 +289,7 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
         },
         ast::Expr::While { condition, body } => {
             if get_type(&condition, env)?.inner == TypeInfo::Bool && get_type(&body, env)?.inner == TypeInfo::Void {
-                Ok(ir::Expr::While { condition: Box::new(lower_expr(&condition, env)?), body: Box::new(lower_expr(&body, env)?) })
+                Ok(Spanned { inner: ir::Expr::While { condition: Box::new(lower_expr(&condition, env)?), body: Box::new(lower_expr(&body, env)?) }, span: expr.span })
             } else {
                 Err(Spanned {
                     inner: "While condition should return Bool and the body should return Void".to_string(),
@@ -272,10 +297,10 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<ir::Ex
                 })
             }
         },
-        ast::Expr::String(s) => Ok(ir::Expr::String(s.clone())),
-        ast::Expr::Break => Ok(ir::Expr::Break),
-        ast::Expr::Continue => Ok(ir::Expr::Continue),
-        ast::Expr::Return(expr) => Ok(ir::Expr::Return(Box::new(lower_expr(&expr, env)?))),
+        ast::Expr::String(s) => Ok(Spanned { inner: ir::Expr::String(s.clone()), span: expr.span }),
+        ast::Expr::Break => Ok(Spanned { inner: ir::Expr::Break, span: expr.span }),
+        ast::Expr::Continue => Ok(Spanned { inner: ir::Expr::Continue, span: expr.span }),
+        ast::Expr::Return(expr) => Ok(Spanned { inner: ir::Expr::Return(Box::new(lower_expr(&expr, env)?)), span: expr.span }),
     }
 }
 
