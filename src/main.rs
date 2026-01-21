@@ -319,7 +319,7 @@ fn main() {
                             None => continue,
                         },
                         Err(e) => {
-                            println!("{}", e.inner);
+                            build_report(e, &src);
                             continue
                         },
                     }

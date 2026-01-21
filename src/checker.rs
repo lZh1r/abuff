@@ -211,7 +211,25 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
             }
         },
         ast::Expr::Record(items) => Ok(Spanned { inner: ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(&expr, env).unwrap())).collect()), span: expr.span }),
-        ast::Expr::Get(object, property_name) => Ok(Spanned { inner: ir::Expr::Get(Box::new(lower_expr(&object, env)?), property_name.to_string()), span: expr.span }),
+        ast::Expr::Get(object, property_name) => {
+            let object_type = get_type(object, env)?;
+            match &object_type.inner {
+                TypeInfo::Record(record) => {
+                    if record.iter().find(|(name, _)| name == property_name).is_some() {
+                        return Ok(Spanned { inner: ir::Expr::Get(Box::new(lower_expr(&object, env)?), property_name.to_string()), span: expr.span })
+                    } else {
+                        return Err(Spanned {
+                            inner: format!("Type {:?} doesnt have property {property_name}", object_type.inner),
+                            span: object.span
+                        })
+                    }
+                }
+                _ => return Err(Spanned {
+                    inner: format!("Cannot use accessors on type {:?}", object_type.inner),
+                    span: expr.span
+                })
+            };
+        },
         ast::Expr::Assign { target, value } => {
             let target_type = get_type(&target, env)?;
             let value_type = get_type(&value, env)?;
@@ -485,6 +503,7 @@ fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<Type
             })
         },
         ast::Expr::Get(expr, property_name) => {
+            println!("hello");
             let record_type = get_type(&expr, env)?;
             match unwrap_custom_type(record_type.clone(), env)?.inner {
                 TypeInfo::Record(items) => {
