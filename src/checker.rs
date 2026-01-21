@@ -99,7 +99,18 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
         ast::Expr::Bool(b) => Ok(Spanned { inner: ir::Expr::Bool(*b), span: expr.span }),
         ast::Expr::Float(f) => Ok(Spanned { inner: ir::Expr::Float(*f), span: expr.span }),
         ast::Expr::Int(i) => Ok(Spanned { inner: ir::Expr::Int(*i), span: expr.span }),
-        ast::Expr::Var(v) => Ok(Spanned { inner: ir::Expr::Var(v.clone()), span: expr.span }),
+        ast::Expr::Var(v) => {
+            let var_type = env.get_var_type(v);
+            match var_type {
+                Some(_) => {
+                    Ok(Spanned { inner: ir::Expr::Var(v.clone()), span: expr.span })
+                },
+                _ => Err(Spanned {
+                    inner: format!("Cannot resolve {v}"),
+                    span: expr.span
+                })
+            }
+        },
         ast::Expr::Binary { left, operation, right } => {
             let left_type = get_type(&left, env)?;
             let right_type = get_type(&right, env)?;

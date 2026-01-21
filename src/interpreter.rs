@@ -11,7 +11,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             match result {
                 Some(value) => Ok(ControlFlow::Value(value)),
                 _ => Err(Spanned {
-                    inner: format!("Cannot resolve {v}"),
+                    inner: format!("Runtime error: Cannot resolve {v}"),
                     span: expr.span
                 })
             }
@@ -50,13 +50,13 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                         match field_map.get(field_name) {
                             Some(value) => Ok(ControlFlow::Value(value.clone())),
                             None => Err(Spanned {
-                                inner: format!("Property {field_name} does not exist on this object"),
+                                inner: format!("Runtime error: Property {field_name} does not exist on this object"),
                                 span: expr.span
                             }),
                         }
                     },
                     _ => Err(Spanned {
-                        inner: "Cannot use an accessor on this".to_string(),
+                        inner: "Runtime error: Cannot use an accessor on this".to_string(),
                         span: expr.span
                     })
                 },
@@ -74,7 +74,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     Ok(ControlFlow::Value(Value::Void))
                 },
                 t => Err(Spanned {
-                    inner: format!("Cannot assign to {t:?}"),
+                    inner: format!("Runtime error: Cannot assign to {t:?}"),
                     span: expr.span
                 })
             }
@@ -88,7 +88,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                 Value::Float(f) => Ok(ControlFlow::Value(Value::Float(-f))),
                                 Value::Int(i) => Ok(ControlFlow::Value(Value::Int(-i))),
                                 v => Err(Spanned {
-                                    inner: format!("{v:?} cannot be negated"),
+                                    inner: format!("Runtime error: {v:?} cannot be negated"),
                                     span: expr.span
                                 })
                             }
@@ -97,7 +97,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             match v {
                                 Value::Bool(b) => Ok(ControlFlow::Value(Value::Bool(!b))),
                                 v => Err(Spanned {
-                                    inner: format!("{v:?} cannot be inverted"),
+                                    inner: format!("Runtime error: {v:?} cannot be inverted"),
                                     span: expr.span
                                 })
                             }
@@ -123,7 +123,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             }
                         },
                         _ => Err(Spanned {
-                            inner: format!("{condition_value:?} is not a valid condition"),
+                            inner: format!("Runtime error: {condition_value:?} is not a valid condition"),
                             span: expr.span
                         })
                     }
@@ -136,7 +136,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 let cond = match eval_expr(condition, env)? {
                     ControlFlow::Value(Value::Bool(b)) => b,
                     ControlFlow::Value(v) => return Err(Spanned {
-                        inner: format!("{v:?} is not a valid condition value"),
+                        inner: format!("Runtime error: {v:?} is not a valid condition value"),
                         span: expr.span
                     }),
                     cf => return Ok(cf),
@@ -161,11 +161,11 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 ControlFlow::Value(value) => Ok(ControlFlow::Return(value)),
                 ControlFlow::Return(value) => Ok(ControlFlow::Return(value)),
                 ControlFlow::Break => Err(Spanned {
-                    inner: "Expected a value, but found \"break\"".to_string(),
+                    inner: "Runtime error: Expected a value, but found \"break\"".to_string(),
                     span: expr.span
                 }),
                 ControlFlow::Continue => Err(Spanned {
-                    inner: "Expected a value, but found \"continue\"".to_string(),
+                    inner: "Runtime error: Expected a value, but found \"continue\"".to_string(),
                     span: expr.span
                 }),
             }
@@ -225,14 +225,14 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                         }
                     } else {
                         Err(Spanned {
-                            inner: format!("Expected {} arguments, but got {}", native_fun.max_args.unwrap_or(999999), args.len()),
+                            inner: format!("Runtime error: Expected {} arguments, but got {}", native_fun.max_args.unwrap_or(999999), args.len()),
                             span
                         })
                     }
                     
                 }
                 _ => Err(Spanned {
-                    inner: "This expression is not callable".to_string(),
+                    inner: "Runtime error: This expression is not callable".to_string(),
                     span
                 })
             }
