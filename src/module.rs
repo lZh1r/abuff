@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLoc
 
 use chumsky::{Parser, span::SimpleSpan};
 
-use crate::{ast::{self, Spanned, Statement, TypeInfo}, checker::{get_type, hoist, lower_statement, unwrap_custom_type}, env::{Env, TypeEnv}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, main_parser::parser};
+use crate::{ast::{self, Spanned, Statement, TypeInfo}, checker::{get_type, hoist, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, main_parser::parser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleStatus {
@@ -153,7 +153,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
             span: SimpleSpan::from(0..0)
         }),
     }
-    let mut module_type_env = TypeEnv::new();
+    let (mut module_env, mut module_type_env) = DEFAULT_ENVS.get_or_init(|| create_default_env()).clone();
     let parse_result = parser().parse(src.as_str()).into_result();
     match parse_result {
         Ok(_) => (),
@@ -351,8 +351,6 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
             None => continue,
         }
     }
-    
-    let mut module_env = Env::new();
     
     match run(&lowered_statements, &mut module_env, path.to_path_buf(), registry) {
         Ok(_) => (),

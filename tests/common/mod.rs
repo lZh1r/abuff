@@ -1,7 +1,7 @@
 use std::env::current_dir;
 
 use chumsky::{Parser, span::SimpleSpan};
-use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, error::build_report, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, main_parser::parser, module::{GlobalRegistry, run}};
+use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, main_parser::parser, module::{GlobalRegistry, run}};
 
 // fn run(statements: &[Spanned<Statement>], env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
 //     let mut result = Ok(ControlFlow::Value(Value::Void));
@@ -27,8 +27,7 @@ use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{Env, TypeEnv}
 // }
 
 pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<String>> {
-    let mut type_env = TypeEnv::new();
-    let mut env = Env::new();
+    let (mut env, mut type_env) = create_default_env();
     
     let parsed_result = parser().parse(&src);
     
