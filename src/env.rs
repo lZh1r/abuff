@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::{Arc, RwLock}};
 
 use crate::{ast::{Spanned, TypeInfo}, ir::Value};
 
@@ -9,18 +9,18 @@ pub struct Scope {
 }
 
 #[derive(Debug, Clone)]
-pub struct Env (Rc<RefCell<Scope>>);
+pub struct Env (Arc<RwLock<Scope>>);
 
 impl Env {
     pub fn new() -> Self {
-        Env(Rc::new(RefCell::new(Scope {
+        Env(Arc::new(RwLock::new(Scope {
             values: HashMap::new(),
             parent: None,
         })))
     }
     
     pub fn get(&self, name: &str) -> Option<Value> {
-        let scope = self.0.borrow();
+        let scope = self.0.read().unwrap();
         
         if let Some(val) = scope.values.get(name) {
             return Some(val.clone());
@@ -34,7 +34,7 @@ impl Env {
     
     pub fn enter_scope(&mut self) -> Self {
         Env(
-            Rc::new(RefCell::new(Scope { 
+            Arc::new(RwLock::new(Scope { 
                 values: HashMap::new(), 
                 parent: Some(self.clone())
             }))
@@ -42,11 +42,11 @@ impl Env {
     }
     
     pub fn add_variable(&mut self, name: String, value: Value) -> () {
-        self.0.borrow_mut().values.insert(name, value);
+        self.0.write().unwrap().values.insert(name, value);
     }
     
     pub fn set_variable(&mut self, name: String, value: Value) -> Option<()> {
-        let mut scope = self.0.borrow_mut();
+        let mut scope = self.0.write().unwrap();
         
         if let Some(_) = scope.values.get(&name) {
             scope.values.insert(name, value);
@@ -58,6 +58,10 @@ impl Env {
             None => None
         }
     }
+    
+    pub fn is_top_level(&self) -> bool {
+        self.0.read().unwrap().parent.is_none()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -68,11 +72,11 @@ pub struct TypeScope {
 }
 
 #[derive(Debug, Clone)]
-pub struct TypeEnv (Rc<RefCell<TypeScope>>);
+pub struct TypeEnv (Arc<RwLock<TypeScope>>);
 
 impl TypeEnv {
     pub fn new() -> Self {
-        TypeEnv(Rc::new(RefCell::new(TypeScope {
+        TypeEnv(Arc::new(RwLock::new(TypeScope {
             variable_types: HashMap::new(),
             custom_types: HashMap::new(),
             parent: None,
@@ -80,7 +84,7 @@ impl TypeEnv {
     }
     
     pub fn get_var_type(&self, name: &str) -> Option<Spanned<TypeInfo>> {
-        let scope = self.0.borrow();
+        let scope = self.0.read().unwrap();
         
         // println!("Resolving type of {name}");
         // println!("Scope var types: {:?}", scope.variable_types.keys());
@@ -96,7 +100,7 @@ impl TypeEnv {
     }
     
     pub fn resolve_type(&self, type_name: &str) -> Option<Spanned<TypeInfo>> {
-        let scope = self.0.borrow();
+        let scope = self.0.read().unwrap();
         
         if let Some(type_info) = scope.custom_types.get(type_name) {
             return Some(type_info.clone());
@@ -110,7 +114,7 @@ impl TypeEnv {
     
     pub fn enter_scope(&mut self) -> Self {
         TypeEnv(
-            Rc::new(RefCell::new(TypeScope { 
+            Arc::new(RwLock::new(TypeScope { 
                 variable_types: HashMap::new(), 
                 custom_types: HashMap::new(),
                 parent: Some(self.clone())
@@ -119,10 +123,14 @@ impl TypeEnv {
     }
     
     pub fn add_var_type(&mut self, name: String, type_info: Spanned<TypeInfo>) -> () {
-        self.0.borrow_mut().variable_types.insert(name, type_info);
+        self.0.write().unwrap().variable_types.insert(name, type_info);
     }
     
     pub fn add_custom_type(&mut self, name: String, type_info: Spanned<TypeInfo>) -> () {
-        self.0.borrow_mut().custom_types.insert(name, type_info);
+        self.0.write().unwrap().custom_types.insert(name, type_info);
+    }
+    
+    pub fn is_top_level(&self) -> bool {
+        self.0.read().unwrap().parent.is_none()
     }
 }

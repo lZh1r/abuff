@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{ast::Spanned, env::Env, ir::{Expr, Operation, Statement, Value, ControlFlow}};
+use crate::{ast::Spanned, env::Env, ir::{ControlFlow, Expr, Operation, Statement, Value}, module::{GlobalRegistry, get_export_values}};
 
 pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
     match &expr.inner {
@@ -189,6 +189,14 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
                     cf => return Ok(cf),
                 }
             },
+            Statement::Import { symbols: _, path: _ } => return Err(Spanned {
+                inner: "Non top level imports are prohibited".into(),
+                span: statement.span
+            }),
+            Statement::Export(_) => return Err(Spanned {
+                inner: "Non top level exports are prohibited".into(),
+                span: statement.span
+            }),
         }
     };
 

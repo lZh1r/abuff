@@ -1,4 +1,4 @@
-use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir};
+use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import}};
 
 pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Result<Vec<Spanned<ast::Statement>>, Spanned<String>> {
     let mut new_statements: Vec<Spanned<ast::Statement>> = Vec::new();
@@ -8,6 +8,33 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                 let resolved_type = unwrap_custom_type(type_info.clone(), env)?;
                 env.add_custom_type(name.clone(), resolved_type);
             },
+            ast::Statement::Import { symbols, path } => {
+                if env.is_top_level() {
+                    let global_reg = GlobalRegistry;
+                    let module_types = eval_import(path, &global_reg)?;
+                    for (name, alias, is_type) in symbols {
+                        let actual_name = alias.as_ref().unwrap_or(&name.inner);
+                        if !module_types.contains_key(&name.inner) {
+                            return Err(Spanned {
+                                inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
+                                span: name.span
+                            })
+                        }
+                        if *is_type {
+                            env.add_custom_type(actual_name.clone(), module_types.get(actual_name).unwrap().clone());
+                        } else {
+                            env.add_var_type(actual_name.clone(), module_types.get(actual_name).unwrap().clone());
+                        }
+                        
+                    }
+                    new_statements.push(st.clone());
+                } else {
+                    return Err(Spanned {
+                        inner: "Non top level imports are prohibited".to_string(),
+                        span: st.span
+                    });
+                }
+            }
             _ => new_statements.push(st.clone()),
         }
     }
@@ -39,7 +66,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                     },
                     span: st.span
                 });
-                
+    
                 let mut new_scope = env.enter_scope();
                 for (param_name, param_type) in params.clone() {
                     new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
@@ -53,7 +80,10 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                     })
                 }
             },
-            _ => ()
+            ast::Statement::TypeDef { name: _, type_info: _ } => (),
+            ast::Statement::Expr(_) => (),
+            ast::Statement::Import { symbols: _, path: _ } => (),
+            ast::Statement::Export(spanned) => todo!(),
         }
     }
     
@@ -90,6 +120,42 @@ pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -
                 },
                 span: statement.span
             }))
+        },
+        ast::Statement::Import { symbols, path } => {
+            if env.is_top_level() {
+                let mut lowered_imports = Vec::new();
+                for (symbol, alias, is_type) in symbols {
+                    if !is_type {
+                        lowered_imports.push((symbol.clone(), alias.clone()));
+                    } 
+                }
+                Ok(Some(Spanned {
+                    inner: ir::Statement::Import { symbols: lowered_imports, path: path.clone() },
+                    span: statement.span
+                }))
+            } else {
+                Err(Spanned {
+                    inner: "Non top level imports are prohibited".to_string(),
+                    span: statement.span
+                })
+            }
+        },
+        ast::Statement::Export(spanned) => {
+            if env.is_top_level() {
+                match lower_statement(spanned, env)? {
+                    Some(st) => Ok(Some(Spanned {
+                        inner: ir::Statement::Export(Box::new(st)),
+                        span: statement.span
+                    })),
+                    None => Ok(None),
+                }
+                
+            } else {
+                Err(Spanned {
+                    inner: "Non top level exports are prohibited".to_string(),
+                    span: statement.span
+                })
+            }
         },
     }
 }
@@ -168,7 +234,7 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
             for (param_name, param_type) in params {
                 new_scope.add_var_type(param_name.to_string(), param_type.clone());
             }
-            let r_type = return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span});
+            let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
             new_scope.add_var_type("&return".to_string(), r_type.clone());
             let inferred_type = get_type(&body, &mut new_scope)?;
             
@@ -221,7 +287,10 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
                 })
             }
         },
-        ast::Expr::Record(items) => Ok(Spanned { inner: ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(&expr, env).unwrap())).collect()), span: expr.span }),
+        ast::Expr::Record(items) => Ok(Spanned {
+            inner: ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(&expr, env).unwrap())).collect()),
+            span: expr.span 
+        }),
         ast::Expr::Get(object, property_name) => {
             let object_type = get_type(object, env)?;
             match &object_type.inner {
@@ -318,7 +387,13 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
         },
         ast::Expr::While { condition, body } => {
             if get_type(&condition, env)?.inner == TypeInfo::Bool && get_type(&body, env)?.inner == TypeInfo::Void {
-                Ok(Spanned { inner: ir::Expr::While { condition: Box::new(lower_expr(&condition, env)?), body: Box::new(lower_expr(&body, env)?) }, span: expr.span })
+                Ok(Spanned { 
+                    inner: ir::Expr::While { 
+                        condition: Box::new(lower_expr(&condition, env)?),
+                        body: Box::new(lower_expr(&body, env)?)
+                    }, 
+                    span: expr.span
+                })
             } else {
                 Err(Spanned {
                     inner: "While condition should return Bool and the body should return Void".to_string(),
@@ -333,7 +408,7 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
     }
 }
 
-fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<String>> {
     match &expr.inner {
         ast::Expr::Bool(_) => Ok(Spanned{
             inner: TypeInfo::Bool,
@@ -441,6 +516,14 @@ fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<Type
                             inner_env.add_var_type(name.to_string(), r_type);
                         }
                     },
+                    ast::Statement::Import { symbols: _, path: _ } => return Err(Spanned {
+                        inner: "Non top level imports are prohibited".to_string(),
+                        span: stmt.span
+                    }),
+                    ast::Statement::Export(spanned) => return Err(Spanned {
+                        inner: "Non top level exports are prohibited".to_string(),
+                        span: stmt.span
+                    }),
                 }
             }
 
@@ -607,7 +690,7 @@ fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<Type
     }
 }
 
-fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+pub fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<String>> {
     match type_info.inner {
         TypeInfo::Custom(type_name) => {
             match env.resolve_type(type_name.as_str()) {

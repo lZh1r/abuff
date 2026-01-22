@@ -5,3 +5,4 @@ pub mod main_parser;
 pub mod ir;
 pub mod checker;
 pub mod error;
+pub mod module;

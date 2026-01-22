@@ -1,4 +1,5 @@
-use chumsky::span::{SimpleSpan, Spanned as ChumskySpanned};
+use chumsky::prelude::SimpleSpan;
+use chumsky::span::{Spanned as ChumskySpanned};
 
 pub type Span = SimpleSpan;
 pub type Spanned<T> = ChumskySpanned<T, Span>;
@@ -30,7 +31,9 @@ pub enum Statement {
     Let {name: String, expr: Spanned<Expr>, type_info: Option<Spanned<TypeInfo>>},
     TypeDef {name: String, type_info: Spanned<TypeInfo>},
     Expr(Spanned<Expr>),
-    Fun {name: String, params: Vec<(String, Spanned<TypeInfo>)>, body: Spanned<Expr>, return_type: Option<Spanned<TypeInfo>>}
+    Fun {name: String, params: Vec<(String, Spanned<TypeInfo>)>, body: Spanned<Expr>, return_type: Option<Spanned<TypeInfo>>},
+    Import {symbols: Vec<(Spanned<String>, Option<String>, bool)>, path: Spanned<String>},
+    Export(Box<Spanned<Statement>>)
 }
 
 //TODO: nullish coalescence

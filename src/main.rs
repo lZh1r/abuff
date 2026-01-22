@@ -1,7 +1,7 @@
-use std::{fs::{self, write}, io::Error, rc::Rc, sync::OnceLock, time::Instant};
+use std::{env::current_dir, fs::{self, write}, io::Error, rc::Rc, sync::{Arc, OnceLock}, time::Instant};
 
 use chumsky::span::{SimpleSpan, Span as SpanTrait};
-use abuff::{ast::{Span, Spanned, TypeInfo}, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, error::build_report, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, main_parser::parser};
+use abuff::{ast::{Span, Spanned, TypeInfo}, checker::{hoist, lower_statement}, env::{Env, TypeEnv}, error::build_report, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, main_parser::parser, module::{GlobalRegistry, run}};
 
 fn spanned<T>(inner: T) -> Spanned<T> {
     Spanned { inner, span: Span::new((), 0..0) }
@@ -10,29 +10,6 @@ use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
-
-fn run(statements: &[Spanned<Statement>], env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
-    let mut result = Ok(ControlFlow::Value(Value::Void));
-    for statement in statements {
-        match statement.inner.clone() {
-            Statement::Let { name, expr } => {
-                match eval_expr(&expr, env)? {
-                    ControlFlow::Value(v) => env.add_variable(name.clone(), v),
-                    cf => return Ok(cf),
-                }
-            },
-            Statement::Expr(expr) => {
-                let cf = eval_expr(&expr, env)?;
-                match cf {
-                    ControlFlow::Value(_) => result = Ok(cf),
-                    _ => return Ok(cf),
-                }
-            },
-        }
-    };
-    
-    result
-}
 
 fn create_global_env() -> (Env, TypeEnv) {
     let mut type_env = TypeEnv::new();
@@ -48,7 +25,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("print".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "print".to_string(),
         max_args: None,
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |args: Vec<Value>| {
                 let length = args.len();
                 let mut i = 0;
@@ -75,7 +52,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("debug".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "debug".to_string(),
         max_args: None,
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |args: Vec<Value>| {
                 let length = args.len();
                 let mut i = 0;
@@ -102,7 +79,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("str".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "str".to_string(),
         max_args: Some(1),
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |args: Vec<Value>| {
                 let mut result = None;
                 for a in args {
@@ -126,7 +103,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("clock".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "clock".to_string(),
         max_args: Some(0),
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |_| {
                 let instant = PROCESS_START.get_or_init(Instant::now);
                 Ok(Value::U128(instant.elapsed().as_nanos()))
@@ -144,7 +121,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("input".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "input".to_string(),
         max_args: Some(0),
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |_| {
                 let mut buffer = String::new();
                 let input_string = std::io::stdin().read_line(&mut buffer);
@@ -169,7 +146,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("len".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "len".to_string(),
         max_args: Some(1),
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |args: Vec<Value>| {
                 let mut result = None;
                 for a in args {
@@ -197,7 +174,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("read".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "read".to_string(),
         max_args: Some(1),
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |args: Vec<Value>| {
                 let mut result = Err(Error::new(std::io::ErrorKind::InvalidData, "File IO failed"));
                 
@@ -233,7 +210,7 @@ fn create_global_env() -> (Env, TypeEnv) {
     env.add_variable("write".to_string(), Value::NativeFun(abuff::ir::NativeFun { 
         name: "write".to_string(),
         max_args: Some(2),
-        function: Rc::new(Box::new(
+        function: Arc::new(Box::new(
             |args: Vec<Value>| {
                 if args.len() < 2 {
                     return Err(format!("Expected 2 arguments, but got {}", args.len()));
@@ -324,7 +301,8 @@ fn main() {
                         },
                     }
                 }
-                match run(&lowered_statements, &mut stack) {
+                let reg = GlobalRegistry;
+                match run(&lowered_statements, &mut stack, current_dir().unwrap(), &reg) {
                     Err(e) => build_report(e, &src),
                     Ok(cf) => {
                         match cf {

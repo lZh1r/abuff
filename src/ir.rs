@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{ast::{Spanned, UnaryOp}, env::Env};
 
@@ -28,7 +28,9 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let{name: String, expr: Spanned<Expr>},
-    Expr(Spanned<Expr>)
+    Expr(Spanned<Expr>),
+    Import {symbols: Vec<(Spanned<String>, Option<String>)>, path: Spanned<String>},
+    Export(Box<Spanned<Statement>>)
 }
 
 #[derive(Debug, Clone)]
@@ -52,7 +54,7 @@ pub enum Operation {
 pub struct NativeFun {
     pub name: String,
     pub max_args: Option<usize>,
-    pub function: Rc<Box<dyn Fn(Vec<Value>) -> Result<Value, String>>>
+    pub function: Arc<Box<dyn Fn(Vec<Value>) -> Result<Value, String> + Send + Sync>>
 }
 
 impl fmt::Debug for NativeFun {

@@ -94,4 +94,3 @@ fn test_nested_function_return() {
         _ => panic!()
     };
 }
-

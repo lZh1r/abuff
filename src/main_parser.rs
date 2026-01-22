@@ -442,8 +442,80 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 inner: Statement::Expr(expr),
                 span: extra.span()
             });
+        
+        let import_stmt = text::keyword("import").padded()
+            .ignore_then(
+                    just('{').padded().ignore_then(
+                        just("type").map(|_| true).or_not()
+                            .then(text::ident().map(ToString::to_string).padded())
+                            .then(
+                                just("as").padded()
+                                    .ignore_then(text::ident().map(ToString::to_string).padded()).or_not()
+                            )
+                            .map_with(|((is_type, symbol), alias), extra| (
+                                Spanned {
+                                    inner: symbol,
+                                    span: extra.span()
+                                },
+                                alias,
+                                match is_type {
+                                    None => false,
+                                    _ => true
+                                }
+                            ))
+                            .separated_by(just(','))
+                            .allow_trailing()
+                            .collect()
+                        )
+                )
+                .then_ignore(just('}').padded())
+                .then_ignore(just("from").padded())
+                .then(
+                    just('"')
+                        .ignore_then(
+                            just('\\')
+                                .ignore_then(
+                                    choice((
+                                        just('\\').to('\\'),
+                                        just('"').to('"'),
+                                        just('n').to('\n'),
+                                        just('r').to('\r'),
+                                        just('t').to('\t')
+                                    ))
+                                )
+                                .or(none_of("\\\""))
+                                .repeated()
+                                .collect::<String>()
+                        )
+                        .then_ignore(just('"'))
+                        .map_with(|s, extra| Spanned {
+                            inner: s,
+                            span: extra.span()
+                        })
+                        .padded()
+                )
+                .then_ignore(just(';').padded())
+                .map_with(|(symbols, src), extra| Spanned {
+                    inner: Statement::Import {
+                        symbols,
+                        path: src
+                    },
+                    span: extra.span()
+                });
+        
+        let export_stmt = text::keyword("export").padded()
+            .ignore_then(choice((
+                let_stmt.clone(),
+                type_def.clone(),
+                fun_def.clone()
+            ))).map_with(|st, extra| Spanned {
+                inner: Statement::Export(Box::new(st)),
+                span: extra.span()
+            });
 
         choice((
+            import_stmt,
+            export_stmt,
             let_stmt,
             fun_def,
             type_def,
