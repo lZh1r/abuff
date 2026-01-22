@@ -21,9 +21,9 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             })
                         }
                         if *is_type {
-                            env.add_custom_type(actual_name.clone(), module_types.get(actual_name).unwrap().clone());
+                            env.add_custom_type(actual_name.clone(), module_types.get(&name.inner).unwrap().clone());
                         } else {
-                            env.add_var_type(actual_name.clone(), module_types.get(actual_name).unwrap().clone());
+                            env.add_var_type(actual_name.clone(), module_types.get(&name.inner).unwrap().clone());
                         }
                         
                     }

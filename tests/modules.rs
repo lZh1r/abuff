@@ -130,3 +130,23 @@ fn test_struct_with_custom_type_imports() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_aliased_imports() {
+    let src = r#"
+        import {b as c} from "tests/stubs/hello";
+        c(5);
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 10),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
