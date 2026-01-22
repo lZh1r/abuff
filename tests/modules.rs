@@ -106,3 +106,27 @@ fn test_intersecting_imports() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_struct_with_custom_type_imports() {
+    let src = r#"
+        import {type S} from "tests/stubs/struct";
+        let s: S = {
+            a: 2,
+            b: 3
+        };
+        s.a * s.b;
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 6),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

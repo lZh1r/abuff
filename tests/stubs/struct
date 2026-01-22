@@ -1,0 +1,5 @@
+import {type A} from "tests/stubs/test";
+export type S = {
+    a: A,
+    b: A
+};
