@@ -50,6 +50,35 @@ fn test_logic_precedence() {
 }
 
 #[test]
+fn test_comment_handling() {
+    let src = r#"
+        // This is a single-line comment
+        let x = 42; // Another single-line comment
+        
+        /* This is a
+           multi-line comment */
+        let y = 100;
+        
+        let z = x + y;
+        
+        /// This is a doc comment
+        let result = z * 2;
+        
+        result;
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 284), // (42 + 100) * 2 = 284
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
 fn test_factorial() {
     let src = r#"
         let n = 5;
