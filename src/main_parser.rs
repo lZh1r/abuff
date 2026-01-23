@@ -156,7 +156,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                         .delimited_by(just('(').padded(), just(')').padded())
                 )
                 .then(
-                    just("->").padded()
+                    just(':').padded()
                         .ignore_then(type_parser.clone())
                         .or_not()
                 )
@@ -420,7 +420,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                     .delimited_by(just('(').padded(), just(')').padded())
             )
             .then(
-                just("->").padded()
+                just(':').padded()
                     .ignore_then(type_parser.clone())
                     .or_not()
             )

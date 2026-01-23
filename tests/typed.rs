@@ -11,7 +11,7 @@ fn test_custom_type_spam() {
         type Vector2 = { x: Coord, y: Coord };
         type Entity = { pos: Vector2, id: Int };
         type Player = Entity;
-        let get_player_x = fun(p: Player) -> Int {
+        let get_player_x = fun(p: Player): Int {
             p.pos.x
         };
         let raw_data = {
@@ -75,8 +75,8 @@ fn test_factorial() {
 #[test]
 fn test_nested_function_return() {
     let src = r#"
-        fun ff() -> (x: Int) -> Int {
-            fun (x: Int) -> Int {
+        fun ff(): (x: Int) -> Int {
+            fun (x: Int): Int {
                 if (x == 2) return 0;
                 x
             }

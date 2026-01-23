@@ -27,12 +27,12 @@ fn test_block_and_anon_abuse() {
         let a = 2;
         a + {
             let b = {
-                (fun(x: Int) -> Int {
+                (fun(x: Int): Int {
                     x + 5
                 })({ d: 3 }.d)
             };
             b - 4
-        } + (fun(x: Int) -> Int {x * x})(4);
+        } + (fun(x: Int): Int {x * x})(4);
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -77,7 +77,7 @@ fn test_nested_records() {
 #[test]
 fn test_nested_fun_calls() {
     let src = r#"
-        let f = fun(x: Int) -> Int {x+1};
+        let f = fun(x: Int): Int {x+1};
         f(f(f(f(f(1)))));
     "#;
     
@@ -96,7 +96,7 @@ fn test_nested_fun_calls() {
 fn test_fun_shadowing() {
     let src = r#"
         let a = 2;
-        let f = fun(x: Int) -> Int {
+        let f = fun(x: Int): Int {
             let a = 0;
             x+a
         };
@@ -119,7 +119,7 @@ fn test_fun_shadowing() {
 fn test_whitespace_max() {
     let src = r#"
         let a = 12 ; 
-        fun mega_function ( x : Int ) -> Int {
+        fun mega_function ( x : Int ) : Int {
             a + x
         } ;
         let b = { bb : 2 } ;
@@ -139,7 +139,7 @@ fn test_whitespace_max() {
 
 #[test]
 fn test_whitespace_min() {
-    let src = r#"let a=12;let mega_function=fun(x:Int)->Int{a+x};let b={bb:2};mega_function(b.bb);"#;
+    let src = r#"let a=12;let mega_function=fun(x:Int):Int{a+x};let b={bb:2};mega_function(b.bb);"#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
