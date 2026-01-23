@@ -1,7 +1,6 @@
-use std::{env::current_dir, fs::{self, write}, io::Error, rc::Rc, sync::{Arc, OnceLock}, time::Instant};
+use std::{env::current_dir};
 
-use chumsky::span::{SimpleSpan, Span as SpanTrait};
-use abuff::{ast::{Span, Spanned, TypeInfo}, checker::{hoist, lower_statement}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{ControlFlow, Statement, Value}, main_parser::parser, module::{GlobalRegistry, run}};
+use abuff::{checker::{hoist, lower_statement}, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::{ControlFlow}, main_parser::parser, module::{GlobalRegistry, run}};
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;

@@ -1,7 +1,10 @@
-use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import}};
+use std::collections::HashMap;
+
+use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}};
 
 pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Result<Vec<Spanned<ast::Statement>>, Spanned<String>> {
     let mut new_statements: Vec<Spanned<ast::Statement>> = Vec::new();
+    let mut type_exports = HashMap::new();
     for st in statements.iter() {
         match &st.inner {
             ast::Statement::TypeDef { name, type_info } => {
@@ -83,9 +86,86 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
             ast::Statement::TypeDef { name: _, type_info: _ } => (),
             ast::Statement::Expr(_) => (),
             ast::Statement::Import { symbols: _, path: _ } => (),
-            ast::Statement::Export(spanned) => todo!(),
+            ast::Statement::Export(spanned) => {
+                match &spanned.inner {
+                    ast::Statement::Let { name, expr, type_info } => {
+                        let inferred_type = unwrap_custom_type(get_type(&expr, env)?, env)?;
+                        match type_info { //copy paste but idc
+                            Some(t) => {
+                                let unwrapped_ti = unwrap_custom_type(t.clone(), env)?;
+                                if unwrapped_ti.inner == inferred_type.inner {
+                                    env.add_var_type(name.clone(), unwrapped_ti);
+                                } else {
+                                    return Err( Spanned {
+                                        inner: format!(
+                                            "Type mismatch when declaring {name}: expected {:?}, but got {:?}", 
+                                            unwrapped_ti.inner, 
+                                            inferred_type.inner
+                                        ),
+                                        span: st.span
+                                    })
+                                }
+                            },
+                            None => env.add_var_type(name.clone(), inferred_type.clone()),
+                        }
+                        type_exports.insert(name.clone(), inferred_type);
+                    },
+                    ast::Statement::Fun { name, params, body, return_type } => {
+                        let r_type = unwrap_custom_type(
+                            return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: spanned.span}),
+                            env
+                        )?;
+                        
+                        let mut unwrapped_params = Vec::new();
+                        
+                        for (pname, ti) in params {
+                            unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), env)?))
+                        }
+                        
+                        let function_type = Spanned {
+                            inner: TypeInfo::Fun { 
+                                args: unwrapped_params, 
+                                return_type: Box::new(r_type.clone()) 
+                            },
+                            span: st.span
+                        };
+                        
+                        env.add_var_type(name.to_string(), function_type.clone());
+            
+                        let mut new_scope = env.enter_scope();
+                        for (param_name, param_type) in params.clone() {
+                            new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
+                        }
+                        new_scope.add_var_type("&return".to_string(), r_type.clone());
+                        let inferred_type = get_type(&body, &mut new_scope)?;
+                        if inferred_type.inner != r_type.inner {
+                            return Err(Spanned {
+                                inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
+                                span: st.span
+                            })
+                        }
+                        
+                        type_exports.insert(name.clone(), function_type);
+                    },
+                    ast::Statement::TypeDef { name, type_info } => {
+                        let resolved_type = unwrap_custom_type(type_info.clone(), env)?;
+                        env.add_custom_type(name.clone(), resolved_type.clone());
+                        type_exports.insert(name.clone(), resolved_type);
+                    },
+                    ast::Statement::Expr(_) => return Err(Spanned {
+                        inner: "Cannot export expressions".to_string(),
+                        span: spanned.span
+                    }),
+                    ast::Statement::Import { symbols: _, path: _ } => panic!(), //should be caught by parser
+                    ast::Statement::Export(_) => panic!(), //should be caught by parser
+                }
+            },
         }
     }
+    
+    let registry = GlobalRegistry;
+    
+    insert_type_module(&registry, type_exports, env.clone());
     
     Ok(new_statements)
 }
@@ -520,7 +600,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                         inner: "Non top level imports are prohibited".to_string(),
                         span: stmt.span
                     }),
-                    ast::Statement::Export(spanned) => return Err(Spanned {
+                    ast::Statement::Export(_) => return Err(Spanned {
                         inner: "Non top level exports are prohibited".to_string(),
                         span: stmt.span
                     }),

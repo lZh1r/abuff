@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
+use std::{collections::HashMap, env::current_dir, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
 use chumsky::{Parser, span::SimpleSpan};
 
@@ -128,6 +128,16 @@ pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<
     if registry.get_status(RegistryType::Runtime, path) == Some(ModuleStatus::Evaluated) {
         registry.get_runtime_exports(path)
     } else {None}
+}
+
+pub fn insert_type_module<R: ModuleRegistry>(registry: &R, exports: HashMap<String, Spanned<TypeInfo>>, env: TypeEnv) {
+    let path = current_dir().unwrap();
+    registry.insert_type_module(TypeModule {
+        path,
+        exports,
+        env,
+        status: ModuleStatus::Evaluated,
+    });
 }
 
 pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMap<String, Spanned<TypeInfo>>, Spanned<String>> {
