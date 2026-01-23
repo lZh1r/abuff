@@ -2,7 +2,7 @@ use std::{collections::HashMap, env::current_dir, fs, path::{Path, PathBuf}, syn
 
 use chumsky::{Parser, span::SimpleSpan};
 
-use crate::{ast::{self, Spanned, Statement, TypeInfo}, checker::{get_type, hoist, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, main_parser::parser};
+use crate::{ast::{self, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, main_parser::parser};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleStatus {
@@ -123,6 +123,7 @@ impl ModuleRegistry for GlobalRegistry {
     }
 }
 
+#[allow(private_bounds)]
 pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<HashMap<String, Value>> {
     let path = Path::new(path);
     if registry.get_status(RegistryType::Runtime, path) == Some(ModuleStatus::Evaluated) {
@@ -130,6 +131,7 @@ pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<
     } else {None}
 }
 
+#[allow(private_bounds)]
 pub fn insert_type_module<R: ModuleRegistry>(registry: &R, exports: HashMap<String, Spanned<TypeInfo>>, env: TypeEnv) {
     let path = current_dir().unwrap();
     registry.insert_type_module(TypeModule {
@@ -140,6 +142,7 @@ pub fn insert_type_module<R: ModuleRegistry>(registry: &R, exports: HashMap<Stri
     });
 }
 
+#[allow(private_bounds)]
 pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMap<String, Spanned<TypeInfo>>, Spanned<String>> {
     let path = Path::new(path);
     if registry.get_status(RegistryType::Type, path) == Some(ModuleStatus::Loading) ||
@@ -370,6 +373,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
     Ok(type_exports)
 }
 
+#[allow(private_bounds)]
 pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut Env, module_path: PathBuf, registry: &R) -> Result<ControlFlow, Spanned<String>> {
     let mut result = Ok(ControlFlow::Value(Value::Void));
     let mut value_exports = HashMap::new();

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{ast::Spanned, env::Env, ir::{ControlFlow, Expr, Operation, Statement, Value}, module::{GlobalRegistry, get_export_values}};
+use crate::{ast::Spanned, env::Env, ir::{ControlFlow, Expr, Operation, Statement, Value}};
 
 pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
     match &expr.inner {
@@ -17,7 +17,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             }
         },
         Expr::Binary { left, operation, right } => binary_operation(left, operation, right, env, expr.span),
-        Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env, expr.span),
+        Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
         Expr::Fun { params: param, body } => Ok(ControlFlow::Value(Value::Closure { params: param.clone(), body: body.clone(), env: env.clone() })),
         Expr::Call { fun, args: arg } => {
             let fun_cf = eval_expr(fun, env)?;
@@ -173,7 +173,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
     }
 }
 
-fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr>>>, env: &mut Env, span: crate::ast::Span) -> Result<ControlFlow, Spanned<String>> {
+fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr>>>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
     let mut new_scope = env.enter_scope();
     for statement in stmts {
         match &statement.inner {
