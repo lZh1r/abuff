@@ -103,7 +103,7 @@ impl fmt::Display for Value {
                 write!(f, "}}")
             },
             Value::Closure { params: _, body: _, env: _ } => write!(f, "closure"),
-            Value::NativeFun {path, name, pointer: _} => write!(f, "native function {name} from {path}"),
+            Value::NativeFun {path, name, pointer: _} => write!(f, "native function \"{name}\" from \"{path}\""),
             Value::Null => write!(f, "null"),
             Value::Void => write!(f, "void"),
         }
