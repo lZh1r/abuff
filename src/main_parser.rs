@@ -13,7 +13,8 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             text::keyword("Int").to(TypeInfo::Int),
             text::keyword("Bool").to(TypeInfo::Bool),
             text::keyword("Float").to(TypeInfo::Float),
-            text::keyword("String").to(TypeInfo::String)
+            text::keyword("String").to(TypeInfo::String),
+            text::keyword("Any").to(TypeInfo::Any),
         )).padded().map_with(|s, extra| Spanned {
             inner: s,
             span: extra.span()
@@ -416,7 +417,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
         let fun_def = text::keyword("fun")
             .ignore_then(text::ident().padded())
             .then(
-                arg.separated_by(just(',')).allow_trailing().collect()
+                arg.clone().separated_by(just(',')).allow_trailing().collect()
                     .delimited_by(just('(').padded(), just(')').padded())
             )
             .then(
@@ -503,11 +504,35 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                     span: extra.span()
                 });
         
+        let native_fun = text::keyword("native").padded()
+            .ignore_then(
+                text::keyword("fun")
+                    .ignore_then(text::ident().padded())
+                    .then(
+                        arg.separated_by(just(',')).allow_trailing().collect()
+                            .delimited_by(just('(').padded(), just(')').padded())
+                    )
+                    .then(
+                        just(':').padded()
+                            .ignore_then(type_parser.clone())
+                            .or_not()
+                    )
+                    .then_ignore(just(';').padded())
+            ).map_with(|((name, args), r_type): ((&str, Vec<(String, Spanned<TypeInfo>)>), Option<Spanned<TypeInfo>>), extra| Spanned {
+                inner: Statement::NativeFun {
+                    name: name.into(),
+                    params: args,
+                    return_type: r_type
+                },
+                span: extra.span()
+            });
+        
         let export_stmt = text::keyword("export").padded()
             .ignore_then(choice((
                 let_stmt.clone(),
                 type_def.clone(),
-                fun_def.clone()
+                fun_def.clone(),
+                native_fun
             ))).map_with(|st, extra| Spanned {
                 inner: Statement::Export(Box::new(st)),
                 span: extra.span()

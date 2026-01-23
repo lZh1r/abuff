@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{collections::HashMap, sync::Arc};
 
-use crate::{ast::{Spanned, UnaryOp}, env::Env};
+use crate::{ast::{Spanned, UnaryOp}, env::Env, native::NativeFun};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -29,6 +29,7 @@ pub enum Expr {
 pub enum Statement {
     Let{name: String, expr: Spanned<Expr>},
     Expr(Spanned<Expr>),
+    NativeFun(String),
     Import {symbols: Vec<(Spanned<String>, Option<String>)>, path: Spanned<String>},
     Export(Box<Spanned<Statement>>)
 }
@@ -50,19 +51,6 @@ pub enum Operation {
     Or
 }
 
-#[derive(Clone)]
-pub struct NativeFun {
-    pub name: String,
-    pub max_args: Option<usize>,
-    pub function: Arc<Box<dyn Fn(Vec<Value>) -> Result<Value, String> + Send + Sync>>
-}
-
-impl fmt::Debug for NativeFun {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "native fun \"{}\"", self.name)
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum ControlFlow {
     Value(Value),
@@ -81,7 +69,7 @@ pub enum Value {
     Char(char),
     Record(HashMap<String, Value>), 
     Closure { params: Vec<String>, body: Box<Spanned<Expr>>, env: Env },
-    NativeFun(NativeFun),
+    NativeFun {path: String, name: String, pointer: NativeFun},
     Null,
     Void
 }
@@ -115,7 +103,7 @@ impl fmt::Display for Value {
                 write!(f, "}}")
             },
             Value::Closure { params: _, body: _, env: _ } => write!(f, "closure"),
-            Value::NativeFun(native_fun) => write!(f, "native function {}", native_fun.name),
+            Value::NativeFun {path, name, pointer: _} => write!(f, "native function {name} from {path}"),
             Value::Null => write!(f, "null"),
             Value::Void => write!(f, "void"),
         }

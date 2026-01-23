@@ -2,7 +2,7 @@ use std::{collections::HashMap, env::current_dir, fs, path::{Path, PathBuf}, syn
 
 use chumsky::{Parser, span::SimpleSpan};
 
-use crate::{ast::{self, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, main_parser::parser};
+use crate::{ast::{self, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, main_parser::parser, native::get_native_fun};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleStatus {
@@ -143,6 +143,30 @@ pub fn insert_type_module<R: ModuleRegistry>(registry: &R, exports: HashMap<Stri
 }
 
 #[allow(private_bounds)]
+pub fn get_module_envs<R: ModuleRegistry>(registry: &R, path: &str) -> Result<(Env, TypeEnv), String> {
+    let path = Path::new(path);
+    if registry.get_status(RegistryType::Type, path).unwrap() == ModuleStatus::Loading ||
+    registry.get_status(RegistryType::Runtime, path).unwrap() == ModuleStatus::Loading {
+        Err("Modules are still loading".into())
+    } else {
+        let map = TYPE_REGISTRY.get().unwrap().lock().unwrap();
+        let target_module = match map.get(path) {
+            Some(tm) => tm,
+            None => return Err(format!("Module \"{}\"", path.to_str().unwrap().to_string())),
+        };
+        let type_env = target_module.env.clone();
+        
+        let map = RUNTIME_REGISTRY.get().unwrap().lock().unwrap();
+        let target_module = match map.get(path) {
+            Some(tm) => tm,
+            None => return Err(format!("Module \"{}\"", path.to_str().unwrap().to_string())),
+        };
+        let env = target_module.env.clone();
+        Ok((env, type_env))
+    }
+}
+
+#[allow(private_bounds)]
 pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMap<String, Spanned<TypeInfo>>, Spanned<String>> {
     let path = Path::new(path);
     if registry.get_status(RegistryType::Type, path) == Some(ModuleStatus::Loading) ||
@@ -166,7 +190,13 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
             span: SimpleSpan::from(0..0)
         }),
     }
-    let (mut module_env, mut module_type_env) = DEFAULT_ENVS.get_or_init(|| create_default_env()).clone();
+    let (mut module_env, mut module_type_env);
+    if !path.to_str().unwrap().contains("std/builtins") {
+        (module_env, module_type_env) = DEFAULT_ENVS.get_or_init(|| create_default_env()).clone();
+    } else {
+        (module_env, module_type_env) = (Env::new(), TypeEnv::new())
+    }
+    
     let parse_result = parser().parse(src.as_str()).into_result();
     match parse_result {
         Ok(_) => (),
@@ -272,9 +302,9 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                     })
                 }
             },
-            ast::Statement::TypeDef { name: _, type_info: _ } => (), //already evaluated
-            ast::Statement::Expr(_) => (), //later
-            ast::Statement::Import { symbols: _, path: _ } => (), //already evaluated
+            ast::Statement::TypeDef { name: _, type_info: _ } => (),
+            ast::Statement::Expr(_) => (),
+            ast::Statement::Import { symbols: _, path: _ } => (),
             ast::Statement::Export(spanned) => {
                 match &spanned.inner {
                     Statement::Let { name, expr, type_info } => {
@@ -300,9 +330,58 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                             return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: spanned.span}),
                             &mut module_type_env
                         )?;
+            
+                        let mut unwrapped_params = Vec::new();
+            
+                        for (pname, ti) in params {
+                            unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), &mut module_type_env)?))
+                        }
+            
+                        let function_type = Spanned {
+                            inner: TypeInfo::Fun { 
+                                args: unwrapped_params, 
+                                return_type: Box::new(r_type.clone()) 
+                            },
+                            span: st.span
+                        };
+            
+                        module_type_env.add_var_type(name.to_string(), function_type.clone());
+
+                        let mut new_scope = module_type_env.enter_scope();
+                        for (param_name, param_type) in params.clone() {
+                            new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), &mut module_type_env)?);
+                        }
+                        new_scope.add_var_type("&return".to_string(), r_type.clone());
+                        let inferred_type = get_type(&body, &mut new_scope)?;
+                        if inferred_type.inner != r_type.inner {
+                            return Err(Spanned {
+                                inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
+                                span: st.span
+                            })
+                        }
+            
+                        type_exports.insert(name.clone(), function_type);
+                    },
+                    Statement::TypeDef { name, type_info } => {
+                        let resolved_type = unwrap_custom_type(type_info.clone(), &mut module_type_env)?;
+                        module_type_env.add_custom_type(name.clone(), resolved_type.clone());
+                        type_exports.insert(name.clone(), resolved_type);
+                    },
+                    ast::Statement::NativeFun { name, params, return_type } => {
+                        if let None = get_native_fun(path.to_str().unwrap(), name) {
+                            return Err(Spanned {
+                                inner: format!("Cannot find native function definition for {}", name),
+                                span: st.span
+                            })
+                        }
+                        
+                        let r_type = return_type.clone().unwrap_or(Spanned {
+                            inner: TypeInfo::Void,
+                            span: SimpleSpan::from(0..0)
+                        });
                         
                         let mut unwrapped_params = Vec::new();
-                        
+            
                         for (pname, ti) in params {
                             unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), &mut module_type_env)?))
                         }
@@ -316,26 +395,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                         };
                         
                         module_type_env.add_var_type(name.to_string(), function_type.clone());
-            
-                        let mut new_scope = module_type_env.enter_scope();
-                        for (param_name, param_type) in params.clone() {
-                            new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), &mut module_type_env)?);
-                        }
-                        new_scope.add_var_type("&return".to_string(), r_type.clone());
-                        let inferred_type = get_type(&body, &mut new_scope)?;
-                        if inferred_type.inner != r_type.inner {
-                            return Err(Spanned {
-                                inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
-                                span: st.span
-                            })
-                        }
-                        
-                        type_exports.insert(name.clone(), function_type);
-                    },
-                    Statement::TypeDef { name, type_info } => {
-                        let resolved_type = unwrap_custom_type(type_info.clone(), &mut module_type_env)?;
-                        module_type_env.add_custom_type(name.clone(), resolved_type.clone());
-                        type_exports.insert(name.clone(), resolved_type);
+                        type_exports.insert(name.into(), function_type);
                     },
                     Statement::Expr(_) => return Err(Spanned {
                         inner: "Cannot export expressions".to_string(),
@@ -345,6 +405,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                     Statement::Export(_) => panic!(), //should be caught by parser
                 }
             },
+            Statement::NativeFun { name, params, return_type } => todo!(),
         }
     }
     //At this point type_exports is formed and can be returned after the evaluation ends
@@ -445,7 +506,7 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                                 return Ok(cf)
                             },
                         }
-                        
+    
                     },
                     ir::Statement::Expr(spanned) => {
                         return Err(Spanned {
@@ -453,10 +514,30 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                             span: spanned.span
                         })
                     },
-                    ir::Statement::Import { symbols: _, path: _ } => panic!(), //caught by parser
-                    ir::Statement::Export(_) => panic!(), //caught by parser
+                    ir::Statement::Import { symbols: _, path: _ } => panic!(),
+                    ir::Statement::Export(_) => panic!(),
+                    ir::Statement::NativeFun(name) => {
+                        let str_path = module_path.to_str().unwrap();
+                        match get_native_fun(str_path, name) {
+                            Some(ptr) => {
+                                let fn_val = Value::NativeFun { 
+                                    path: str_path.to_owned(),
+                                    name: name.clone(), 
+                                    pointer: ptr
+                                };
+                                value_exports.insert(name.clone(), fn_val.clone());
+                                env.add_variable(name.clone(), fn_val);
+                            },
+                            None => return Err(Spanned {
+                                inner: format!("Cannot find native function definition for {}", name),
+                                span: statement.span
+                            })
+                        }
+                        
+                    },
                 }
             },
+            ir::Statement::NativeFun(_) => todo!(), //later
         }
     };
     

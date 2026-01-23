@@ -6,3 +6,4 @@ pub mod ir;
 pub mod checker;
 pub mod error;
 pub mod module;
+pub mod native;

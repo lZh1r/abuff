@@ -197,6 +197,10 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
                 inner: "Non top level exports are prohibited".into(),
                 span: statement.span
             }),
+            Statement::NativeFun(_) => return Err(Spanned {
+                inner: "Native functions can only be declared at the top level".to_string(),
+                span: statement.span
+            }),
         }
     };
 
@@ -222,22 +226,8 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                         cf => Ok(cf), // Break/Continue in a function body? Should probably be handled by checker, but here we propagate.
                     }
                 },
-                Value::NativeFun(native_fun) => {
-                    if args.len() <= native_fun.max_args.unwrap_or(999999) {
-                        match (native_fun.function)(args) {
-                            Ok(v) => Ok(ControlFlow::Value(v)),
-                            Err(e) => Err(Spanned {
-                                inner: e,
-                                span
-                            }),
-                        }
-                    } else {
-                        Err(Spanned {
-                            inner: format!("Runtime error: Expected {} arguments, but got {}", native_fun.max_args.unwrap_or(999999), args.len()),
-                            span
-                        })
-                    }
-                    
+                Value::NativeFun {path: _, name: _, pointer} => {
+                    Ok(pointer(&args)?)
                 }
                 _ => Err(Spanned {
                     inner: "Runtime error: This expression is not callable".to_string(),

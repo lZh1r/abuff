@@ -1,6 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, env::current_dir};
 
-use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}};
+use chumsky::span::SimpleSpan;
+
+use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
 
 pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Result<Vec<Spanned<ast::Statement>>, Spanned<String>> {
     let mut new_statements: Vec<Spanned<ast::Statement>> = Vec::new();
@@ -115,9 +117,64 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: spanned.span}),
                             env
                         )?;
+            
+                        let mut unwrapped_params = Vec::new();
+            
+                        for (pname, ti) in params {
+                            unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), env)?))
+                        }
+            
+                        let function_type = Spanned {
+                            inner: TypeInfo::Fun { 
+                                args: unwrapped_params, 
+                                return_type: Box::new(r_type.clone()) 
+                            },
+                            span: st.span
+                        };
+            
+                        env.add_var_type(name.to_string(), function_type.clone());
+
+                        let mut new_scope = env.enter_scope();
+                        for (param_name, param_type) in params.clone() {
+                            new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
+                        }
+                        new_scope.add_var_type("&return".to_string(), r_type.clone());
+                        let inferred_type = get_type(&body, &mut new_scope)?;
+                        if inferred_type.inner != r_type.inner {
+                            return Err(Spanned {
+                                inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
+                                span: st.span
+                            })
+                        }
+            
+                        type_exports.insert(name.clone(), function_type);
+                    },
+                    ast::Statement::TypeDef { name, type_info } => {
+                        let resolved_type = unwrap_custom_type(type_info.clone(), env)?;
+                        env.add_custom_type(name.clone(), resolved_type.clone());
+                        type_exports.insert(name.clone(), resolved_type);
+                    },
+                    ast::Statement::Expr(_) => return Err(Spanned {
+                        inner: "Cannot export expressions".to_string(),
+                        span: spanned.span
+                    }),
+                    ast::Statement::Import { symbols: _, path: _ } => panic!(),
+                    ast::Statement::Export(_) => panic!(),
+                    ast::Statement::NativeFun { name, params, return_type } => {
+                        if let None = get_native_fun(current_dir().unwrap().to_str().unwrap(), name) {
+                            return Err(Spanned {
+                                inner: format!("Cannot find native function definition for {}", name),
+                                span: st.span
+                            })
+                        }
+                        
+                        let r_type = return_type.clone().unwrap_or(Spanned {
+                            inner: TypeInfo::Void,
+                            span: SimpleSpan::from(0..0)
+                        });
                         
                         let mut unwrapped_params = Vec::new();
-                        
+            
                         for (pname, ti) in params {
                             unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), env)?))
                         }
@@ -131,35 +188,11 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                         };
                         
                         env.add_var_type(name.to_string(), function_type.clone());
-            
-                        let mut new_scope = env.enter_scope();
-                        for (param_name, param_type) in params.clone() {
-                            new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
-                        }
-                        new_scope.add_var_type("&return".to_string(), r_type.clone());
-                        let inferred_type = get_type(&body, &mut new_scope)?;
-                        if inferred_type.inner != r_type.inner {
-                            return Err(Spanned {
-                                inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
-                                span: st.span
-                            })
-                        }
-                        
-                        type_exports.insert(name.clone(), function_type);
+                        type_exports.insert(name.into(), function_type);
                     },
-                    ast::Statement::TypeDef { name, type_info } => {
-                        let resolved_type = unwrap_custom_type(type_info.clone(), env)?;
-                        env.add_custom_type(name.clone(), resolved_type.clone());
-                        type_exports.insert(name.clone(), resolved_type);
-                    },
-                    ast::Statement::Expr(_) => return Err(Spanned {
-                        inner: "Cannot export expressions".to_string(),
-                        span: spanned.span
-                    }),
-                    ast::Statement::Import { symbols: _, path: _ } => panic!(), //should be caught by parser
-                    ast::Statement::Export(_) => panic!(), //should be caught by parser
                 }
             },
+            ast::Statement::NativeFun { name, params, return_type } => todo!(), //impossible for now
         }
     }
     
@@ -229,13 +262,19 @@ pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -
                     })),
                     None => Ok(None),
                 }
-                
+        
             } else {
                 Err(Spanned {
                     inner: "Non top level exports are prohibited".to_string(),
                     span: statement.span
                 })
             }
+        },
+        ast::Statement::NativeFun { name, params: _, return_type: _ } => {
+            Ok(Some(Spanned {
+                inner: ir::Statement::NativeFun(name.clone()),
+                span: statement.span
+            }))
         },
     }
 }
@@ -602,6 +641,10 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                     }),
                     ast::Statement::Export(_) => return Err(Spanned {
                         inner: "Non top level exports are prohibited".to_string(),
+                        span: stmt.span
+                    }),
+                    ast::Statement::NativeFun { name: _, params: _, return_type: _ } => return Err(Spanned {
+                        inner: "Native functions can only be declared at the top level".to_string(),
                         span: stmt.span
                     }),
                 }

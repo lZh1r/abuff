@@ -32,6 +32,7 @@ pub enum Statement {
     TypeDef {name: String, type_info: Spanned<TypeInfo>},
     Expr(Spanned<Expr>),
     Fun {name: String, params: Vec<(String, Spanned<TypeInfo>)>, body: Spanned<Expr>, return_type: Option<Spanned<TypeInfo>>},
+    NativeFun {name: String, params: Vec<(String, Spanned<TypeInfo>)>, return_type: Option<Spanned<TypeInfo>>},
     Import {symbols: Vec<(Spanned<String>, Option<String>, bool)>, path: Spanned<String>},
     Export(Box<Spanned<Statement>>)
 }
