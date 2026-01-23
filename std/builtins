@@ -1,1 +1,41 @@
+/// Prints provided arguments to the standard output.
+/// If more than 1 argument is provided, they will be separated by commas:
+/// ```
+/// print(1,2,3);
+/// // output: 1, 2, 3
+/// ```
+///
+/// Any value can be printed using this function:
+/// ```
+/// let a = {
+///     b: 2
+/// };
+/// print(a);
+/// // output: { b: 2 }
+/// ```
+/// 
+/// In case of all functions and closures a string "closure" will be printed:
+/// ```
+/// fun f() {1;};
+/// print(f);
+/// // output: closure
+/// ```
+///
+/// Printing native functions will give more information
+/// in form of this function's name and its module path:
+/// ```
+/// print(print);
+/// // output: native function "print" from "std/builtins"
+/// ```
 export native fun print(args: Any);
+
+/// Returns program's uptime in nanoseconds.
+/// Can be used for benchmarking performance:
+/// ```
+/// let start = clock();
+/// // run some heavy function
+/// heavy();
+/// let end = clock();
+/// print(end - start);
+/// ```
+export native fun clock(): Int;

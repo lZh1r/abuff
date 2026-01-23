@@ -160,6 +160,11 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         Ok(ControlFlow::Value(Value::Void))
     });
     
+    register_fun(BUILTINS_PATH, "clock", |_| {
+        let instant = PROCESS_START.get_or_init(Instant::now);
+        Ok(ControlFlow::Value(Value::Int(instant.elapsed().as_nanos() as i64)))
+    });
+    
     let registry = GlobalRegistry;
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),
