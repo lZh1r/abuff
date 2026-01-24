@@ -141,9 +141,9 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     }),
                     cf => return Ok(cf),
                 };
-                
-                if !cond { break }
         
+                if !cond { break }
+
                 match eval_expr(body, env)? {
                     ControlFlow::Break => break,
                     ControlFlow::Continue => continue,
@@ -169,6 +169,24 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     span: expr.span
                 }),
             }
+        },
+        Expr::Array(elements) => {
+            let mut values = Vec::new();
+            for e in elements {
+                match eval_expr(e, env)? {
+                    ControlFlow::Value(value) => values.push(value),
+                    ControlFlow::Return(value) => values.push(value),
+                    ControlFlow::Break => return Err(Spanned {
+                        inner: "Runtime Error: Expected a value, but got break".into(),
+                        span: e.span
+                    }),
+                    ControlFlow::Continue => return Err(Spanned {
+                        inner: "Runtime Error: Expected a value, but got continue".into(),
+                        span: e.span
+                    }),
+                }
+            }
+            Ok(ControlFlow::Value(Value::Array(values)))
         },
     }
 }
@@ -214,17 +232,34 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
     match fun {
         ControlFlow::Value(v) => {
             match v {
-                //TODO: pack all of the spread args into an array
                 Value::Closure { params: param, body, mut env } => {
                     let mut new_scope = env.enter_scope();
-                    for ((_, name), arg) in param.iter().zip(args.iter()) {
-                        new_scope.add_variable(name.clone(), arg.clone());
+                    if param.len() > 0 {
+                        if param.last().unwrap().0 {
+                            for ((is_spread, name), arg) in param.iter().zip(args.iter()) {
+                                if *is_spread {break}
+                                new_scope.add_variable(name.clone(), arg.clone());
+                            }
+                            let spread_args = &args[param.len() - 1..];
+                            let mut zipped_args = Vec::new();
+                            for a in spread_args {
+                                zipped_args.push(a.clone());
+                            }
+                            new_scope.add_variable(param.last().unwrap().1.clone(), Value::Array(zipped_args));
+                        } else {
+                            for ((_, name), arg) in param.iter().zip(args.iter()) {
+                                new_scope.add_variable(name.clone(), arg.clone());
+                            }
+                        }
                     }
-
+                    
                     match eval_expr(&body, &mut new_scope)? {
                         ControlFlow::Return(v) => Ok(ControlFlow::Value(v)),
                         ControlFlow::Value(v) => Ok(ControlFlow::Value(v)),
-                        cf => Ok(cf), // Break/Continue in a function body? Should probably be handled by checker, but here we propagate.
+                        _ => Err(Spanned {
+                            inner: "Runtime Error: break/continue are not allowed here".into(),
+                            span: body.span
+                        }),
                     }
                 },
                 Value::NativeFun {path: _, name: _, pointer} => {

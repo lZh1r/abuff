@@ -11,6 +11,7 @@ pub enum Expr {
     Int(i64),
     String(String),
     Var(String),
+    Array(Vec<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, body: Box<Spanned<Expr>>, return_type: Option<Spanned<TypeInfo>>},
@@ -74,7 +75,8 @@ pub enum TypeInfo {
     Any,
     Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, return_type: Box<Spanned<TypeInfo>>},
     Record(Vec<(String, Spanned<TypeInfo>)>),
-    Custom(String)
+    Custom(String),
+    Array(Box<Spanned<TypeInfo>>)
 }
 
 // Custom PartialEq that ignores spans when comparing TypeInfo
@@ -88,7 +90,8 @@ impl PartialEq for TypeInfo {
             (TypeInfo::Bool, TypeInfo::Bool) => true,
             (TypeInfo::Void, TypeInfo::Void) => true,
             (TypeInfo::Null, TypeInfo::Null) => true,
-            (TypeInfo::Unknown, TypeInfo::Unknown) => true,
+            (TypeInfo::Unknown, TypeInfo::Unknown) => false,
+            (TypeInfo::Array(a1), TypeInfo::Array(a2)) => a1.inner == a2.inner,
             (TypeInfo::Any, TypeInfo::Any) => true,
             (TypeInfo::Custom(a), TypeInfo::Custom(b)) => a == b,
             (TypeInfo::Fun { params: args_a, return_type: ret_a }, TypeInfo::Fun { params: args_b, return_type: ret_b }) => {

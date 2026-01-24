@@ -397,13 +397,13 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
                     },
                     (false, false) => (),
                 }
-                    
+            
                 new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
             }
             let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
             new_scope.add_var_type("&return".to_string(), r_type.clone());
             let inferred_type = get_type(&body, &mut new_scope)?;
-            
+    
             if r_type.inner == inferred_type.inner {
                 Ok(Spanned { 
                     inner: ir::Expr::Fun { 
@@ -420,86 +420,14 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
             }
         },
         ast::Expr::Call { fun, args } => {
-            match get_type(&fun, env)?.inner {
-                TypeInfo::Fun { params, return_type: _ } => {
-                    let mut is_variadic = false;
-                    for ((spread, _), _) in &params {
-                        if spread.clone() {
-                            is_variadic = true;
-                            break;
-                        }
-                    }
-                    match is_variadic {
-                        true => {
-                            if params.len() > args.len() {
-                                return Err(Spanned {
-                                    inner: format!("Expected at least {} args, got {}", params.len(), args.len()),
-                                    span: expr.span
-                                });
-                            }
-                            let mut non_spread_args_count = params.len() - 1;
-                            for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
-                                if non_spread_args_count <= 0 {
-                                    break;
-                                } else {
-                                    non_spread_args_count -= 1;
-                                }
-                                let arg_type = get_type(&arg_expr, env)?;
-                                if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
-                                    return Err(Spanned {
-                                        inner: "Argument type mismatch".to_string(),
-                                        span: arg_expr.span
-                                    });
-                                }
-                            }
-                            
-                            let spread_param_type = params.last().unwrap().1.clone();
-                            if spread_param_type.inner != TypeInfo::Any {
-                                let spread_args = &args[cmp::max(params.len() - 1, 0)..];
-                                for arg_expr in spread_args {
-                                    let arg_type = get_type(arg_expr, env)?;
-                                    if unwrap_custom_type(spread_param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
-                                        return Err(Spanned {
-                                            inner: "Argument type mismatch".to_string(),
-                                            span: arg_expr.span
-                                        });
-                                    }
-                                }
-                            }
-                            
-                        },
-                        false => {
-                            if params.len() != args.len() {
-                                return Err(Spanned {
-                                    inner: format!("Expected {} args, got {}", params.len(), args.len()),
-                                    span: expr.span
-                                });
-                            }
-                            for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
-                                let arg_type = get_type(&arg_expr, env)?;
-                                if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
-                                    return Err(Spanned {
-                                        inner: "Argument type mismatch".to_string(),
-                                        span: arg_expr.span
-                                    });
-                                }
-                            }
-                        },
-                    }
-            
-                    Ok(Spanned {
-                        inner: ir::Expr::Call { 
-                            fun: Box::new(lower_expr(&fun, env)?), 
-                            args: args.iter().map(|expr| lower_expr(&expr, env).unwrap()).collect() 
-                        },
-                        span: expr.span
-                    })
+            let _ = get_type(&fun, env)?;
+            Ok(Spanned {
+                inner: ir::Expr::Call { 
+                    fun: Box::new(lower_expr(&fun, env)?), 
+                    args: args.iter().map(|expr| lower_expr(&expr, env).unwrap()).collect() 
                 },
-                t => Err(Spanned {
-                    inner: format!("Type {t:?} is not callable"),
-                    span: expr.span
-                })
-            }
+                span: expr.span
+            })
         },
         ast::Expr::Record(items) => Ok(Spanned {
             inner: ir::Expr::Record(items.iter().map(|(name, expr)| (name.to_string(), lower_expr(&expr, env).unwrap())).collect()),
@@ -562,41 +490,26 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
             }
         },
         ast::Expr::If { condition, body, else_block } => {
-            if get_type(&condition, env)?.inner == TypeInfo::Bool {
-                match else_block {
-                    Some(b) => {
-                        let body_type = get_type(&body, env)?;
-                        let else_type = get_type(&b, env)?;
-                        if body_type.inner == else_type.inner {
-                            Ok(Spanned {
-                                inner: ir::Expr::If { 
-                                    condition: Box::new(lower_expr(&condition, env)?),
-                                    body: Box::new(lower_expr(&body, env)?),
-                                    else_block: Some(Box::new(lower_expr(&b, env)?)) 
-                                },
-                                span: expr.span
-                            })
-                        } else {
-                            Err(Spanned {
-                                inner: format!("If branches have incompatible types: {:?} and {:?}", body_type.inner, else_type.inner),
-                                span: expr.span
-                            })
-                        }
-                    },
-                    None => Ok(Spanned {
+            let _ = get_type(expr, env)?;
+            match else_block {
+                Some(b) => {
+                    Ok(Spanned {
                         inner: ir::Expr::If { 
                             condition: Box::new(lower_expr(&condition, env)?),
                             body: Box::new(lower_expr(&body, env)?),
-                            else_block: None 
+                            else_block: Some(Box::new(lower_expr(&b, env)?)) 
                         },
                         span: expr.span
-                    }),
-                }
-            } else {
-                return Err(Spanned {
-                    inner: "If condition should return Bool".to_string(),
+                    })
+                },
+                None => Ok(Spanned {
+                    inner: ir::Expr::If { 
+                        condition: Box::new(lower_expr(&condition, env)?),
+                        body: Box::new(lower_expr(&body, env)?),
+                        else_block: None 
+                    },
                     span: expr.span
-                });
+                }),
             }
         },
         ast::Expr::While { condition, body } => {
@@ -619,6 +532,17 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
         ast::Expr::Break => Ok(Spanned { inner: ir::Expr::Break, span: expr.span }),
         ast::Expr::Continue => Ok(Spanned { inner: ir::Expr::Continue, span: expr.span }),
         ast::Expr::Return(expr) => Ok(Spanned { inner: ir::Expr::Return(Box::new(lower_expr(&expr, env)?)), span: expr.span }),
+        ast::Expr::Array(elements) => {
+            let _ = get_type(expr, env)?; //checks for type consistency across the whole array
+            let mut lowered_elements = Vec::new();
+            for e in elements {
+                lowered_elements.push(lower_expr(e, env)?);
+            }
+            Ok(Spanned {
+                inner: ir::Expr::Array(lowered_elements),
+                span: expr.span
+            })
+        },
     }
 }
 
@@ -731,7 +655,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                 },
                                 (false, false) => (),
                             }
-                                
+                        
                             new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                         }
                         let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: stmt.span}), env)?;
@@ -784,13 +708,13 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                     },
                     (false, false) => (),
                 }
-                    
+            
                 new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
             }
             let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
             new_scope.add_var_type("&return".to_string(), r_type.clone());
             let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope)?;
-            
+    
             if r_type.inner != inferred_type.inner {
                 return Err(Spanned {
                     inner: format!("Expected {:?} but got {:?}", r_type.inner, inferred_type.inner),
@@ -839,7 +763,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     });
                                 }
                             }
-                            
+                    
                             let spread_param_type = params.last().unwrap().1.clone();
                             if spread_param_type.inner != TypeInfo::Any {
                                 let spread_args = &args[cmp::max(params.len() - 1, 0)..];
@@ -853,7 +777,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     }
                                 }
                             }
-                            
+                    
                         },
                         false => {
                             if params.len() != args.len() {
@@ -873,7 +797,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                             }
                         },
                     }
-                    
+            
                     Ok(*return_type.clone())
                 },
                 _ => Err(Spanned {
@@ -983,6 +907,23 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                 }),
             }
         },
+        ast::Expr::Array(elements) => {
+            let mut first_type = TypeInfo::Any;
+            for (i, e) in elements.iter().enumerate() {
+                if i == 0 {
+                    first_type = get_type(e, env)?.inner
+                } else if first_type != get_type(e, env)?.inner {
+                    return Err(Spanned {
+                        inner: "Array elements should have the same type".to_string(),
+                        span: expr.span
+                    })
+                }
+            }
+            Ok(Spanned {
+                inner: first_type,
+                span: expr.span
+            })
+        },
     }
 }
 
@@ -1018,12 +959,16 @@ pub fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv) -> Re
                     Err(e) => return Err(e),
                 }
             }
-            let new_return_type = unwrap_custom_type(*return_type.clone(), env)?;
+            let new_return_type = unwrap_custom_type(*return_type, env)?;
             Ok(Spanned {
                 inner: TypeInfo::Fun { params: new_args, return_type: Box::new(new_return_type) },
                 span: type_info.span
             })
         },
+        TypeInfo::Array(ti) => Ok(Spanned {
+            inner: TypeInfo::Array(Box::new(unwrap_custom_type(*ti, env)?)),
+            span: type_info.span
+        }),
         _ => Ok(type_info)
     }
 }

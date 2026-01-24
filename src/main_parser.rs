@@ -97,14 +97,21 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             span: extra.span()
         });
 
-        choice((
+        let atom = choice((
             leaf,
             record,
             fun.clone().delimited_by(just('(').padded_by(whitespace_with_comments()), just(')').padded_by(whitespace_with_comments())),
             fun,
             custom
-        ))
+        ));
         
+        atom.foldl(
+            just("[]").padded_by(whitespace_with_comments()).map_with(|_, e| e.span()).repeated(),
+            |ty, bracket_span| Spanned {
+                inner: TypeInfo::Array(Box::new(ty.clone())),
+                span: (ty.span.start..bracket_span.end).into(), 
+            }
+        )
     });
 
     recursive(|statement| {
@@ -255,6 +262,15 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 })
             ));
             
+            let array = just('[').padded()
+                .ignore_then(
+                    expr.clone().separated_by(just(',').padded()).allow_trailing().collect()
+                ).then_ignore(just(']').padded())
+                .map_with(|elements: Vec<Spanned<Expr>>, extra| Spanned {
+                    inner: Expr::Array(elements),
+                    span: extra.span()
+                });
+            
             let atom = choice((
                 float,
                 int,
@@ -267,6 +283,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 while_loop,
                 record,
                 block,
+                array,
                 var,
                 expr.clone().delimited_by(just('('), just(')')).padded()
             )).boxed();

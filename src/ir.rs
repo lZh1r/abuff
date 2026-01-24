@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap};
 
 use crate::{ast::{Spanned, UnaryOp}, env::Env, native::NativeFun};
 
@@ -10,6 +10,7 @@ pub enum Expr {
     Int(i64),
     String(String),
     Var(String),
+    Array(Vec<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {params: Vec<(bool, String)>, body: Box<Spanned<Expr>>},
@@ -67,6 +68,7 @@ pub enum Value {
     Bool(bool),
     String(String),
     Char(char),
+    Array(Vec<Value>),
     Record(HashMap<String, Value>), 
     Closure { params: Vec<(bool, String)>, body: Box<Spanned<Expr>>, env: Env },
     NativeFun {path: String, name: String, pointer: NativeFun},
@@ -86,7 +88,7 @@ impl fmt::Display for Value {
             Value::Record(hash_map) => {
                 let mut entries: Vec<_> = hash_map.iter().collect();
                 entries.sort_by_key(|(k, _)| *k);
-                
+    
                 write!(f, "{{")?;
                 for (i, (key, val)) in entries.iter().enumerate() {
                     if i > 0 { 
@@ -106,6 +108,16 @@ impl fmt::Display for Value {
             Value::NativeFun {path, name, pointer: _} => write!(f, "native function \"{name}\" from \"{path}\""),
             Value::Null => write!(f, "null"),
             Value::Void => write!(f, "void"),
+            Value::Array(values) => {
+                write!(f, "[");
+                for (i, v) in values.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ");
+                    }
+                    write!(f, "{v}");
+                }
+                write!(f, "]")
+            },
         }
     }
 }
