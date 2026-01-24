@@ -214,10 +214,11 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
     match fun {
         ControlFlow::Value(v) => {
             match v {
+                //TODO: pack all of the spread args into an array
                 Value::Closure { params: param, body, mut env } => {
                     let mut new_scope = env.enter_scope();
-                    for (par, arg) in param.iter().zip(args.iter()) {
-                        new_scope.add_variable(par.clone(), arg.clone());
+                    for ((_, name), arg) in param.iter().zip(args.iter()) {
+                        new_scope.add_variable(name.clone(), arg.clone());
                     }
 
                     match eval_expr(&body, &mut new_scope)? {
@@ -239,7 +240,13 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
     }
 }
 
-fn binary_operation(left: &Box<Spanned<Expr>>, operation: &Operation, right: &Box<Spanned<Expr>>, env: &mut Env, span: crate::ast::Span) -> Result<ControlFlow, Spanned<String>> {
+fn binary_operation(
+    left: &Box<Spanned<Expr>>,
+    operation: &Operation,
+    right: &Box<Spanned<Expr>>,
+    env: &mut Env,
+    span: crate::ast::Span
+) -> Result<ControlFlow, Spanned<String>> {
     let left_value = match eval_expr(left, env)? {
         ControlFlow::Value(v) => v,
         cf => return Ok(cf),

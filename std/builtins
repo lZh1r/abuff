@@ -27,7 +27,7 @@
 /// print(print);
 /// // output: native function "print" from "std/builtins"
 /// ```
-export native fun print(args: Any);
+export native fun print(...args: Any);
 
 /// Returns program's uptime in nanoseconds.
 /// Can be used for benchmarking performance:

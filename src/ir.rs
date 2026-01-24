@@ -12,7 +12,7 @@ pub enum Expr {
     Var(String),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
-    Fun {params: Vec<String>, body: Box<Spanned<Expr>>},
+    Fun {params: Vec<(bool, String)>, body: Box<Spanned<Expr>>},
     Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
     Record(Vec<(String, Spanned<Expr>)>),
     Get(Box<Spanned<Expr>>, String),
@@ -68,7 +68,7 @@ pub enum Value {
     String(String),
     Char(char),
     Record(HashMap<String, Value>), 
-    Closure { params: Vec<String>, body: Box<Spanned<Expr>>, env: Env },
+    Closure { params: Vec<(bool, String)>, body: Box<Spanned<Expr>>, env: Env },
     NativeFun {path: String, name: String, pointer: NativeFun},
     Null,
     Void

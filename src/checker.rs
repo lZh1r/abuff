@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::current_dir};
+use std::{cmp, collections::HashMap, env::current_dir};
 
 use chumsky::span::SimpleSpan;
 
@@ -66,14 +66,29 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                 let r_type = return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span});
                 env.add_var_type(name.to_string(), Spanned {
                     inner: TypeInfo::Fun { 
-                        args: params.clone(), 
+                        params: params.clone(), 
                         return_type: Box::new(r_type.clone()) 
                     },
                     span: st.span
                 });
     
                 let mut new_scope = env.enter_scope();
-                for (param_name, param_type) in params.clone() {
+                let mut spread_encountered = false;
+                for ((spread, param_name), param_type) in params.clone() {
+                    match (spread_encountered, spread) {
+                        (true, true) => return Err(Spanned {
+                            inner: "A function can only have 1 spread parameter".into(),
+                            span: st.span
+                        }),
+                        (true, false) => return Err(Spanned {
+                            inner: "Cannot have parameters after spread parameter".into(),
+                            span: st.span
+                        }),
+                        (false, true) => {
+                            spread_encountered = true;
+                        },
+                        (false, false) => (),
+                    }
                     new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                 }
                 new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -126,7 +141,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
             
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
-                                args: unwrapped_params, 
+                                params: unwrapped_params, 
                                 return_type: Box::new(r_type.clone()) 
                             },
                             span: st.span
@@ -135,7 +150,23 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                         env.add_var_type(name.to_string(), function_type.clone());
 
                         let mut new_scope = env.enter_scope();
-                        for (param_name, param_type) in params.clone() {
+                        let mut spread_encountered = false;
+                        for ((spread, param_name), param_type) in params.clone() {
+                            match (spread_encountered, spread) {
+                                (true, true) => return Err(Spanned {
+                                    inner: "A function can only have 1 spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (true, false) => return Err(Spanned {
+                                    inner: "Cannot have parameters after spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (false, true) => {
+                                    spread_encountered = true;
+                                },
+                                (false, false) => (),
+                            }
+                                
                             new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                         }
                         new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -181,7 +212,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                         
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
-                                args: unwrapped_params, 
+                                params: unwrapped_params, 
                                 return_type: Box::new(r_type.clone()) 
                             },
                             span: st.span
@@ -350,8 +381,24 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
         },
         ast::Expr::Fun { params, body, return_type } => {
             let mut new_scope = env.enter_scope();
-            for (param_name, param_type) in params {
-                new_scope.add_var_type(param_name.to_string(), param_type.clone());
+            let mut spread_encountered = false;
+            for ((spread, param_name), param_type) in params.clone() {
+                match (spread_encountered, spread) {
+                    (true, true) => return Err(Spanned {
+                        inner: "A function can only have 1 spread parameter".into(),
+                        span: expr.span
+                    }),
+                    (true, false) => return Err(Spanned {
+                        inner: "Cannot have parameters after spread parameter".into(),
+                        span: expr.span
+                    }),
+                    (false, true) => {
+                        spread_encountered = true;
+                    },
+                    (false, false) => (),
+                }
+                    
+                new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
             }
             let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
             new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -359,7 +406,10 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
             
             if r_type.inner == inferred_type.inner {
                 Ok(Spanned { 
-                    inner: ir::Expr::Fun { params: params.iter().map(|(name, _)| name.to_string()).collect(), body: Box::new(lower_expr(&body, &mut new_scope)?) },
+                    inner: ir::Expr::Fun { 
+                        params: params.iter().map(|(s, _)| s.clone()).collect(),
+                        body: Box::new(lower_expr(&body, &mut new_scope)?)
+                    },
                     span: expr.span
                 })
             } else {
@@ -371,25 +421,70 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
         },
         ast::Expr::Call { fun, args } => {
             match get_type(&fun, env)?.inner {
-                TypeInfo::Fun { args: params, return_type: _ } => {
-                    let first_param_type = params.get(0).map(|(_, t)| &t.inner).unwrap_or(&TypeInfo::Void);
-                    if *first_param_type != TypeInfo::Any {
-                        let mut position = 0;
-                        for ((_, ti), expr) in params.iter().zip(args.iter()) {
-                            let expected_type = unwrap_custom_type(ti.clone(), env)?;
-                            let actual_type = get_type(&expr, env)?;
-                            if expected_type.inner != actual_type.inner {
-                                return Err(Spanned {
-                                    inner: format!(
-                                        "Argument type mismatch: expected argument #{position} to be {:?}, but got {:?}",
-                                        expected_type.inner,
-                                        actual_type.inner
-                                    ),
-                                    span: ti.span
-                                })
-                            }
-                            position += 1;
+                TypeInfo::Fun { params, return_type: _ } => {
+                    let mut is_variadic = false;
+                    for ((spread, _), _) in &params {
+                        if spread.clone() {
+                            is_variadic = true;
+                            break;
                         }
+                    }
+                    match is_variadic {
+                        true => {
+                            if params.len() > args.len() {
+                                return Err(Spanned {
+                                    inner: format!("Expected at least {} args, got {}", params.len(), args.len()),
+                                    span: expr.span
+                                });
+                            }
+                            let mut non_spread_args_count = params.len() - 1;
+                            for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
+                                if non_spread_args_count <= 0 {
+                                    break;
+                                } else {
+                                    non_spread_args_count -= 1;
+                                }
+                                let arg_type = get_type(&arg_expr, env)?;
+                                if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
+                                    return Err(Spanned {
+                                        inner: "Argument type mismatch".to_string(),
+                                        span: arg_expr.span
+                                    });
+                                }
+                            }
+                            
+                            let spread_param_type = params.last().unwrap().1.clone();
+                            if spread_param_type.inner != TypeInfo::Any {
+                                let spread_args = &args[cmp::max(params.len() - 1, 0)..];
+                                for arg_expr in spread_args {
+                                    let arg_type = get_type(arg_expr, env)?;
+                                    if unwrap_custom_type(spread_param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
+                                        return Err(Spanned {
+                                            inner: "Argument type mismatch".to_string(),
+                                            span: arg_expr.span
+                                        });
+                                    }
+                                }
+                            }
+                            
+                        },
+                        false => {
+                            if params.len() != args.len() {
+                                return Err(Spanned {
+                                    inner: format!("Expected {} args, got {}", params.len(), args.len()),
+                                    span: expr.span
+                                });
+                            }
+                            for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
+                                let arg_type = get_type(&arg_expr, env)?;
+                                if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
+                                    return Err(Spanned {
+                                        inner: "Argument type mismatch".to_string(),
+                                        span: arg_expr.span
+                                    });
+                                }
+                            }
+                        },
                     }
             
                     Ok(Spanned {
@@ -620,8 +715,24 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                     },
                     ast::Statement::Fun { name, params, body, return_type } => {
                         let mut new_scope = env.enter_scope();
-                        for (param_name, param_type) in params {
-                            new_scope.add_var_type(param_name.to_string(), param_type.clone());
+                        let mut spread_encountered = false;
+                        for ((spread, param_name), param_type) in params.clone() {
+                            match (spread_encountered, spread) {
+                                (true, true) => return Err(Spanned {
+                                    inner: "A function can only have 1 spread parameter".into(),
+                                    span: stmt.span
+                                }),
+                                (true, false) => return Err(Spanned {
+                                    inner: "Cannot have parameters after spread parameter".into(),
+                                    span: stmt.span
+                                }),
+                                (false, true) => {
+                                    spread_encountered = true;
+                                },
+                                (false, false) => (),
+                            }
+                                
+                            new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                         }
                         let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: stmt.span}), env)?;
                         new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -657,8 +768,24 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
         },
         ast::Expr::Fun { params, body, return_type } => {
             let mut new_scope = env.enter_scope();
-            for (param_name, param_type) in params {
-                new_scope.add_var_type(param_name.to_string(), param_type.clone());
+            let mut spread_encountered = false;
+            for ((spread, param_name), param_type) in params.clone() {
+                match (spread_encountered, spread) {
+                    (true, true) => return Err(Spanned {
+                        inner: "A function can only have 1 spread parameter".into(),
+                        span: expr.span
+                    }),
+                    (true, false) => return Err(Spanned {
+                        inner: "Cannot have parameters after spread parameter".into(),
+                        span: expr.span
+                    }),
+                    (false, true) => {
+                        spread_encountered = true;
+                    },
+                    (false, false) => (),
+                }
+                    
+                new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
             }
             let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
             new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -672,7 +799,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
             }
             Ok(Spanned {
                 inner: TypeInfo::Fun { 
-                    args: params.clone(), 
+                    params: params.clone(), 
                     return_type: Box::new(r_type)
                 },
                 span: expr.span
@@ -680,27 +807,73 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
         },
         ast::Expr::Call { fun, args } => {
             let fun_type = unwrap_custom_type(get_type(&fun, env)?, env)?;
-    
             match fun_type.inner {
-                TypeInfo::Fun { args: params, return_type } => {
-                    let first_param_type = params.get(0).map(|(_, t)| &t.inner).unwrap_or(&TypeInfo::Void);
-                    if *first_param_type != TypeInfo::Any {
-                        if params.len() != args.len() {
-                            return Err(Spanned {
-                                inner: format!("Expected {} args, got {}", params.len(), args.len()),
-                                span: expr.span
-                            });
-                        }
-                        for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
-                            let arg_type = get_type(&arg_expr, env)?;
-                            if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
-                                return Err(Spanned {
-                                    inner: "Argument type mismatch".to_string(),
-                                    span: arg_expr.span
-                                });
-                            }
+                TypeInfo::Fun { params, return_type } => {
+                    let mut is_variadic = false;
+                    for ((spread, _), _) in &params {
+                        if spread.clone() {
+                            is_variadic = true;
+                            break;
                         }
                     }
+                    match is_variadic {
+                        true => {
+                            if params.len() > args.len() {
+                                return Err(Spanned {
+                                    inner: format!("Expected at least {} args, got {}", params.len(), args.len()),
+                                    span: expr.span
+                                });
+                            }
+                            let mut non_spread_args_count = params.len() - 1;
+                            for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
+                                if non_spread_args_count <= 0 {
+                                    break;
+                                } else {
+                                    non_spread_args_count -= 1;
+                                }
+                                let arg_type = get_type(&arg_expr, env)?;
+                                if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
+                                    return Err(Spanned {
+                                        inner: "Argument type mismatch".to_string(),
+                                        span: arg_expr.span
+                                    });
+                                }
+                            }
+                            
+                            let spread_param_type = params.last().unwrap().1.clone();
+                            if spread_param_type.inner != TypeInfo::Any {
+                                let spread_args = &args[cmp::max(params.len() - 1, 0)..];
+                                for arg_expr in spread_args {
+                                    let arg_type = get_type(arg_expr, env)?;
+                                    if unwrap_custom_type(spread_param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
+                                        return Err(Spanned {
+                                            inner: "Argument type mismatch".to_string(),
+                                            span: arg_expr.span
+                                        });
+                                    }
+                                }
+                            }
+                            
+                        },
+                        false => {
+                            if params.len() != args.len() {
+                                return Err(Spanned {
+                                    inner: format!("Expected {} args, got {}", params.len(), args.len()),
+                                    span: expr.span
+                                });
+                            }
+                            for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
+                                let arg_type = get_type(&arg_expr, env)?;
+                                if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
+                                    return Err(Spanned {
+                                        inner: "Argument type mismatch".to_string(),
+                                        span: arg_expr.span
+                                    });
+                                }
+                            }
+                        },
+                    }
+                    
                     Ok(*return_type.clone())
                 },
                 _ => Err(Spanned {
@@ -837,7 +1010,7 @@ pub fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv) -> Re
                 span: type_info.span
             })
         },
-        TypeInfo::Fun { args, return_type } => {
+        TypeInfo::Fun { params: args, return_type } => {
             let mut new_args = Vec::new();
             for (name, ti) in args {
                 match unwrap_custom_type(ti.clone(), env) {
@@ -847,7 +1020,7 @@ pub fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv) -> Re
             }
             let new_return_type = unwrap_custom_type(*return_type.clone(), env)?;
             Ok(Spanned {
-                inner: TypeInfo::Fun { args: new_args, return_type: Box::new(new_return_type) },
+                inner: TypeInfo::Fun { params: new_args, return_type: Box::new(new_return_type) },
                 span: type_info.span
             })
         },

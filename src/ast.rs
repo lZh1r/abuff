@@ -13,7 +13,7 @@ pub enum Expr {
     Var(String),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
-    Fun {params: Vec<(String, Spanned<TypeInfo>)>, body: Box<Spanned<Expr>>, return_type: Option<Spanned<TypeInfo>>},
+    Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, body: Box<Spanned<Expr>>, return_type: Option<Spanned<TypeInfo>>},
     Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
     Record(Vec<(String, Spanned<Expr>)>),
     Get(Box<Spanned<Expr>>, String),
@@ -31,8 +31,8 @@ pub enum Statement {
     Let {name: String, expr: Spanned<Expr>, type_info: Option<Spanned<TypeInfo>>},
     TypeDef {name: String, type_info: Spanned<TypeInfo>},
     Expr(Spanned<Expr>),
-    Fun {name: String, params: Vec<(String, Spanned<TypeInfo>)>, body: Spanned<Expr>, return_type: Option<Spanned<TypeInfo>>},
-    NativeFun {name: String, params: Vec<(String, Spanned<TypeInfo>)>, return_type: Option<Spanned<TypeInfo>>},
+    Fun {name: String, params: Vec<((bool, String), Spanned<TypeInfo>)>, body: Spanned<Expr>, return_type: Option<Spanned<TypeInfo>>},
+    NativeFun {name: String, params: Vec<((bool, String), Spanned<TypeInfo>)>, return_type: Option<Spanned<TypeInfo>>},
     Import {symbols: Vec<(Spanned<String>, Option<String>, bool)>, path: Spanned<String>},
     Export(Box<Spanned<Statement>>)
 }
@@ -72,7 +72,7 @@ pub enum TypeInfo {
     Null,
     Unknown,
     Any,
-    Fun {args: Vec<(String, Spanned<TypeInfo>)>, return_type: Box<Spanned<TypeInfo>>},
+    Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, return_type: Box<Spanned<TypeInfo>>},
     Record(Vec<(String, Spanned<TypeInfo>)>),
     Custom(String)
 }
@@ -91,7 +91,7 @@ impl PartialEq for TypeInfo {
             (TypeInfo::Unknown, TypeInfo::Unknown) => true,
             (TypeInfo::Any, TypeInfo::Any) => true,
             (TypeInfo::Custom(a), TypeInfo::Custom(b)) => a == b,
-            (TypeInfo::Fun { args: args_a, return_type: ret_a }, TypeInfo::Fun { args: args_b, return_type: ret_b }) => {
+            (TypeInfo::Fun { params: args_a, return_type: ret_a }, TypeInfo::Fun { params: args_b, return_type: ret_b }) => {
                 // Compare return types (ignoring span)
                 if ret_a.inner != ret_b.inner {
                     return false;

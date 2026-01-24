@@ -283,14 +283,29 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                 let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: st.span}), &mut module_type_env)?;
                 module_type_env.add_var_type(name.to_string(), Spanned {
                     inner: TypeInfo::Fun { 
-                        args: params.clone(), 
+                        params: params.clone(), 
                         return_type: Box::new(r_type.clone()) 
                     },
                     span: st.span
                 });
     
                 let mut new_scope = module_type_env.enter_scope();
-                for (param_name, param_type) in params.clone() {
+                let mut spread_encountered = false;
+                for ((spread, param_name), param_type) in params.clone() {
+                    match (spread_encountered, spread) {
+                        (true, true) => return Err(Spanned {
+                            inner: "A function can only have 1 spread parameter".into(),
+                            span: st.span
+                        }),
+                        (true, false) => return Err(Spanned {
+                            inner: "Cannot have parameters after spread parameter".into(),
+                            span: st.span
+                        }),
+                        (false, true) => {
+                            spread_encountered = true;
+                        },
+                        (false, false) => (),
+                    }
                     new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), &mut module_type_env)?);
                 }
                 new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -339,7 +354,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
             
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
-                                args: unwrapped_params, 
+                                params: unwrapped_params, 
                                 return_type: Box::new(r_type.clone()) 
                             },
                             span: st.span
@@ -348,7 +363,22 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                         module_type_env.add_var_type(name.to_string(), function_type.clone());
 
                         let mut new_scope = module_type_env.enter_scope();
-                        for (param_name, param_type) in params.clone() {
+                        let mut spread_encountered = false;
+                        for ((spread, param_name), param_type) in params.clone() {
+                            match (spread_encountered, spread) {
+                                (true, true) => return Err(Spanned {
+                                    inner: "A function can only have 1 spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (true, false) => return Err(Spanned {
+                                    inner: "Cannot have parameters after spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (false, true) => {
+                                    spread_encountered = true;
+                                },
+                                (false, false) => (),
+                            }
                             new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), &mut module_type_env)?);
                         }
                         new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -388,7 +418,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                         
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
-                                args: unwrapped_params, 
+                                params: unwrapped_params, 
                                 return_type: Box::new(r_type.clone()) 
                             },
                             span: st.span

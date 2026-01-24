@@ -144,8 +144,6 @@ fn spanned<T>(inner: T) -> Spanned<T> {
 }
 
 pub fn create_default_env() -> (Env, TypeEnv) {
-    // let mut type_env = TypeEnv::new();
-    // let mut env = Env::new();
     const BUILTINS_PATH: &str = "std/builtins";
     
     register_fun(BUILTINS_PATH, "print", |args| {
@@ -221,24 +219,6 @@ pub fn create_default_env() -> (Env, TypeEnv) {
     //                 Some(s) => Ok(Value::String(s)),
     //                 None => Err("No arguments provided to \"str\"".to_string()),
     //             }
-    //         }
-    //     ))
-    // }));
-    
-    // type_env.add_var_type("clock".to_string(), Spanned { 
-    //     inner: TypeInfo::Fun { 
-    //         args: Vec::new(),
-    //         return_type: Box::new(spanned(TypeInfo::Int)) 
-    //     },
-    //     span: SimpleSpan::from(0..0)
-    // });
-    // env.add_variable("clock".to_string(), Value::NativeFun(ir::NativeFun { 
-    //     name: "clock".to_string(),
-    //     max_args: Some(0),
-    //     function: Arc::new(Box::new(
-    //         |_| {
-    //             let instant = PROCESS_START.get_or_init(Instant::now);
-    //             Ok(Value::U128(instant.elapsed().as_nanos()))
     //         }
     //     ))
     // }));

@@ -67,16 +67,17 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             span: extra.span()
         });
 
-        let arg = text::ident().padded_by(whitespace_with_comments()).map(ToString::to_string)
-                        .then_ignore(just(':').padded_by(whitespace_with_comments()))
-                        .then(ty.clone()).padded_by(whitespace_with_comments());
+        let arg = just("...").or_not().then(text::ident().padded_by(whitespace_with_comments()))
+            .map(|(spread, name)| (spread.is_some(), name.to_string()))
+            .then_ignore(just(':').padded_by(whitespace_with_comments()))
+            .then(ty.clone()).padded_by(whitespace_with_comments());
 
         let fun = arg.separated_by(just(',')).allow_trailing().collect().or_not()
             .delimited_by(just('(').padded_by(whitespace_with_comments()), just(')').padded_by(whitespace_with_comments()))
             .then_ignore(just("->").padded_by(whitespace_with_comments()))
             .then(ty.clone())
             .map_with(|(input, output), extra| Spanned {
-                inner: TypeInfo::Fun { args: input.unwrap_or_default(), return_type: Box::new(output) },
+                inner: TypeInfo::Fun { params: input.unwrap_or_default(), return_type: Box::new(output) },
                 span: extra.span()
             });
 
@@ -194,7 +195,8 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 })
                 .padded_by(whitespace_with_comments());
 
-            let arg = text::ident().padded_by(whitespace_with_comments()).map(ToString::to_string)
+            let arg = just("...").or_not().then(text::ident().padded_by(whitespace_with_comments()))
+                .map(|(spread, name)| (spread.is_some(), name.to_string()))
                 .then_ignore(just(':').padded_by(whitespace_with_comments()))
                 .then(type_parser.clone());
 
@@ -457,7 +459,8 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 span: extra.span()
             });
         
-        let arg = text::ident().padded_by(whitespace_with_comments()).map(ToString::to_string)
+        let arg = just("...").or_not().then(text::ident().padded_by(whitespace_with_comments()))
+            .map(|(spread, name)| (spread.is_some(), name.to_string()))
             .then_ignore(just(':').padded_by(whitespace_with_comments()))
             .then(type_parser.clone());
         
@@ -474,7 +477,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             )
             .then(expr.clone())
             .then_ignore(just(';').padded_by(whitespace_with_comments()))
-            .map_with(|(((name, params), return_type), body): (((&str, Vec<(String, Spanned<TypeInfo>)>), Option<Spanned<TypeInfo>>), Spanned<Expr>), extra| Spanned {
+            .map_with(|(((name, params), return_type), body): (((&str, Vec<((bool, String), Spanned<TypeInfo>)>), Option<Spanned<TypeInfo>>), Spanned<Expr>), extra| Spanned {
                 inner: Statement::Fun {
                     name: name.to_string(),
                     params,
@@ -565,7 +568,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                             .or_not()
                     )
                     .then_ignore(just(';').padded_by(whitespace_with_comments()))
-            ).map_with(|((name, args), r_type): ((&str, Vec<(String, Spanned<TypeInfo>)>), Option<Spanned<TypeInfo>>), extra| Spanned {
+            ).map_with(|((name, args), r_type): ((&str, Vec<((bool, String), Spanned<TypeInfo>)>), Option<Spanned<TypeInfo>>), extra| Spanned {
                 inner: Statement::NativeFun {
                     name: name.into(),
                     params: args,
