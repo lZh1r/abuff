@@ -205,9 +205,33 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                         });
                         
                         let mut unwrapped_params = Vec::new();
-            
-                        for (pname, ti) in params {
-                            unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), env)?))
+                        let mut spread_encountered = false;
+                        for ((spread, param_name), param_type) in params.clone() {
+                            match (spread_encountered, spread) {
+                                (true, true) => return Err(Spanned {
+                                    inner: "A function can only have 1 spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (true, false) => return Err(Spanned {
+                                    inner: "Cannot have parameters after spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (false, true) => {
+                                    spread_encountered = true;
+                                },
+                                (false, false) => (),
+                            }
+                            
+                            if spread {
+                                match unwrap_custom_type(param_type.clone(), env)?.inner {
+                                    TypeInfo::Array(_) => (),
+                                    _ => return Err(Spanned {
+                                        inner: "Spread param's type should be an array".into(),
+                                        span: param_type.span
+                                    })
+                                };
+                            } 
+                            unwrapped_params.push(((spread, param_name), unwrap_custom_type(param_type.clone(), env)?));
                         }
                         
                         let function_type = Spanned {
@@ -397,7 +421,16 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
                     },
                     (false, false) => (),
                 }
-            
+                
+                if spread {
+                    match unwrap_custom_type(param_type.clone(), env)?.inner {
+                        TypeInfo::Array(_) => (),
+                        _ => return Err(Spanned {
+                            inner: "Spread param's type should be an array".into(),
+                            span: param_type.span
+                        })
+                    };
+                } 
                 new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
             }
             let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
@@ -543,6 +576,13 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
                 span: expr.span
             })
         },
+        ast::Expr::Index(target, index) => {
+            let _ = get_type(expr, env)?;
+            Ok(Spanned {
+                inner: ir::Expr::Index(Box::new(lower_expr(target, env)?), Box::new(lower_expr(index, env)?)),
+                span: expr.span
+            })
+        },
     }
 }
 
@@ -655,7 +695,16 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                 },
                                 (false, false) => (),
                             }
-                        
+                            
+                            if spread {
+                                match unwrap_custom_type(param_type.clone(), env)?.inner {
+                                    TypeInfo::Array(_) => (),
+                                    _ => return Err(Spanned {
+                                        inner: "Spread param's type should be an array".into(),
+                                        span: param_type.span
+                                    })
+                                };
+                            } 
                             new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                         }
                         let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: stmt.span}), env)?;
@@ -708,7 +757,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                     },
                     (false, false) => (),
                 }
-            
+    
                 new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
             }
             let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: expr.span}), env)?;
@@ -748,13 +797,8 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     span: expr.span
                                 });
                             }
-                            let mut non_spread_args_count = params.len() - 1;
-                            for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
-                                if non_spread_args_count <= 0 {
-                                    break;
-                                } else {
-                                    non_spread_args_count -= 1;
-                                }
+                            for (((spread, _), param_type), arg_expr) in params.iter().zip(args.iter()) {
+                                if spread.clone() {break}
                                 let arg_type = get_type(&arg_expr, env)?;
                                 if unwrap_custom_type(param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
                                     return Err(Spanned {
@@ -763,21 +807,26 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     });
                                 }
                             }
-                    
+            
                             let spread_param_type = params.last().unwrap().1.clone();
-                            if spread_param_type.inner != TypeInfo::Any {
-                                let spread_args = &args[cmp::max(params.len() - 1, 0)..];
-                                for arg_expr in spread_args {
-                                    let arg_type = get_type(arg_expr, env)?;
-                                    if unwrap_custom_type(spread_param_type.clone(), env)?.inner != unwrap_custom_type(arg_type, env)?.inner {
-                                        return Err(Spanned {
-                                            inner: "Argument type mismatch".to_string(),
-                                            span: arg_expr.span
-                                        });
-                                    }
+                            let spread_args = &args[cmp::max(params.len() - 1, 0)..];
+                            let expected_spread_type = match unwrap_custom_type(spread_param_type.clone(), env)?.inner {
+                                TypeInfo::Array(a) => a.inner,
+                                _ => return Err(Spanned {
+                                    inner: "Spread param's type should be an array".into(),
+                                    span: spread_param_type.span
+                                })
+                            };
+                            for arg_expr in spread_args {
+                                let arg_type = get_type(arg_expr, env)?;
+                                if expected_spread_type != unwrap_custom_type(arg_type, env)?.inner {
+                                    return Err(Spanned {
+                                        inner: "Argument type mismatch".to_string(),
+                                        span: arg_expr.span
+                                    });
                                 }
                             }
-                    
+            
                         },
                         false => {
                             if params.len() != args.len() {
@@ -797,7 +846,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                             }
                         },
                     }
-            
+    
                     Ok(*return_type.clone())
                 },
                 _ => Err(Spanned {
@@ -817,7 +866,6 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
             })
         },
         ast::Expr::Get(expr, property_name) => {
-            println!("hello");
             let record_type = get_type(&expr, env)?;
             match unwrap_custom_type(record_type.clone(), env)?.inner {
                 TypeInfo::Record(items) => {
@@ -920,9 +968,33 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                 }
             }
             Ok(Spanned {
-                inner: first_type,
+                inner: TypeInfo::Array(Box::new(Spanned {
+                    inner: first_type,
+                    span: expr.span
+                })),
                 span: expr.span
             })
+        },
+        ast::Expr::Index(e, index) => {
+            let index_type = get_type(index, env)?;
+            match index_type.inner {
+                TypeInfo::Int => (),
+                _ => return Err(Spanned {
+                    inner: format!("Type {:?} can not be used as an index", index_type.inner),
+                    span: index.span
+                })
+            }
+            let target_type = get_type(e, env)?;
+            match target_type.inner {
+                TypeInfo::Array(ti) => Ok(Spanned {
+                    inner: ti.inner,
+                    span: e.span
+                }),
+                _ => Err(Spanned {
+                    inner: format!("Type {:?} is not indexable", target_type.inner),
+                    span: e.span
+                })
+            }
         },
     }
 }

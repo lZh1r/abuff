@@ -12,6 +12,7 @@ pub enum Expr {
     String(String),
     Var(String),
     Array(Vec<Spanned<Expr>>),
+    Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, body: Box<Spanned<Expr>>, return_type: Option<Spanned<TypeInfo>>},

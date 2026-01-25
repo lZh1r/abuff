@@ -11,6 +11,7 @@ pub enum Expr {
     String(String),
     Var(String),
     Array(Vec<Spanned<Expr>>),
+    Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {params: Vec<(bool, String)>, body: Box<Spanned<Expr>>},
@@ -109,12 +110,12 @@ impl fmt::Display for Value {
             Value::Null => write!(f, "null"),
             Value::Void => write!(f, "void"),
             Value::Array(values) => {
-                write!(f, "[");
+                write!(f, "[")?;
                 for (i, v) in values.iter().enumerate() {
                     if i > 0 {
-                        write!(f, ", ");
+                        write!(f, ", ")?;
                     }
-                    write!(f, "{v}");
+                    write!(f, "{v}")?;
                 }
                 write!(f, "]")
             },
@@ -129,6 +130,7 @@ impl PartialEq for Value {
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Record(a), Value::Record(b)) => a == b, 
+            (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Closure { .. }, Value::Closure { .. }) => false,
             _ => false
         }

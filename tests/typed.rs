@@ -123,3 +123,60 @@ fn test_nested_function_return() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_array_indexing() {
+    let src = r#"
+        let a = [ 1 , 2 , 3 ];
+        a[2] + a[3 % 2];
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 5),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_array_mutation() {
+    let src = r#"
+        let a = [ 1 , 2 , 3 ];
+        a[2] = 4;
+        a[2];
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 4),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_spread_params() {
+    let src = r#"
+        fun f(...x: Int[]): Int[] {
+            x
+        };
+        f(1,2,3);
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Array(i) => assert_eq!(i, vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

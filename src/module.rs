@@ -411,9 +411,33 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                         });
                         
                         let mut unwrapped_params = Vec::new();
-            
-                        for (pname, ti) in params {
-                            unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), &mut module_type_env)?))
+                        let mut spread_encountered = false;
+                        for ((spread, param_name), param_type) in params.clone() {
+                            match (spread_encountered, spread) {
+                                (true, true) => return Err(Spanned {
+                                    inner: "A function can only have 1 spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (true, false) => return Err(Spanned {
+                                    inner: "Cannot have parameters after spread parameter".into(),
+                                    span: st.span
+                                }),
+                                (false, true) => {
+                                    spread_encountered = true;
+                                },
+                                (false, false) => (),
+                            }
+                            
+                            if spread {
+                                match unwrap_custom_type(param_type.clone(), &mut module_type_env)?.inner {
+                                    TypeInfo::Array(_) => (),
+                                    _ => return Err(Spanned {
+                                        inner: "Spread param's type should be an array".into(),
+                                        span: param_type.span
+                                    })
+                                };
+                            } 
+                            unwrapped_params.push(((spread, param_name), unwrap_custom_type(param_type.clone(), &mut module_type_env)?));
                         }
                         
                         let function_type = Spanned {

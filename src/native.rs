@@ -1,5 +1,5 @@
-use std::{collections::HashMap, sync::{Mutex, OnceLock}};
 
+use std::{collections::HashMap, sync::{Mutex, OnceLock}};
 use crate::{ast::Spanned, ir::{ControlFlow, Value}};
 //Box<dyn Fn(Vec<Value>) -> Result<Value, String> + Send + Sync>
 

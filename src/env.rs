@@ -1,8 +1,8 @@
-use std::{collections::HashMap, io::Error, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
+use std::{collections::HashMap, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
 
 use chumsky::{span::{SimpleSpan, Span}};
 
-use crate::{ast::{Spanned, TypeInfo}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{get_native_fun, register_fun}};
+use crate::{ast::{Spanned, TypeInfo}, error::build_report, ir::{ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun}};
 
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -138,10 +138,6 @@ impl TypeEnv {
 }
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
-
-fn spanned<T>(inner: T) -> Spanned<T> {
-    Spanned { inner, span: Span::new((), 0..0) }
-}
 
 pub fn create_default_env() -> (Env, TypeEnv) {
     const BUILTINS_PATH: &str = "std/builtins";

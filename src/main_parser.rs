@@ -5,6 +5,7 @@ use crate::ast::{Expr, Operation, Statement, TypeInfo, UnaryOp, Spanned, Span};
 enum PostfixOp {
     Call(Vec<Spanned<Expr>>),
     Access(String),
+    Index(Box<Spanned<Expr>>)
 }
 
 fn single_line_comment<'src>() -> impl Parser<'src, &'src str, (), extra::Err<Rich<'src, char>>> {
@@ -287,6 +288,18 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 var,
                 expr.clone().delimited_by(just('('), just(')')).padded()
             )).boxed();
+            
+            // let index = atom.foldl(
+            //     text::int(10).delimited_by(just('[').padded(), just(']').padded())
+            //         .padded_by(whitespace_with_comments()).map_with(|i, e| Spanned {
+            //             inner: i.parse().unwrap(),
+            //             span: e.span()
+            //         }).repeated(),
+            //     |expr, index| Spanned {
+            //         inner: Expr::Index(Box::new(expr), index.inner),
+            //         span: index.span, 
+            //     }
+            // );
 
             let call = atom.clone()
                 .foldl(
@@ -302,6 +315,10 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                             .padded_by(whitespace_with_comments())
                             .ignore_then(text::ident().padded_by(whitespace_with_comments()))
                             .map_with(|field: &str, extra| (PostfixOp::Access(field.to_string()), extra.span())),
+                        expr.clone()
+                            .padded_by(whitespace_with_comments())
+                            .delimited_by(just('[').padded_by(whitespace_with_comments()), just(']').padded_by(whitespace_with_comments()))
+                            .map_with(|index_expr, extra| (PostfixOp::Index(Box::new(index_expr)), extra.span())),
                     )).repeated(),
                     |parent: Spanned<Expr>, (op, op_span): (PostfixOp, Span)| {
                         let new_span = Span::new((), parent.span.start..op_span.end);
@@ -317,6 +334,13 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                                 inner: Expr::Get(
                                     Box::new(parent),
                                     field
+                                ),
+                                span: new_span
+                            },
+                            PostfixOp::Index(index_expr) => Spanned {
+                                inner: Expr::Index(
+                                    Box::new(parent),
+                                    index_expr
                                 ),
                                 span: new_span
                             },
