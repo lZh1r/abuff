@@ -125,6 +125,8 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
+            (TypeInfo::Any, _) => true,
+            (_, TypeInfo::Any) => true,
             _ => false,
         }
     }
