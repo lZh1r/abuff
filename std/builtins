@@ -39,3 +39,11 @@ export native fun print(...args: Any[]);
 /// print(end - start);
 /// ```
 export native fun clock(): Int;
+
+/// Returns a length of an object (if applicable).
+/// Supports: strings, arrays.
+/// ```
+/// let a = [1,2,3];
+/// len(a); // 3
+/// ```
+export native fun len(obj: Any): Int;

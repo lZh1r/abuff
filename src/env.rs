@@ -159,6 +159,23 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         Ok(ControlFlow::Value(Value::Int(instant.elapsed().as_nanos() as i64)))
     });
     
+    register_fun(BUILTINS_PATH, "len", |obj| {
+        if obj.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, but got {}", obj.len()),
+                span: SimpleSpan::from(0..0)
+            })
+        }
+        match obj.first().unwrap() {
+            Value::Array(a) => Ok(ControlFlow::Value(Value::Int(a.len() as i64))),
+            Value::String(s) => Ok(ControlFlow::Value(Value::Int(s.len() as i64))),
+            v => Err(Spanned {
+                inner: format!("Cannot measure length of {v}"),
+                span: SimpleSpan::from(0..0)
+            })
+        }
+    });
+    
     let registry = GlobalRegistry;
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),
