@@ -10,6 +10,7 @@ pub enum Expr {
     Int(i64),
     String(String),
     Var(String),
+    Void,
     Array(Vec<Spanned<Expr>>),
     Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
@@ -24,7 +25,8 @@ pub enum Expr {
     While {condition: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>},
     Break,
     Continue,
-    Return(Box<Spanned<Expr>>)
+    Return(Box<Spanned<Expr>>),
+    EnumConstructor {enum_name: String, variant: String, value: Box<Spanned<Expr>>}
 }
 
 #[derive(Debug, Clone)]
@@ -74,7 +76,8 @@ pub enum Value {
     Closure { params: Vec<(bool, String)>, body: Box<Spanned<Expr>>, env: Env },
     NativeFun {path: String, name: String, pointer: NativeFun},
     Null,
-    Void
+    Void,
+    EnumVariant {enum_name: String, variant: String, value: Box<Value>}
 }
 
 impl fmt::Display for Value {
@@ -119,6 +122,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             },
+            Value::EnumVariant { enum_name, variant, value } => write!(f, "{enum_name}.{variant}({value})"),
         }
     }
 }
@@ -131,6 +135,8 @@ impl PartialEq for Value {
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Record(a), Value::Record(b)) => a == b, 
             (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Void, Value::Void) => true,
+            (Value::Null, Value::Null) => true,
             (Value::Closure { .. }, Value::Closure { .. }) => false,
             _ => false
         }

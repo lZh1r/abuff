@@ -180,3 +180,60 @@ fn test_spread_params() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_simpler_enum() {
+    let src = r#"
+        enum Color {
+            Red,
+            Green,
+            Blue
+        }
+        fun giveColor(x: Color): Color {
+            x
+        };
+        giveColor(Color.Red());
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::EnumVariant { enum_name, variant, value } => {
+                    assert_eq!(enum_name, "Color".to_string());
+                    assert_eq!(variant, "Red".to_string());
+                    assert_eq!(*value, Value::Void);
+                },
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_simple_enum() {
+    let src = r#"
+        enum Hello {
+            A: Int,
+            B: String
+        }
+        fun world(x: Hello.A): Hello {
+            x
+        };
+        world(Hello.A(2));
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::EnumVariant { enum_name, variant, value } => {
+                    assert_eq!(enum_name, "Hello".to_string());
+                    assert_eq!(variant, "A".to_string());
+                    assert_eq!(*value, Value::Int(2));
+                },
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

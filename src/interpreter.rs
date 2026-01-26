@@ -45,12 +45,12 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         },
         Expr::Get(record_expr, field_name) => {
             match eval_expr(record_expr, env)? {
-                ControlFlow::Value(v) => match v {
+                ControlFlow::Value(v) => match &v {
                     Value::Record(field_map) => {
                         match field_map.get(field_name) {
                             Some(value) => Ok(ControlFlow::Value(value.clone())),
                             None => Err(Spanned {
-                                inner: format!("Runtime error: Property {field_name} does not exist on this object"),
+                                inner: format!("Runtime error: Property {field_name} does not exist on {v}"),
                                 span: expr.span
                             }),
                         }
@@ -312,6 +312,40 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 })
             }
         },
+        Expr::EnumConstructor { enum_name, variant, value } => {
+            match env.get(enum_name) {
+                Some(v) => match v {
+                    Value::Record(hash_map) => {
+                        match hash_map.get(variant) {
+                            Some(_) => Ok(ControlFlow::Value(Value::EnumVariant { 
+                                enum_name: enum_name.clone(),
+                                variant: variant.clone(), 
+                                value: Box::new(match eval_expr(value, env)? {
+                                    ControlFlow::Value(v) | ControlFlow::Return(v) => v,
+                                    _ => return Err(Spanned {
+                                        inner: format!("Runtime Error: cannot use break/continue as a value"),
+                                        span: expr.span
+                                    }),
+                                })
+                            })),
+                            None => Err(Spanned {
+                                inner: format!("Runtime Error: Enum {enum_name} does not have a variant {variant}"),
+                                span: expr.span
+                            }),
+                        }
+                    },
+                    _ => Err(Spanned {
+                        inner: format!("Runtime Error: {enum_name} is not an enum"),
+                        span: expr.span
+                    }),
+                },
+                None => Err(Spanned {
+                    inner: format!("Runtime Error: Cannot resolve enum {enum_name}"),
+                    span: expr.span
+                }),
+            }
+        },
+        Expr::Void => Ok(ControlFlow::Value(Value::Void)),
     }
 }
 

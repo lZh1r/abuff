@@ -12,7 +12,7 @@ fn main() {
         let mut src = String::new();
         
         // let src = r#"
-        //     fun fib(x: Int) -> Int {
+        //     fun fib(x: Int): Int {
         //         if (x <= 1) 1
         //         else fib(x-2) + fib(x-1)
         //     };
@@ -22,7 +22,7 @@ fn main() {
         //     let t2 = clock();
         //     print(t2);
         //     print(t2 - t1);
-        // "#;
+        // "#.to_string();
         
         let _ = std::io::stdin().read_line(&mut src);
         

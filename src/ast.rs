@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chumsky::prelude::SimpleSpan;
 use chumsky::span::{Spanned as ChumskySpanned};
 
@@ -35,6 +37,7 @@ pub enum Statement {
     Expr(Spanned<Expr>),
     Fun {name: String, params: Vec<((bool, String), Spanned<TypeInfo>)>, body: Spanned<Expr>, return_type: Option<Spanned<TypeInfo>>},
     NativeFun {name: String, params: Vec<((bool, String), Spanned<TypeInfo>)>, return_type: Option<Spanned<TypeInfo>>},
+    EnumDef {name: String, variants: Vec<(String, Option<Spanned<TypeInfo>>)>},
     Import {symbols: Vec<(Spanned<String>, Option<String>, bool)>, path: Spanned<String>},
     Export(Box<Spanned<Statement>>)
 }
@@ -77,7 +80,9 @@ pub enum TypeInfo {
     Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, return_type: Box<Spanned<TypeInfo>>},
     Record(Vec<(String, Spanned<TypeInfo>)>),
     Custom(String),
-    Array(Box<Spanned<TypeInfo>>)
+    Array(Box<Spanned<TypeInfo>>),
+    Enum {name: String, variants: HashMap<String, Spanned<TypeInfo>>},
+    EnumVariant {enum_name: String, variant: String}
 }
 
 // Custom PartialEq that ignores spans when comparing TypeInfo
@@ -93,7 +98,6 @@ impl PartialEq for TypeInfo {
             (TypeInfo::Null, TypeInfo::Null) => true,
             (TypeInfo::Unknown, TypeInfo::Unknown) => false,
             (TypeInfo::Array(a1), TypeInfo::Array(a2)) => a1.inner == a2.inner,
-            (TypeInfo::Any, TypeInfo::Any) => true,
             (TypeInfo::Custom(a), TypeInfo::Custom(b)) => a == b,
             (TypeInfo::Fun { params: args_a, return_type: ret_a }, TypeInfo::Fun { params: args_b, return_type: ret_b }) => {
                 // Compare return types (ignoring span)
@@ -125,8 +129,36 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
-            (TypeInfo::Any, _) => true,
-            (_, TypeInfo::Any) => true,
+            (TypeInfo::Enum { name, variants }, TypeInfo::EnumVariant { enum_name, variant }) 
+            | (TypeInfo::EnumVariant { enum_name, variant }, TypeInfo::Enum { name, variants }) => {
+                match name == enum_name {
+                    true => match variants.get(variant) {
+                        Some(_) => true,
+                        None => false,
+                    },
+                    false => false,
+                }
+            },
+            (TypeInfo::Enum { name: name1, variants: variants1 }, TypeInfo::Enum { name: name2, variants: variants2 }) => {
+                match name1 == name2 {
+                    true => {
+                        for ((name_a, type_a), (name_b, type_b)) in variants1.iter().zip(variants2.iter()) {
+                            if name_a != name_b || type_a.inner != type_b.inner {
+                                return false;
+                            }
+                        }
+                        true
+                    },
+                    false => false,
+                }
+            },
+            (TypeInfo::EnumVariant { enum_name: name1, variant: v1 }, TypeInfo::EnumVariant { enum_name: name2, variant: v2 }) => {
+                match name1 == name2 {
+                    true => v1 == v2,
+                    false => false,
+                }
+            }
+            (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
             _ => false,
         }
     }

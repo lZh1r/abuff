@@ -40,6 +40,33 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                     });
                 }
             }
+            ast::Statement::EnumDef { name, variants } => {
+                let mut variant_map = HashMap::new();
+                let mut variant_vec = Vec::new();
+                for (variant_name, variant_type) in variants {
+                    let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
+                        inner: TypeInfo::Void,
+                        span: SimpleSpan::from(0..0)
+                    }), env)?;
+                    variant_map.insert(variant_name.clone(), param_type.clone());
+                    variant_vec.push((variant_name.clone(), Spanned {
+                        inner: TypeInfo::Fun { params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                            inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
+                            span: param_type.span
+                        }) },
+                        span: param_type.span
+                    }));
+                }
+                env.add_custom_type(name.clone(), Spanned {
+                    inner: TypeInfo::Enum { name: name.clone(), variants: variant_map },
+                    span: st.span
+                });
+                env.add_var_type(name.clone(), Spanned {
+                    inner: TypeInfo::Record(variant_vec),
+                    span: st.span
+                });
+                new_statements.push(st.clone());
+            },
             _ => new_statements.push(st.clone()),
         }
     }
@@ -63,7 +90,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                 }
             },
             ast::Statement::Fun { name, params, body, return_type } => {
-                let r_type = return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span});
+                let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span}), env)?;
                 env.add_var_type(name.to_string(), Spanned {
                     inner: TypeInfo::Fun { 
                         params: params.clone(), 
@@ -92,7 +119,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                     new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                 }
                 new_scope.add_var_type("&return".to_string(), r_type.clone());
-                let inferred_type = get_type(&body, &mut new_scope)?;
+                let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope)?;
                 if inferred_type.inner != r_type.inner {
                     return Err(Spanned {
                         inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
@@ -132,13 +159,13 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: spanned.span}),
                             env
                         )?;
-            
+
                         let mut unwrapped_params = Vec::new();
-            
+
                         for (pname, ti) in params {
                             unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), env)?))
                         }
-            
+
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
                                 params: unwrapped_params, 
@@ -146,7 +173,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             },
                             span: st.span
                         };
-            
+
                         env.add_var_type(name.to_string(), function_type.clone());
 
                         let mut new_scope = env.enter_scope();
@@ -166,7 +193,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                                 },
                                 (false, false) => (),
                             }
-                                
+                    
                             new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), env)?);
                         }
                         new_scope.add_var_type("&return".to_string(), r_type.clone());
@@ -177,7 +204,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                                 span: st.span
                             })
                         }
-            
+
                         type_exports.insert(name.clone(), function_type);
                     },
                     ast::Statement::TypeDef { name, type_info } => {
@@ -198,12 +225,12 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                                 span: st.span
                             })
                         }
-                        
+            
                         let r_type = return_type.clone().unwrap_or(Spanned {
                             inner: TypeInfo::Void,
                             span: SimpleSpan::from(0..0)
                         });
-                        
+            
                         let mut unwrapped_params = Vec::new();
                         let mut spread_encountered = false;
                         for ((spread, param_name), param_type) in params.clone() {
@@ -221,7 +248,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                                 },
                                 (false, false) => (),
                             }
-                            
+                
                             if spread {
                                 match unwrap_custom_type(param_type.clone(), env)?.inner {
                                     TypeInfo::Array(_) => (),
@@ -233,7 +260,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             } 
                             unwrapped_params.push(((spread, param_name), unwrap_custom_type(param_type.clone(), env)?));
                         }
-                        
+            
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
                                 params: unwrapped_params, 
@@ -241,13 +268,43 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             },
                             span: st.span
                         };
-                        
+            
                         env.add_var_type(name.to_string(), function_type.clone());
                         type_exports.insert(name.into(), function_type);
                     },
+                    ast::Statement::EnumDef { name, variants } => {
+                        let mut variant_map = HashMap::new();
+                        let mut variant_vec = Vec::new();
+                        for (variant_name, variant_type) in variants {
+                            let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
+                                inner: TypeInfo::Void,
+                                span: SimpleSpan::from(0..0)
+                            }), env)?;
+                            variant_map.insert(variant_name.clone(), param_type.clone());
+                            variant_vec.push((variant_name.clone(), Spanned {
+                                inner: TypeInfo::Fun { params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                                    inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
+                                    span: param_type.span
+                                }) },
+                                span: param_type.span
+                            }));
+                        }
+                        let enum_type = Spanned {
+                            inner: TypeInfo::Enum { name: name.clone(), variants: variant_map },
+                            span: st.span
+                        };
+                        let enum_value_type = Spanned {
+                            inner: TypeInfo::Record(variant_vec),
+                            span: st.span
+                        };
+                        type_exports.insert(name.clone(), enum_value_type.clone()); //TODO: fix this oversight
+                        env.add_custom_type(name.clone(), enum_type.clone());
+                        env.add_var_type(name.clone(), enum_value_type.clone());
+                    },
                 }
             },
-            ast::Statement::NativeFun { name, params, return_type } => todo!(), //impossible for now
+            ast::Statement::NativeFun { name, params, return_type } => todo!(),
+            ast::Statement::EnumDef { name: _, variants: _ } => () //already handled
         }
     }
     
@@ -317,7 +374,7 @@ pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -
                     })),
                     None => Ok(None),
                 }
-        
+
             } else {
                 Err(Spanned {
                     inner: "Non top level exports are prohibited".to_string(),
@@ -328,6 +385,64 @@ pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -
         ast::Statement::NativeFun { name, params: _, return_type: _ } => {
             Ok(Some(Spanned {
                 inner: ir::Statement::NativeFun(name.clone()),
+                span: statement.span
+            }))
+        },
+        ast::Statement::EnumDef { name, variants } => {
+            let mut record_exprs = Vec::new();
+            for (v_name, v_type) in variants{
+                match v_type {
+                    Some(ti) => {
+                        record_exprs.push(
+                            (v_name.clone(), Spanned {
+                                inner: ir::Expr::Fun { 
+                                    params: vec![(false, "a".to_string())], 
+                                    body: Box::new(Spanned {
+                                        inner: ir::Expr::EnumConstructor { 
+                                            enum_name: name.clone(),
+                                            variant: v_name.clone(),
+                                            value: Box::new(Spanned {
+                                                inner: ir::Expr::Var("a".to_string()),
+                                                span: ti.span
+                                            })
+                                        },
+                                        span: ti.span
+                                    })
+                                },
+                                span: ti.span
+                            })
+                        )
+                    },
+                    None => record_exprs.push(
+                        (v_name.clone(), Spanned {
+                            inner: ir::Expr::Fun { 
+                                params: vec![], 
+                                body: Box::new(Spanned {
+                                    inner: ir::Expr::EnumConstructor { 
+                                        enum_name: name.clone(),
+                                        variant: v_name.clone(),
+                                        value: Box::new(Spanned {
+                                            inner: ir::Expr::Void,
+                                            span: SimpleSpan::from(0..0)
+                                        })
+                                    },
+                                    span: SimpleSpan::from(0..0)
+                                })
+                            },
+                            span: SimpleSpan::from(0..0)
+                        })
+                    )
+                }
+                
+            }
+            Ok(Some(Spanned {
+                inner: ir::Statement::Let { 
+                    name: name.clone(),
+                    expr: Spanned {
+                        inner: ir::Expr::Record(record_exprs),
+                        span: statement.span
+                    }
+                },
                 span: statement.span
             }))
         },
@@ -695,7 +810,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                 },
                                 (false, false) => (),
                             }
-                            
+        
                             if spread {
                                 match unwrap_custom_type(param_type.clone(), env)?.inner {
                                     TypeInfo::Array(_) => (),
@@ -731,6 +846,32 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                         inner: "Native functions can only be declared at the top level".to_string(),
                         span: stmt.span
                     }),
+                    ast::Statement::EnumDef { name, variants } => {
+                        let mut variant_map = HashMap::new();
+                        let mut variant_vec = Vec::new();
+                        for (variant_name, variant_type) in variants {
+                            let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
+                                inner: TypeInfo::Void,
+                                span: SimpleSpan::from(0..0)
+                            }), env)?;
+                            variant_map.insert(variant_name.clone(), param_type.clone());
+                            variant_vec.push((variant_name.clone(), Spanned {
+                                inner: TypeInfo::Fun { params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                                    inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
+                                    span: param_type.span
+                                }) },
+                                span: param_type.span
+                            }));
+                        }
+                        inner_env.add_custom_type(name.clone(), Spanned {
+                            inner: TypeInfo::Enum { name: name.clone(), variants: variant_map },
+                            span: stmt.span
+                        });
+                        inner_env.add_var_type(name.clone(), Spanned {
+                            inner: TypeInfo::Record(variant_vec),
+                            span: stmt.span
+                        });
+                    },
                 }
             }
 

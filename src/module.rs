@@ -256,7 +256,34 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                         span: st.span
                     });
                 }
-            }
+            },
+            ast::Statement::EnumDef { name, variants } => {
+                let mut variant_map = HashMap::new();
+                let mut variant_vec = Vec::new();
+                for (variant_name, variant_type) in variants {
+                    let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
+                        inner: TypeInfo::Void,
+                        span: SimpleSpan::from(0..0)
+                    }), &mut module_type_env)?;
+                    variant_map.insert(variant_name.clone(), param_type.clone());
+                    variant_vec.push((variant_name.clone(), Spanned {
+                        inner: TypeInfo::Fun { params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                            inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
+                            span: param_type.span
+                        }) },
+                        span: param_type.span
+                    }));
+                }
+                module_type_env.add_custom_type(name.clone(), Spanned {
+                    inner: TypeInfo::Enum { name: name.clone(), variants: variant_map },
+                    span: st.span
+                });
+                module_type_env.add_var_type(name.clone(), Spanned {
+                    inner: TypeInfo::Record(variant_vec),
+                    span: st.span
+                });
+                new_statements.push(st.clone());
+            },
             _ => new_statements.push(st.clone()),
         }
     }
@@ -404,12 +431,12 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                                 span: st.span
                             })
                         }
-                        
+    
                         let r_type = return_type.clone().unwrap_or(Spanned {
                             inner: TypeInfo::Void,
                             span: SimpleSpan::from(0..0)
                         });
-                        
+    
                         let mut unwrapped_params = Vec::new();
                         let mut spread_encountered = false;
                         for ((spread, param_name), param_type) in params.clone() {
@@ -427,7 +454,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                                 },
                                 (false, false) => (),
                             }
-                            
+        
                             if spread {
                                 match unwrap_custom_type(param_type.clone(), &mut module_type_env)?.inner {
                                     TypeInfo::Array(_) => (),
@@ -439,7 +466,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                             } 
                             unwrapped_params.push(((spread, param_name), unwrap_custom_type(param_type.clone(), &mut module_type_env)?));
                         }
-                        
+    
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
                                 params: unwrapped_params, 
@@ -447,7 +474,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                             },
                             span: st.span
                         };
-                        
+    
                         module_type_env.add_var_type(name.to_string(), function_type.clone());
                         type_exports.insert(name.into(), function_type);
                     },
@@ -455,11 +482,41 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                         inner: "Cannot export expressions".to_string(),
                         span: spanned.span
                     }),
-                    Statement::Import { symbols: _, path: _ } => panic!(), //should be caught by parser
-                    Statement::Export(_) => panic!(), //should be caught by parser
+                    Statement::Import { symbols: _, path: _ } => panic!(),
+                    Statement::Export(_) => panic!(),
+                    Statement::EnumDef { name, variants } => {
+                        let mut variant_map = HashMap::new();
+                        let mut variant_vec = Vec::new();
+                        for (variant_name, variant_type) in variants {
+                            let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
+                                inner: TypeInfo::Void,
+                                span: SimpleSpan::from(0..0)
+                            }), &mut module_type_env)?;
+                            variant_map.insert(variant_name.clone(), param_type.clone());
+                            variant_vec.push((variant_name.clone(), Spanned {
+                                inner: TypeInfo::Fun { params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                                    inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
+                                    span: param_type.span
+                                }) },
+                                span: param_type.span
+                            }));
+                        }
+                        let enum_type = Spanned {
+                            inner: TypeInfo::Enum { name: name.clone(), variants: variant_map },
+                            span: st.span
+                        };
+                        let enum_value_type = Spanned {
+                            inner: TypeInfo::Record(variant_vec),
+                            span: st.span
+                        };
+                        type_exports.insert(name.clone(), enum_value_type.clone()); //TODO: fix this oversight
+                        module_type_env.add_custom_type(name.clone(), enum_type.clone());
+                        module_type_env.add_var_type(name.clone(), enum_value_type.clone());
+                    },
                 }
             },
             Statement::NativeFun { name, params, return_type } => todo!(),
+            Statement::EnumDef { name: _, variants: _ } => () 
         }
     }
     //At this point type_exports is formed and can be returned after the evaluation ends

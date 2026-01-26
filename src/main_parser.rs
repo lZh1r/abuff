@@ -92,6 +92,17 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 inner: TypeInfo::Record(s),
                 span: extra.span()
             }).padded_by(whitespace_with_comments());
+        
+        let enum_var = text::ident().padded_by(whitespace_with_comments())
+            .then_ignore(just('.'))
+            .then(text::ident().padded_by(whitespace_with_comments()))
+            .map_with(|(enum_name, variant_name), extra| Spanned {
+                inner: TypeInfo::EnumVariant { 
+                    enum_name: enum_name.to_string(),
+                    variant: variant_name.to_string()
+                },
+                span: extra.span()
+            });
 
         let custom = text::ident().padded_by(whitespace_with_comments()).map_with(|s: &str, extra| Spanned {
             inner: TypeInfo::Custom(s.to_string()),
@@ -103,6 +114,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             record,
             fun.clone().delimited_by(just('(').padded_by(whitespace_with_comments()), just(')').padded_by(whitespace_with_comments())),
             fun,
+            enum_var,
             custom
         ));
         
@@ -218,7 +230,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                         .ignore_then(type_parser.clone())
                         .or_not()
                 )
-                .then(expr.clone())
+                .then(block.clone())
                 .map_with(|((params, return_type), body), extra| Spanned {
                     inner: Expr::Fun {
                         params,
@@ -489,6 +501,35 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 inner: Statement::Let { name: name.to_string(), type_info: type_name, expr: e },
                 span: extra.span()
             });
+        
+        let enum_def = text::keyword("enum")
+            .ignore_then(text::ident().padded_by(whitespace_with_comments()))
+            .then(
+                text::ident()
+                    .then(
+                        just(':')
+                            .padded_by(whitespace_with_comments())
+                            .ignore_then(type_parser.clone())
+                            .or_not()
+                    )
+                    .map(|(variant_name, variant_type)| {
+                        (variant_name.to_string(), variant_type) 
+                    })
+                    .separated_by(just(',').padded_by(whitespace_with_comments()))
+                    .allow_trailing()
+                    .collect()
+                    .delimited_by(
+                        just('{').padded_by(whitespace_with_comments()), 
+                        just('}').padded_by(whitespace_with_comments())
+                    )
+            )
+            .map_with(|(name, variants), extra| Spanned {
+                inner: Statement::EnumDef { 
+                    name: name.to_string(), 
+                    variants: variants
+                },
+                span: extra.span()
+            });
 
         let type_def = text::keyword("type")
             .ignore_then(text::ident().padded_by(whitespace_with_comments()))
@@ -623,6 +664,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 let_stmt.clone(),
                 type_def.clone(),
                 fun_def.clone(),
+                enum_def.clone(),
                 native_fun
             ))).map_with(|st, extra| Spanned {
                 inner: Statement::Export(Box::new(st)),
@@ -635,6 +677,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             let_stmt,
             fun_def,
             type_def,
+            enum_def,
             expr_stmt
         )).padded_by(whitespace_with_comments()).boxed()
     })
