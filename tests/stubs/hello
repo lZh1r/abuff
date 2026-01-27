@@ -1,4 +1,4 @@
 import {type A} from "tests/stubs/test";
 export fun b(x: A): A {
     x * 2
-};
+}

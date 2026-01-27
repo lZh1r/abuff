@@ -109,7 +109,7 @@ fn test_nested_function_return() {
                 if (x == 2) return 0;
                 x
             }
-        };
+        }
         ff()(2);
     "#;
     
@@ -166,7 +166,7 @@ fn test_spread_params() {
     let src = r#"
         fun f(...x: Int[]): Int[] {
             x
-        };
+        }
         f(1,2,3);
     "#;
     
@@ -191,7 +191,7 @@ fn test_simpler_enum() {
         }
         fun giveColor(x: Color): Color {
             x
-        };
+        }
         giveColor(Color.Red());
     "#;
     
@@ -219,7 +219,7 @@ fn test_simple_enum() {
         }
         fun world(x: Hello.A): Hello {
             x
-        };
+        }
         world(Hello.A(2));
     "#;
     

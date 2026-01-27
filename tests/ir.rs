@@ -121,7 +121,7 @@ fn test_whitespace_max() {
         let a = 12 ; 
         fun mega_function ( x : Int ) : Int {
             a + x
-        } ;
+        }
         let b = { bb : 2 } ;
         mega_function ( b . bb ) ;
     "#;

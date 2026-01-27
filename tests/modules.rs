@@ -177,7 +177,7 @@ fn test_simple_enum() {
         import {Test} from "tests/stubs/enum";
         fun test(x: Test): Test {
             x
-        };
+        }
         test(Test.A(2));
     "#;
     

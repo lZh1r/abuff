@@ -548,7 +548,6 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                     .or_not()
             )
             .then(expr.clone())
-            .then_ignore(just(';').padded_by(whitespace_with_comments()))
             .map_with(|(((name, params), return_type), body): (((&str, Vec<((bool, String), Spanned<TypeInfo>)>), Option<Spanned<TypeInfo>>), Spanned<Expr>), extra| Spanned {
                 inner: Statement::Fun {
                     name: name.to_string(),
