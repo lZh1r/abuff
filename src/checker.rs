@@ -6,6 +6,7 @@ use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalReg
 
 pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Result<Vec<Spanned<ast::Statement>>, Spanned<String>> {
     let mut new_statements: Vec<Spanned<ast::Statement>> = Vec::new();
+    let mut var_exports = HashMap::new();
     let mut type_exports = HashMap::new();
     for st in statements.iter() {
         match &st.inner {
@@ -18,19 +19,25 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                     let global_reg = GlobalRegistry;
                     let module_types = eval_import(path, &global_reg)?;
                     for (name, alias, is_type) in symbols {
-                        let actual_name = alias.as_ref().unwrap_or(&name.inner);
-                        if !module_types.contains_key(&name.inner) {
-                            return Err(Spanned {
-                                inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
-                                span: name.span
-                            })
-                        }
                         if *is_type {
-                            env.add_custom_type(actual_name.clone(), module_types.get(&name.inner).unwrap().clone());
+                            let actual_name = alias.as_ref().unwrap_or(&name.inner);
+                            if !module_types.1.contains_key(&name.inner) {
+                                return Err(Spanned {
+                                    inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
+                                    span: name.span
+                                })
+                            }
+                            env.add_custom_type(actual_name.clone(), module_types.1.get(&name.inner).unwrap().clone());
                         } else {
-                            env.add_var_type(actual_name.clone(), module_types.get(&name.inner).unwrap().clone());
+                            let actual_name = alias.as_ref().unwrap_or(&name.inner);
+                            if !module_types.0.contains_key(&name.inner) {
+                                return Err(Spanned {
+                                    inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
+                                    span: name.span
+                                })
+                            }
+                            env.add_var_type(actual_name.clone(), module_types.0.get(&name.inner).unwrap().clone());
                         }
-                        
                     }
                     new_statements.push(st.clone());
                 } else {
@@ -152,7 +159,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             },
                             None => env.add_var_type(name.clone(), inferred_type.clone()),
                         }
-                        type_exports.insert(name.clone(), inferred_type);
+                        var_exports.insert(name.clone(), inferred_type);
                     },
                     ast::Statement::Fun { name, params, body, return_type } => {
                         let r_type = unwrap_custom_type(
@@ -205,7 +212,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             })
                         }
 
-                        type_exports.insert(name.clone(), function_type);
+                        var_exports.insert(name.clone(), function_type);
                     },
                     ast::Statement::TypeDef { name, type_info } => {
                         let resolved_type = unwrap_custom_type(type_info.clone(), env)?;
@@ -270,7 +277,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                         };
             
                         env.add_var_type(name.to_string(), function_type.clone());
-                        type_exports.insert(name.into(), function_type);
+                        var_exports.insert(name.into(), function_type);
                     },
                     ast::Statement::EnumDef { name, variants } => {
                         let mut variant_map = HashMap::new();
@@ -297,7 +304,8 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                             inner: TypeInfo::Record(variant_vec),
                             span: st.span
                         };
-                        type_exports.insert(name.clone(), enum_value_type.clone()); //TODO: fix this oversight
+                        var_exports.insert(name.clone(), enum_value_type.clone());
+                        type_exports.insert(name.clone(), enum_type.clone());
                         env.add_custom_type(name.clone(), enum_type.clone());
                         env.add_var_type(name.clone(), enum_value_type.clone());
                     },
@@ -310,7 +318,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
     
     let registry = GlobalRegistry;
     
-    insert_type_module(&registry, type_exports, env.clone());
+    insert_type_module(&registry, var_exports, type_exports, env.clone());
     
     Ok(new_statements)
 }

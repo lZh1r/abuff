@@ -3,29 +3,6 @@ use std::env::current_dir;
 use chumsky::{Parser, span::SimpleSpan};
 use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{create_default_env}, error::build_report, ir::{ControlFlow}, main_parser::parser, module::{GlobalRegistry, run}};
 
-// fn run(statements: &[Spanned<Statement>], env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
-//     let mut result = Ok(ControlFlow::Value(Value::Void));
-//     for statement in statements {
-//         match statement.inner.clone() {
-//             Statement::Let { name, expr } => {
-//                 match eval_expr(&expr, env)? {
-//                     ControlFlow::Value(v) => env.add_variable(name.clone(), v),
-//                     cf => return Ok(cf),
-//                 }
-//             },
-//             Statement::Expr(expr) => {
-//                 let cf = eval_expr(&expr, env)?;
-//                 match cf {
-//                     ControlFlow::Value(_) => result = Ok(cf),
-//                     _ => return Ok(cf),
-//                 }
-//             },
-//         }
-//     };
-    
-//     result
-// }
-
 pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<String>> {
     let (mut env, mut type_env) = create_default_env();
     

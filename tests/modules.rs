@@ -170,3 +170,28 @@ fn test_builtins_imports() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_simple_enum() {
+    let src = r#"
+        import {Test} from "tests/stubs/enum";
+        fun test(x: Test): Test {
+            x
+        };
+        test(Test.A(2));
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::EnumVariant { enum_name, variant, value } => {
+                    assert_eq!(enum_name, "Test".to_string());
+                    assert_eq!(variant, "A".to_string());
+                    assert_eq!(*value, Value::Int(2));
+                },
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

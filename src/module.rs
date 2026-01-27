@@ -12,7 +12,8 @@ pub enum ModuleStatus {
 
 struct TypeModule {
     path: PathBuf,
-    exports: HashMap<String, Spanned<TypeInfo>>,
+    var_exports: HashMap<String, Spanned<TypeInfo>>,
+    type_exports: HashMap<String, Spanned<TypeInfo>>,
     env: TypeEnv,
     status: ModuleStatus,
 }
@@ -40,6 +41,7 @@ trait ModuleRegistry {
     fn insert_type_module(&self, module: TypeModule);
     fn get_runtime_exports(&self, path: &Path) -> Option<HashMap<String, Value>>;
     fn get_type_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>>;
+    fn get_var_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>>;
 }
 
 pub struct GlobalRegistry;
@@ -70,7 +72,8 @@ impl ModuleRegistry for GlobalRegistry {
                     map.insert(path.clone(), TypeModule {
                         path,
                         env: TypeEnv::new(),
-                        exports: HashMap::new(),
+                        var_exports: HashMap::new(),
+                        type_exports: HashMap::new(),
                         status: ModuleStatus::Loading
                     });
                 }
@@ -117,7 +120,15 @@ impl ModuleRegistry for GlobalRegistry {
     fn get_type_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>> {
         let map = TYPE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
         match map.get(path) {
-            Some(module) => Some(module.exports.clone()),
+            Some(module) => Some(module.type_exports.clone()),
+            None => None,
+        } 
+    }
+    
+    fn get_var_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>> {
+        let map = TYPE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
+        match map.get(path) {
+            Some(module) => Some(module.var_exports.clone()),
             None => None,
         } 
     }
@@ -132,11 +143,17 @@ pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<
 }
 
 #[allow(private_bounds)]
-pub fn insert_type_module<R: ModuleRegistry>(registry: &R, exports: HashMap<String, Spanned<TypeInfo>>, env: TypeEnv) {
+pub fn insert_type_module<R: ModuleRegistry>(
+    registry: &R,
+    var_exports: HashMap<String, Spanned<TypeInfo>>,
+    type_exports: HashMap<String, 
+    Spanned<TypeInfo>>, env: TypeEnv
+) {
     let path = current_dir().unwrap();
     registry.insert_type_module(TypeModule {
         path,
-        exports,
+        var_exports,
+        type_exports,
         env,
         status: ModuleStatus::Evaluated,
     });
@@ -167,7 +184,9 @@ pub fn get_module_envs<R: ModuleRegistry>(registry: &R, path: &str) -> Result<(E
 }
 
 #[allow(private_bounds)]
-pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMap<String, Spanned<TypeInfo>>, Spanned<String>> {
+pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
+    (HashMap<String, Spanned<TypeInfo>>, HashMap<String, Spanned<TypeInfo>>), Spanned<String>
+> {
     let path = Path::new(path);
     if registry.get_status(RegistryType::Type, path) == Some(ModuleStatus::Loading) ||
     registry.get_status(RegistryType::Runtime, path) == Some(ModuleStatus::Loading) {
@@ -176,7 +195,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
             span: SimpleSpan::from(0..0)
         });
     } else if registry.get_status(RegistryType::Type, path) == Some(ModuleStatus::Evaluated) {
-        return Ok(registry.get_type_exports(path).unwrap())
+        return Ok((registry.get_var_exports(path).unwrap(), registry.get_type_exports(path).unwrap()))
     }
     
     registry.mark_loading(RegistryType::Type, path.to_path_buf())?;
@@ -216,6 +235,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
     let statements = parse_result.unwrap();
     
     let mut type_exports: HashMap<String, Spanned<TypeInfo>> = HashMap::new();
+    let mut var_exports: HashMap<String, Spanned<TypeInfo>> = HashMap::new();
     let mut new_statements: Vec<Spanned<ast::Statement>> = Vec::new();
     
     //HOISING AND IMPORT/EXPORT RESSOLUTION
@@ -231,23 +251,32 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                     let module_types = eval_import(path, &global_reg)?;
                     for (name, alias, is_type) in symbols {
                         let actual_name = alias.as_ref().unwrap_or(&name.inner);
-                        if !module_types.contains_key(&name.inner) {
-                            return Err(Spanned {
-                                inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
-                                span: name.span
-                            })
-                        }
-                        let unwrapped_type = unwrap_custom_type(
-                            module_types.get(actual_name).unwrap().clone(),
-                            &mut module_type_env
-                        )?;
                         if *is_type {
+                            if !module_types.1.contains_key(&name.inner) {
+                                return Err(Spanned {
+                                    inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
+                                    span: name.span
+                                })
+                            }
+                            let unwrapped_type = unwrap_custom_type(
+                                module_types.1.get(actual_name).unwrap().clone(),
+                                &mut module_type_env
+                            )?;
                             println!("{unwrapped_type:?}");
                             module_type_env.add_custom_type(actual_name.clone(), unwrapped_type);
                         } else {
+                            if !module_types.0.contains_key(&name.inner) {
+                                return Err(Spanned {
+                                    inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
+                                    span: name.span
+                                })
+                            }
+                            let unwrapped_type = unwrap_custom_type(
+                                module_types.0.get(actual_name).unwrap().clone(),
+                                &mut module_type_env
+                            )?;
                             module_type_env.add_var_type(actual_name.clone(), unwrapped_type);
                         }
-                        
                     }
                     new_statements.push(st.clone());
                 } else {
@@ -365,7 +394,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                             },
                             None => module_type_env.add_var_type(name.clone(), inferred_type.clone()),
                         }
-                        type_exports.insert(name.clone(), inferred_type);
+                        var_exports.insert(name.clone(), inferred_type);
                     },
                     Statement::Fun { name, params, body, return_type } => {
                         let r_type = unwrap_custom_type(
@@ -417,7 +446,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                             })
                         }
             
-                        type_exports.insert(name.clone(), function_type);
+                        var_exports.insert(name.clone(), function_type);
                     },
                     Statement::TypeDef { name, type_info } => {
                         let resolved_type = unwrap_custom_type(type_info.clone(), &mut module_type_env)?;
@@ -476,7 +505,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                         };
     
                         module_type_env.add_var_type(name.to_string(), function_type.clone());
-                        type_exports.insert(name.into(), function_type);
+                        var_exports.insert(name.into(), function_type);
                     },
                     Statement::Expr(_) => return Err(Spanned {
                         inner: "Cannot export expressions".to_string(),
@@ -509,7 +538,8 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
                             inner: TypeInfo::Record(variant_vec),
                             span: st.span
                         };
-                        type_exports.insert(name.clone(), enum_value_type.clone()); //TODO: fix this oversight
+                        type_exports.insert(name.clone(), enum_type.clone());
+                        var_exports.insert(name.clone(), enum_value_type.clone());
                         module_type_env.add_custom_type(name.clone(), enum_type.clone());
                         module_type_env.add_var_type(name.clone(), enum_value_type.clone());
                     },
@@ -523,7 +553,8 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
     
     registry.insert_type_module(TypeModule { 
         path: path.to_path_buf(),
-        exports: type_exports.clone(),
+        var_exports: var_exports.clone(),
+        type_exports: type_exports.clone(),
         env: module_type_env.clone(),
         status: ModuleStatus::Evaluated
     });
@@ -542,7 +573,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<HashMa
         Err(e) => return Err(e),
     }
     
-    Ok(type_exports)
+    Ok((var_exports, type_exports))
 }
 
 #[allow(private_bounds)]
