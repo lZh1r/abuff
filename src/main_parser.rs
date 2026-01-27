@@ -127,66 +127,68 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
         )
     });
 
-    recursive(|statement| {
-        let expr = recursive(|expr| {
-            let string_literal = just('"')
+    let string_literal = just('"')
+        .ignore_then(
+            just('\\')
                 .ignore_then(
-                    just('\\')
-                        .ignore_then(
-                            choice((
-                                just('\\').to('\\'),
-                                just('"').to('"'),
-                                just('n').to('\n'),
-                                just('r').to('\r'),
-                                just('t').to('\t')
-                            ))
-                        )
-                    .or(none_of("\\\"")) 
-                    .repeated()
-                    .collect::<String>()
+                    choice((
+                        just('\\').to('\\'),
+                        just('"').to('"'),
+                        just('n').to('\n'),
+                        just('r').to('\r'),
+                        just('t').to('\t')
+                    ))
                 )
-                .then_ignore(just('"'))
-                .map_with(|s, extra| Spanned {
-                    inner: Expr::String(s),
-                    span: extra.span()
-                })
-                .padded_by(whitespace_with_comments());
-            
-            let boolean = choice((
-                text::keyword("true").padded_by(whitespace_with_comments()).to(true),
-                text::keyword("false").padded_by(whitespace_with_comments()).to(false)
-            )).map_with(|b, extra| Spanned {
-                inner: Expr::Bool(b),
+            .or(none_of("\\\"")) 
+            .repeated()
+            .collect::<String>()
+        )
+        .then_ignore(just('"'))
+        .map_with(|s, extra| Spanned {
+            inner: Expr::String(s),
+            span: extra.span()
+        })
+        .padded_by(whitespace_with_comments());
+    
+    let boolean = choice((
+        text::keyword("true").padded_by(whitespace_with_comments()).to(true),
+        text::keyword("false").padded_by(whitespace_with_comments()).to(false)
+    )).map_with(|b, extra| Spanned {
+        inner: Expr::Bool(b),
+        span: extra.span()
+    });
+    
+    let int = text::int(10)
+        .map_with(|i: &str, extra| Spanned {
+            inner: Expr::Int(i.parse().unwrap()),
+            span: extra.span()
+        })
+        .padded_by(whitespace_with_comments());
+
+    let float = text::int(10)
+        .then(just('.'))
+        .then(text::int(10))
+        .map_with(|((int_part, _), frac_part): ((&str, char), &str), extra| {
+            let s = format!("{}.{}", int_part, frac_part);
+            Spanned {
+                inner: Expr::Float(s.parse().unwrap()),
                 span: extra.span()
-            });
+            }
             
-            let int = text::int(10)
-                .map_with(|i: &str, extra| Spanned {
-                    inner: Expr::Int(i.parse().unwrap()),
-                    span: extra.span()
-                })
-                .padded_by(whitespace_with_comments());
+        })
+        .padded_by(whitespace_with_comments());
 
-            let float = text::int(10)
-                .then(just('.'))
-                .then(text::int(10))
-                .map_with(|((int_part, _), frac_part): ((&str, char), &str), extra| {
-                    let s = format!("{}.{}", int_part, frac_part);
-                    Spanned {
-                        inner: Expr::Float(s.parse().unwrap()),
-                        span: extra.span()
-                    }
-                    
-                })
-                .padded_by(whitespace_with_comments());
-
-            let var = text::ident()
-                .map_with(|s: &str, extra| Spanned {
-                    inner: Expr::Var(s.to_string()),
-                    span: extra.span()
-                })
-                .padded_by(whitespace_with_comments());
-
+    let var = text::ident()
+        .map_with(|s: &str, extra| Spanned {
+            inner: Expr::Var(s.to_string()),
+            span: extra.span()
+        })
+        .padded_by(whitespace_with_comments());
+    
+    recursive(|statement| {
+        
+        
+        let expr = recursive(|expr| {
             let field = text::ident()
                 .map(|s: &str| s.to_string())
                 .then_ignore(just(':').padded_by(whitespace_with_comments()))
@@ -202,7 +204,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                     inner: Expr::Record(fields),
                     span: extra.span()
                 })
-                .padded_by(whitespace_with_comments());
+                .padded_by(whitespace_with_comments()).boxed();
 
             let block = statement.clone()
                 .repeated()
@@ -213,7 +215,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                     inner: Expr::Block(statements, tail),
                     span: extra.span()
                 })
-                .padded_by(whitespace_with_comments());
+                .padded_by(whitespace_with_comments()).boxed();
 
             let arg = just("...").or_not().then(text::ident().padded_by(whitespace_with_comments()))
                 .map(|(spread, name)| (spread.is_some(), name.to_string()))
@@ -230,7 +232,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                         .ignore_then(type_parser.clone())
                         .or_not()
                 )
-                .then(block.clone())
+                .then(block.clone().boxed())
                 .map_with(|((params, return_type), body), extra| Spanned {
                     inner: Expr::Fun {
                         params,
@@ -238,7 +240,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                         body: Box::new(body)
                     },
                     span: extra.span()
-                });
+                }).boxed();
 
             let if_else = text::keyword("if").padded_by(whitespace_with_comments())
                 .ignore_then(expr.clone().delimited_by(just('(').padded_by(whitespace_with_comments()), just(')').padded_by(whitespace_with_comments())))
@@ -247,7 +249,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 .map_with(|((condition, body), else_block), extra| Spanned {
                     inner: Expr::If {condition: Box::new(condition), body: Box::new(body), else_block},
                     span: extra.span()
-                });
+                }).boxed();
             
             let while_loop = text::keyword("while").padded_by(whitespace_with_comments())
                 .ignore_then(expr.clone().delimited_by(just('(').padded_by(whitespace_with_comments()), just(')').padded_by(whitespace_with_comments())))
@@ -255,7 +257,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 .map_with(|(condition, body), extra| Spanned {
                     inner: Expr::While {condition: Box::new(condition), body: Box::new(body)},
                     span: extra.span()
-                });
+                }).boxed();
 
             let return_keyword = text::keyword("return").padded_by(whitespace_with_comments())
                 .ignore_then(expr.clone())
@@ -300,18 +302,6 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                 var,
                 expr.clone().delimited_by(just('('), just(')')).padded()
             )).boxed();
-            
-            // let index = atom.foldl(
-            //     text::int(10).delimited_by(just('[').padded(), just(']').padded())
-            //         .padded_by(whitespace_with_comments()).map_with(|i, e| Spanned {
-            //             inner: i.parse().unwrap(),
-            //             span: e.span()
-            //         }).repeated(),
-            //     |expr, index| Spanned {
-            //         inner: Expr::Index(Box::new(expr), index.inner),
-            //         span: index.span, 
-            //     }
-            // );
 
             let call = atom.clone()
                 .foldl(
@@ -488,7 +478,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                     }
                 });
 
-            assign
+            assign.boxed()
         });
 
         let let_stmt = text::keyword("let")
