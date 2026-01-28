@@ -17,8 +17,13 @@ pub enum Expr {
     Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
-    Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, body: Box<Spanned<Expr>>, return_type: Option<Spanned<TypeInfo>>},
-    Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
+    Fun {
+        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        body: Box<Spanned<Expr>>,
+        return_type: Option<Spanned<TypeInfo>>,
+        generic_params: Vec<Spanned<String>>
+    },
+    Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>, generic_args: Vec<Spanned<TypeInfo>>},
     Record(Vec<(String, Spanned<Expr>)>),
     Get(Box<Spanned<Expr>>, String),
     Assign {target: Box<Spanned<Expr>>, value: Box<Spanned<Expr>>},
@@ -33,11 +38,30 @@ pub enum Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let {name: String, expr: Spanned<Expr>, type_info: Option<Spanned<TypeInfo>>},
-    TypeDef {name: String, type_info: Spanned<TypeInfo>},
+    TypeDef {
+        name: String, 
+        type_info: Spanned<TypeInfo>,
+        generic_params: Vec<Spanned<String>>
+    },
     Expr(Spanned<Expr>),
-    Fun {name: String, params: Vec<((bool, String), Spanned<TypeInfo>)>, body: Spanned<Expr>, return_type: Option<Spanned<TypeInfo>>},
-    NativeFun {name: String, params: Vec<((bool, String), Spanned<TypeInfo>)>, return_type: Option<Spanned<TypeInfo>>},
-    EnumDef {name: String, variants: Vec<(String, Option<Spanned<TypeInfo>>)>},
+    Fun {
+        name: String, 
+        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        body: Spanned<Expr>,
+        return_type: Option<Spanned<TypeInfo>>,
+        generic_params: Vec<Spanned<String>>
+    },
+    NativeFun {
+        name: String, 
+        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        return_type: Option<Spanned<TypeInfo>>,
+        generic_params: Vec<Spanned<String>>
+    },
+    EnumDef {
+        name: String, 
+        variants: Vec<(String, Option<Spanned<TypeInfo>>)>,
+        generic_params: Vec<Spanned<String>>
+    },
     Import {symbols: Vec<(Spanned<String>, Option<String>, bool)>, path: Spanned<String>},
     Export(Box<Spanned<Statement>>)
 }
@@ -77,15 +101,23 @@ pub enum TypeInfo {
     Null,
     Unknown,
     Any,
-    Fun {params: Vec<((bool, String), Spanned<TypeInfo>)>, return_type: Box<Spanned<TypeInfo>>},
+    Fun {
+        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        return_type: Box<Spanned<TypeInfo>>,
+        generic_params: Vec<Spanned<String>>
+    },
     Record(Vec<(String, Spanned<TypeInfo>)>),
-    Custom(String),
+    Custom {name: String, generic_args: Vec<Spanned<TypeInfo>>},
+    GenericParam(String),
     Array(Box<Spanned<TypeInfo>>),
-    Enum {name: String, variants: HashMap<String, Spanned<TypeInfo>>},
+    Enum {
+        name: String,
+        variants: HashMap<String, Spanned<TypeInfo>>,
+        generic_params: Vec<Spanned<String>>
+    },
     EnumVariant {enum_name: String, variant: String}
 }
 
-// Custom PartialEq that ignores spans when comparing TypeInfo
 impl PartialEq for TypeInfo {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -98,17 +130,37 @@ impl PartialEq for TypeInfo {
             (TypeInfo::Null, TypeInfo::Null) => true,
             (TypeInfo::Unknown, TypeInfo::Unknown) => false,
             (TypeInfo::Array(a1), TypeInfo::Array(a2)) => a1.inner == a2.inner,
-            (TypeInfo::Custom(a), TypeInfo::Custom(b)) => a == b,
-            (TypeInfo::Fun { params: args_a, return_type: ret_a }, TypeInfo::Fun { params: args_b, return_type: ret_b }) => {
-                // Compare return types (ignoring span)
+            (TypeInfo::Custom {name: name1, generic_args: args1}, TypeInfo::Custom {name: name2, generic_args: args2}) => {
+                match name1 == name2 {
+                    true => {
+                        for (t1,t2) in args1.iter().zip(args2.iter()) {
+                            if t1.inner != t2.inner {
+                                return false
+                            }
+                        }
+                        true
+                    },
+                    false => false,
+                }
+            },
+            (
+                TypeInfo::Fun { params: args_a, return_type: ret_a, generic_params: g_a },
+                TypeInfo::Fun { params: args_b, return_type: ret_b, generic_params: g_b }
+            ) => {
                 if ret_a.inner != ret_b.inner {
                     return false;
                 }
-                // Compare args length
+                
                 if args_a.len() != args_b.len() {
                     return false;
                 }
-                // Compare each arg (name and type, ignoring span)
+                
+                for (a,b) in g_a.iter().zip(g_b.iter()) {
+                    if a.inner != b.inner {
+                        return false;
+                    }
+                }
+                
                 for ((name_a, type_a), (name_b, type_b)) in args_a.iter().zip(args_b.iter()) {
                     if name_a != name_b || type_a.inner != type_b.inner {
                         return false;
@@ -117,11 +169,10 @@ impl PartialEq for TypeInfo {
                 true
             },
             (TypeInfo::Record(fields_a), TypeInfo::Record(fields_b)) => {
-                // Compare fields length
                 if fields_a.len() != fields_b.len() {
                     return false;
                 }
-                // Compare each field (name and type, ignoring span)
+                
                 for ((name_a, type_a), (name_b, type_b)) in fields_a.iter().zip(fields_b.iter()) {
                     if name_a != name_b || type_a.inner != type_b.inner {
                         return false;
@@ -129,8 +180,8 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
-            (TypeInfo::Enum { name, variants }, TypeInfo::EnumVariant { enum_name, variant }) 
-            | (TypeInfo::EnumVariant { enum_name, variant }, TypeInfo::Enum { name, variants }) => {
+            (TypeInfo::Enum { name, variants, generic_params: _ }, TypeInfo::EnumVariant { enum_name, variant }) 
+            | (TypeInfo::EnumVariant { enum_name, variant }, TypeInfo::Enum { name, variants, generic_params: _ }) => {
                 match name == enum_name {
                     true => match variants.get(variant) {
                         Some(_) => true,
@@ -139,11 +190,19 @@ impl PartialEq for TypeInfo {
                     false => false,
                 }
             },
-            (TypeInfo::Enum { name: name1, variants: variants1 }, TypeInfo::Enum { name: name2, variants: variants2 }) => {
+            (
+                TypeInfo::Enum { name: name1, variants: variants1, generic_params: g_a },
+                TypeInfo::Enum { name: name2, variants: variants2, generic_params: g_b }
+            ) => {
                 match name1 == name2 {
                     true => {
                         for ((name_a, type_a), (name_b, type_b)) in variants1.iter().zip(variants2.iter()) {
                             if name_a != name_b || type_a.inner != type_b.inner {
+                                return false;
+                            }
+                        }
+                        for (a,b) in g_a.iter().zip(g_b.iter()) {
+                            if a.inner != b.inner {
                                 return false;
                             }
                         }
@@ -157,7 +216,8 @@ impl PartialEq for TypeInfo {
                     true => v1 == v2,
                     false => false,
                 }
-            }
+            },
+            (TypeInfo::GenericParam(a), TypeInfo::GenericParam(b)) => a == b,
             (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
             _ => false,
         }

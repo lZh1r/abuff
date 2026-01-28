@@ -172,7 +172,7 @@ fn test_builtins_imports() {
 }
 
 #[test]
-fn test_simple_enum() {
+fn test_import_simple_enum() {
     let src = r#"
         import {Test} from "tests/stubs/enum";
         fun test(x: Test): Test {

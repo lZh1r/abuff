@@ -241,8 +241,15 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
     //HOISING AND IMPORT/EXPORT RESSOLUTION
     for st in statements.iter() {
         match &st.inner {
-            ast::Statement::TypeDef { name, type_info } => {
-                let resolved_type = unwrap_custom_type(type_info.clone(), &mut module_type_env)?;
+            ast::Statement::TypeDef { name, type_info, generic_params } => {
+                let mut generic_scope = module_type_env.enter_scope();
+                for generic in generic_params {
+                    generic_scope.add_custom_type(generic.inner.clone(), Spanned {
+                        inner: TypeInfo::GenericParam(generic.inner.clone()),
+                        span: generic.span
+                    });
+                }
+                let resolved_type = unwrap_custom_type(type_info.clone(), &mut generic_scope, false)?;
                 module_type_env.add_custom_type(name.clone(), resolved_type);
             },
             ast::Statement::Import { symbols, path } => {
@@ -260,7 +267,8 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                             }
                             let unwrapped_type = unwrap_custom_type(
                                 module_types.1.get(actual_name).unwrap().clone(),
-                                &mut module_type_env
+                                &mut module_type_env,
+                                false
                             )?;
                             println!("{unwrapped_type:?}");
                             module_type_env.add_custom_type(actual_name.clone(), unwrapped_type);
@@ -273,7 +281,8 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                             }
                             let unwrapped_type = unwrap_custom_type(
                                 module_types.0.get(actual_name).unwrap().clone(),
-                                &mut module_type_env
+                                &mut module_type_env, 
+                                false
                             )?;
                             module_type_env.add_var_type(actual_name.clone(), unwrapped_type);
                         }
@@ -286,25 +295,34 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                     });
                 }
             },
-            ast::Statement::EnumDef { name, variants } => {
+            ast::Statement::EnumDef { name, variants, generic_params } => {
+                let mut generic_scope = module_type_env.enter_scope();
+                for generic in generic_params {
+                    generic_scope.add_custom_type(generic.inner.clone(), Spanned {
+                        inner: TypeInfo::GenericParam(generic.inner.clone()),
+                        span: generic.span
+                    });
+                }
                 let mut variant_map = HashMap::new();
                 let mut variant_vec = Vec::new();
                 for (variant_name, variant_type) in variants {
                     let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
                         inner: TypeInfo::Void,
                         span: SimpleSpan::from(0..0)
-                    }), &mut module_type_env)?;
+                    }), &mut generic_scope, false)?;
                     variant_map.insert(variant_name.clone(), param_type.clone());
                     variant_vec.push((variant_name.clone(), Spanned {
-                        inner: TypeInfo::Fun { params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
-                            inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
-                            span: param_type.span
-                        }) },
+                        inner: TypeInfo::Fun {
+                            params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                                inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
+                                span: param_type.span
+                            }),
+                            generic_params: vec![], },
                         span: param_type.span
                     }));
                 }
                 module_type_env.add_custom_type(name.clone(), Spanned {
-                    inner: TypeInfo::Enum { name: name.clone(), variants: variant_map },
+                    inner: TypeInfo::Enum { name: name.clone(), variants: variant_map, generic_params: generic_params.clone() },
                     span: st.span
                 });
                 module_type_env.add_var_type(name.clone(), Spanned {
@@ -319,10 +337,10 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
     for st in statements.iter() {
         match &st.inner {
             ast::Statement::Let { name, expr, type_info } => {
-                let inferred_type = unwrap_custom_type(get_type(&expr, &mut module_type_env)?, &mut module_type_env)?;
+                let inferred_type = unwrap_custom_type(get_type(&expr, &mut module_type_env)?, &mut module_type_env, false)?;
                 match type_info {
                     Some(t) => {
-                        let unwrapped_ti = unwrap_custom_type(t.clone(), &mut module_type_env)?;
+                        let unwrapped_ti = unwrap_custom_type(t.clone(), &mut module_type_env, false)?;
                         if unwrapped_ti.inner == inferred_type.inner {
                             module_type_env.add_var_type(name.clone(), unwrapped_ti);
                         } else {
@@ -335,19 +353,18 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                     None => module_type_env.add_var_type(name.clone(), inferred_type),
                 }
             },
-            ast::Statement::Fun { name, params, body, return_type } => {
-                let r_type = unwrap_custom_type(return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: st.span}), &mut module_type_env)?;
-                module_type_env.add_var_type(name.to_string(), Spanned {
-                    inner: TypeInfo::Fun { 
-                        params: params.clone(), 
-                        return_type: Box::new(r_type.clone()) 
-                    },
-                    span: st.span
-                });
-    
+            ast::Statement::Fun { name, params, body, return_type, generic_params } => {
                 let mut new_scope = module_type_env.enter_scope();
+                for generic in generic_params {
+                    new_scope.add_custom_type(generic.inner.clone(), Spanned {
+                        inner: TypeInfo::GenericParam(generic.inner.clone()),
+                        span: generic.span
+                    });
+                }
+                
+                let mut unwrapped_params = Vec::new();
                 let mut spread_encountered = false;
-                for ((spread, param_name), param_type) in params.clone() {
+                for ((spread, param_name), param_type) in params {
                     match (spread_encountered, spread) {
                         (true, true) => return Err(Spanned {
                             inner: "A function can only have 1 spread parameter".into(),
@@ -362,10 +379,29 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                         },
                         (false, false) => (),
                     }
-                    new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), &mut module_type_env)?);
+                    let unwrapped = unwrap_custom_type(param_type.clone(), &mut new_scope, false)?;
+                    unwrapped_params.push(((spread.clone(), param_name.clone()), unwrapped.clone()));
+                    new_scope.add_var_type(param_name.to_string(), unwrapped);
                 }
+                
+                let r_type = unwrap_custom_type(
+                    return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span}),
+                    &mut new_scope, 
+                    false
+                )?;
+                
+                
                 new_scope.add_var_type("&return".to_string(), r_type.clone());
-                let inferred_type = get_type(&body, &mut new_scope)?;
+                module_type_env.add_var_type(name.to_string(), Spanned {
+                    inner: TypeInfo::Fun { 
+                        params: unwrapped_params, 
+                        return_type: Box::new(r_type.clone()),
+                        generic_params: generic_params.clone(), 
+                    },
+                    span: st.span
+                });
+                
+                let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope, false)?;
                 if inferred_type.inner != r_type.inner {
                     return Err(Spanned {
                         inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
@@ -373,16 +409,16 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                     })
                 }
             },
-            ast::Statement::TypeDef { name: _, type_info: _ } => (),
+            ast::Statement::TypeDef { name: _, type_info: _, generic_params: _ } => (),
             ast::Statement::Expr(_) => (),
             ast::Statement::Import { symbols: _, path: _ } => (),
             ast::Statement::Export(spanned) => {
                 match &spanned.inner {
                     Statement::Let { name, expr, type_info } => {
-                        let inferred_type = unwrap_custom_type(get_type(&expr, &mut module_type_env)?, &mut module_type_env)?;
+                        let inferred_type = unwrap_custom_type(get_type(&expr, &mut module_type_env)?, &mut module_type_env, false)?;
                         match type_info { //copy paste but idc
                             Some(t) => {
-                                let unwrapped_ti = unwrap_custom_type(t.clone(), &mut module_type_env)?;
+                                let unwrapped_ti = unwrap_custom_type(t.clone(), &mut module_type_env, false)?;
                                 if unwrapped_ti.inner == inferred_type.inner {
                                     module_type_env.add_var_type(name.clone(), unwrapped_ti);
                                 } else {
@@ -396,31 +432,18 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                         }
                         var_exports.insert(name.clone(), inferred_type);
                     },
-                    Statement::Fun { name, params, body, return_type } => {
-                        let r_type = unwrap_custom_type(
-                            return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: spanned.span}),
-                            &mut module_type_env
-                        )?;
-            
-                        let mut unwrapped_params = Vec::new();
-            
-                        for (pname, ti) in params {
-                            unwrapped_params.push((pname.clone(), unwrap_custom_type(ti.clone(), &mut module_type_env)?))
-                        }
-            
-                        let function_type = Spanned {
-                            inner: TypeInfo::Fun { 
-                                params: unwrapped_params, 
-                                return_type: Box::new(r_type.clone()) 
-                            },
-                            span: st.span
-                        };
-            
-                        module_type_env.add_var_type(name.to_string(), function_type.clone());
-
+                    Statement::Fun { name, params, body, return_type, generic_params } => {
                         let mut new_scope = module_type_env.enter_scope();
+                        for generic in generic_params {
+                            new_scope.add_custom_type(generic.inner.clone(), Spanned {
+                                inner: TypeInfo::GenericParam(generic.inner.clone()),
+                                span: generic.span
+                            });
+                        }
+                        
+                        let mut unwrapped_params = Vec::new();
                         let mut spread_encountered = false;
-                        for ((spread, param_name), param_type) in params.clone() {
+                        for ((spread, param_name), param_type) in params {
                             match (spread_encountered, spread) {
                                 (true, true) => return Err(Spanned {
                                     inner: "A function can only have 1 spread parameter".into(),
@@ -435,10 +458,29 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                                 },
                                 (false, false) => (),
                             }
-                            new_scope.add_var_type(param_name.to_string(), unwrap_custom_type(param_type.clone(), &mut module_type_env)?);
+                            let unwrapped = unwrap_custom_type(param_type.clone(), &mut new_scope, false)?;
+                            unwrapped_params.push(((spread.clone(), param_name.clone()), unwrapped.clone()));
+                            new_scope.add_var_type(param_name.to_string(), unwrapped);
                         }
+                        
+                        let r_type = unwrap_custom_type(
+                            return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span}),
+                            &mut new_scope, 
+                            false
+                        )?;
+                        
                         new_scope.add_var_type("&return".to_string(), r_type.clone());
-                        let inferred_type = get_type(&body, &mut new_scope)?;
+                        let function_type = Spanned {
+                            inner: TypeInfo::Fun { 
+                                params: unwrapped_params, 
+                                return_type: Box::new(r_type.clone()),
+                                generic_params: generic_params.clone(), 
+                            },
+                            span: st.span
+                        };
+                        module_type_env.add_var_type(name.to_string(), function_type.clone());
+                        
+                        let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope, false)?;
                         if inferred_type.inner != r_type.inner {
                             return Err(Spanned {
                                 inner: format!("Expected {:?}, but got {:?}", r_type.inner, inferred_type.inner),
@@ -448,24 +490,39 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
             
                         var_exports.insert(name.clone(), function_type);
                     },
-                    Statement::TypeDef { name, type_info } => {
-                        let resolved_type = unwrap_custom_type(type_info.clone(), &mut module_type_env)?;
+                    Statement::TypeDef { name, type_info, generic_params } => {
+                        let mut generic_scope = module_type_env.enter_scope();
+                        for generic in generic_params {
+                            generic_scope.add_custom_type(generic.inner.clone(), Spanned {
+                                inner: TypeInfo::GenericParam(generic.inner.clone()),
+                                span: generic.span
+                            });
+                        }
+                        let resolved_type = unwrap_custom_type(type_info.clone(), &mut generic_scope, false)?;
                         module_type_env.add_custom_type(name.clone(), resolved_type.clone());
                         type_exports.insert(name.clone(), resolved_type);
                     },
-                    ast::Statement::NativeFun { name, params, return_type } => {
+                    ast::Statement::NativeFun { name, params, return_type, generic_params } => {
                         if let None = get_native_fun(path.to_str().unwrap(), name) {
                             return Err(Spanned {
                                 inner: format!("Cannot find native function definition for {}", name),
                                 span: st.span
                             })
                         }
-    
+                        
+                        let mut new_scope = module_type_env.enter_scope();
+                        for generic in generic_params {
+                            new_scope.add_custom_type(generic.inner.clone(), Spanned {
+                                inner: TypeInfo::GenericParam(generic.inner.clone()),
+                                span: generic.span
+                            });
+                        }
+            
                         let r_type = return_type.clone().unwrap_or(Spanned {
                             inner: TypeInfo::Void,
                             span: SimpleSpan::from(0..0)
                         });
-    
+            
                         let mut unwrapped_params = Vec::new();
                         let mut spread_encountered = false;
                         for ((spread, param_name), param_type) in params.clone() {
@@ -483,23 +540,25 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                                 },
                                 (false, false) => (),
                             }
-        
+                
                             if spread {
-                                match unwrap_custom_type(param_type.clone(), &mut module_type_env)?.inner {
-                                    TypeInfo::Array(_) => (),
+                                match unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner {
+                                    TypeInfo::Array(ti) => unwrapped_params.push(((spread, param_name), *ti)),
                                     _ => return Err(Spanned {
                                         inner: "Spread param's type should be an array".into(),
                                         span: param_type.span
                                     })
                                 };
-                            } 
-                            unwrapped_params.push(((spread, param_name), unwrap_custom_type(param_type.clone(), &mut module_type_env)?));
+                            } else {
+                                unwrapped_params.push(((spread, param_name), param_type.clone()))
+                            }
                         }
-    
+            
                         let function_type = Spanned {
                             inner: TypeInfo::Fun { 
                                 params: unwrapped_params, 
-                                return_type: Box::new(r_type.clone()) 
+                                return_type: Box::new(r_type.clone()),
+                                generic_params: generic_params.clone(), 
                             },
                             span: st.span
                         };
@@ -513,25 +572,34 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                     }),
                     Statement::Import { symbols: _, path: _ } => panic!(),
                     Statement::Export(_) => panic!(),
-                    Statement::EnumDef { name, variants } => {
+                    Statement::EnumDef { name, variants, generic_params } => {
+                        let mut generic_scope = module_type_env.enter_scope();
+                        for generic in generic_params {
+                            generic_scope.add_custom_type(generic.inner.clone(), Spanned {
+                                inner: TypeInfo::GenericParam(generic.inner.clone()),
+                                span: generic.span
+                            });
+                        }
                         let mut variant_map = HashMap::new();
                         let mut variant_vec = Vec::new();
                         for (variant_name, variant_type) in variants {
                             let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
                                 inner: TypeInfo::Void,
                                 span: SimpleSpan::from(0..0)
-                            }), &mut module_type_env)?;
+                            }), &mut generic_scope, false)?;
                             variant_map.insert(variant_name.clone(), param_type.clone());
                             variant_vec.push((variant_name.clone(), Spanned {
-                                inner: TypeInfo::Fun { params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
-                                    inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
-                                    span: param_type.span
-                                }) },
+                                inner: TypeInfo::Fun {
+                                    params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                                        inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
+                                        span: param_type.span
+                                    }),
+                                    generic_params: vec![], },
                                 span: param_type.span
                             }));
                         }
                         let enum_type = Spanned {
-                            inner: TypeInfo::Enum { name: name.clone(), variants: variant_map },
+                            inner: TypeInfo::Enum { name: name.clone(), variants: variant_map, generic_params: generic_params.clone() },
                             span: st.span
                         };
                         let enum_value_type = Spanned {
@@ -545,8 +613,8 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                     },
                 }
             },
-            Statement::NativeFun { name, params, return_type } => todo!(),
-            Statement::EnumDef { name: _, variants: _ } => () 
+            Statement::NativeFun { name, params, return_type, generic_params } => todo!(),
+            Statement::EnumDef { name: _, variants: _, generic_params: _ } => () 
         }
     }
     //At this point type_exports is formed and can be returned after the evaluation ends
