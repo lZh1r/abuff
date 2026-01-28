@@ -1,6 +1,6 @@
 use std::{env::current_dir};
 
-use abuff::{checker::{hoist, lower_statement}, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, main_parser::parser, module::{GlobalRegistry, eval_import, run}};
+use abuff::{checker::{hoist, lower_statement}, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, main_parser::parser, module::{GlobalRegistry, run}};
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use chumsky::Parser;

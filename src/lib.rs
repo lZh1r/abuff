@@ -7,3 +7,4 @@ pub mod checker;
 pub mod error;
 pub mod module;
 pub mod native;
+pub mod lexer;
