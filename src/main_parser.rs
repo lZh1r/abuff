@@ -197,6 +197,11 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
         })
         .padded_by(whitespace_with_comments());
     
+    let arg = just("...").or_not().then(text::ident().padded_by(whitespace_with_comments()))
+        .map(|(spread, name)| (spread.is_some(), name.to_string()))
+        .then_ignore(just(':').padded_by(whitespace_with_comments()))
+        .then(type_parser.clone().boxed());
+    
     recursive(|statement| {
         let expr = recursive(|expr| {
             let field = text::ident()
@@ -226,11 +231,6 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
                     span: extra.span()
                 })
                 .padded_by(whitespace_with_comments()).boxed();
-            
-            let arg = just("...").or_not().then(text::ident().padded_by(whitespace_with_comments()))
-                .map(|(spread, name)| (spread.is_some(), name.to_string()))
-                .then_ignore(just(':').padded_by(whitespace_with_comments()))
-                .then(type_parser.clone());
 
             let func = text::keyword("fun").padded_by(whitespace_with_comments())
                 .ignore_then(
@@ -262,7 +262,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
 
             let if_else = text::keyword("if").padded_by(whitespace_with_comments())
                 .ignore_then(expr.clone().delimited_by(just('(').padded_by(whitespace_with_comments()), just(')').padded_by(whitespace_with_comments())))
-                .then(expr.clone())
+                .then(expr.clone().boxed())
                 .then(text::keyword("else").ignore_then(expr.clone().map(Box::new)).or_not())
                 .map_with(|((condition, body), else_block), extra| Spanned {
                     inner: Expr::If {condition: Box::new(condition), body: Box::new(body), else_block},
@@ -271,14 +271,14 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             
             let while_loop = text::keyword("while").padded_by(whitespace_with_comments())
                 .ignore_then(expr.clone().delimited_by(just('(').padded_by(whitespace_with_comments()), just(')').padded_by(whitespace_with_comments())))
-                .then(expr.clone())
+                .then(expr.clone().boxed())
                 .map_with(|(condition, body), extra| Spanned {
                     inner: Expr::While {condition: Box::new(condition), body: Box::new(body)},
                     span: extra.span()
                 }).boxed();
 
             let return_keyword = text::keyword("return").padded_by(whitespace_with_comments())
-                .ignore_then(expr.clone())
+                .ignore_then(expr.clone().boxed())
                 .map_with(|exp, extra| Spanned {
                     inner: Expr::Return(Box::new(exp)),
                     span: extra.span()
@@ -297,7 +297,7 @@ pub fn parser<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Statement>>, e
             
             let array = just('[').padded()
                 .ignore_then(
-                    expr.clone().separated_by(just(',').padded()).allow_trailing().collect()
+                    expr.clone().boxed().separated_by(just(',').padded()).allow_trailing().collect()
                 ).then_ignore(just(']').padded())
                 .map_with(|elements: Vec<Spanned<Expr>>, extra| Spanned {
                     inner: Expr::Array(elements),
