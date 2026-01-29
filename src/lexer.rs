@@ -1,7 +1,6 @@
-use chumsky::span::{SimpleSpan};
 use logos::Logos;
 
-use crate::ast::Spanned;
+use crate::ast::{Span, Spanned};
 
 #[derive(Logos, Debug, PartialEq)]
 #[logos(skip r"[ \t\n\f]+")]
@@ -178,11 +177,11 @@ pub fn lex(src: &str) -> Result<Vec<Spanned<Token>>, Spanned<String>> {
         match result {
             Ok(t) => tokens.push(Spanned {
                 inner: t,
-                span: SimpleSpan::from(lexer.span())
+                span: Span::from(lexer.span())
             }),
             Err(_) => return Err(Spanned {
                 inner: "Lexer Error".into(),
-                span: SimpleSpan::from(lexer.span())
+                span: Span::from(lexer.span())
             }),
         }
     }

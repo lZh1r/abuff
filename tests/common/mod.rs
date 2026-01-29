@@ -1,7 +1,6 @@
 use std::env::current_dir;
 
-use chumsky::{Parser, span::SimpleSpan};
-use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{create_default_env}, error::build_report, ir::{ControlFlow}, main_parser::parser, module::{GlobalRegistry, run}};
+use abuff::{ast::{Span, Spanned}, checker::{hoist, lower_statement}, env::create_default_env, error::build_report, ir::ControlFlow, main_parser::parser, module::{GlobalRegistry, run}};
 
 pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<String>> {
     let (mut env, mut type_env) = create_default_env();
@@ -20,7 +19,7 @@ pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<String>> {
            
             return Err(Spanned {
                 inner: "Parsing failed".to_string(),
-                span: SimpleSpan::from(0..0)
+                span: Span::from(0..0)
             })
         },
     };

@@ -1,8 +1,6 @@
 use std::{collections::HashMap, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
 
-use chumsky::{span::{SimpleSpan, Span}};
-
-use crate::{ast::{Spanned, TypeInfo}, error::build_report, ir::{ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun}};
+use crate::{ast::{Span, Spanned, TypeInfo}, error::build_report, ir::{ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::register_fun};
 
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -163,7 +161,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         if obj.len() != 1 {
             return Err(Spanned {
                 inner: format!("Expected 1 argument, but got {}", obj.len()),
-                span: SimpleSpan::from(0..0)
+                span: Span::from(0..0)
             })
         }
         match obj.first().unwrap() {
@@ -171,7 +169,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             Value::String(s) => Ok(ControlFlow::Value(Value::Int(s.len() as i64))),
             v => Err(Spanned {
                 inner: format!("Cannot measure length of {v}"),
-                span: SimpleSpan::from(0..0)
+                span: Span::from(0..0)
             })
         }
     });

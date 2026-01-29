@@ -1,8 +1,6 @@
 use std::{cmp, collections::HashMap, env::current_dir};
 
-use chumsky::span::SimpleSpan;
-
-use crate::{ast::{self, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
+use crate::{ast::{self, Span, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
 
 pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Result<Vec<Spanned<ast::Statement>>, Spanned<String>> {
     let mut new_statements: Vec<Spanned<ast::Statement>> = Vec::new();
@@ -24,7 +22,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
             ast::Statement::Import { symbols, path } => {
                 if env.is_top_level() {
                     let global_reg = GlobalRegistry;
-                    let module_types = eval_import(path, &global_reg)?;
+                    let module_types = eval_import(path.inner.as_str(), &global_reg)?;
                     for (name, alias, is_type) in symbols {
                         if *is_type {
                             let actual_name = alias.as_ref().unwrap_or(&name.inner);
@@ -67,7 +65,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                 for (variant_name, variant_type) in variants {
                     let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
                         inner: TypeInfo::Void,
-                        span: SimpleSpan::from(0..0)
+                        span: Span::from(0..0)
                     }), &mut generic_scope, false)?;
                     variant_map.insert(variant_name.clone(), param_type.clone());
                     variant_vec.push((variant_name.clone(), Spanned {
@@ -296,7 +294,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
             
                         let r_type = return_type.clone().unwrap_or(Spanned {
                             inner: TypeInfo::Void,
-                            span: SimpleSpan::from(0..0)
+                            span: Span::from(0..0)
                         });
             
                         let mut unwrapped_params = Vec::new();
@@ -356,7 +354,7 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                         for (variant_name, variant_type) in variants {
                             let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
                                 inner: TypeInfo::Void,
-                                span: SimpleSpan::from(0..0)
+                                span: Span::from(0..0)
                             }), &mut generic_scope, false)?;
                             variant_map.insert(variant_name.clone(), param_type.clone());
                             variant_vec.push((variant_name.clone(), Spanned {
@@ -514,13 +512,13 @@ pub fn lower_statement(statement: &Spanned<ast::Statement>, env: &mut TypeEnv) -
                                         variant: v_name.clone(),
                                         value: Box::new(Spanned {
                                             inner: ir::Expr::Void,
-                                            span: SimpleSpan::from(0..0)
+                                            span: Span::from(0..0)
                                         })
                                     },
-                                    span: SimpleSpan::from(0..0)
+                                    span: Span::from(0..0)
                                 })
                             },
-                            span: SimpleSpan::from(0..0)
+                            span: Span::from(0..0)
                         })
                     )
                 }
@@ -977,7 +975,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                         for (variant_name, variant_type) in variants {
                             let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
                                 inner: TypeInfo::Void,
-                                span: SimpleSpan::from(0..0)
+                                span: Span::from(0..0)
                             }), &mut generic_scope, false)?;
                             variant_map.insert(variant_name.clone(), param_type.clone());
                             variant_vec.push((variant_name.clone(), Spanned {
@@ -1078,7 +1076,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                     if generic_args.len() != 0 && generic_args.len() != generic_params.len() {
                         return Err(Spanned {
                             inner: "Partially supplied generic arguments are not allowed".into(),
-                            span: SimpleSpan::from(generic_args.first().unwrap().span.start..generic_args.last().unwrap().span.end)
+                            span: Span::from(generic_args.first().unwrap().span.start..generic_args.last().unwrap().span.end)
                         })
                     }
                     match is_variadic {

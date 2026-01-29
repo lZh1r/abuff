@@ -1,10 +1,31 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display, ops::Range};
 
-use chumsky::prelude::SimpleSpan;
-use chumsky::span::{Spanned as ChumskySpanned};
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize
+}
 
-pub type Span = SimpleSpan;
-pub type Spanned<T> = ChumskySpanned<T, Span>;
+impl Span {
+    pub fn from(range: Range<usize>) -> Self {
+        Span { start: range.start, end: range.end }
+    }
+    pub fn into_range(&self) -> Range<usize> {
+        self.start..self.end
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct Spanned<T> {
+    pub inner: T,
+    pub span: Span
+}
+
+impl Display for Spanned<String> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {

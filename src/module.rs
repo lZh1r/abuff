@@ -1,8 +1,6 @@
 use std::{collections::HashMap, env::current_dir, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
-use chumsky::{Parser, span::SimpleSpan};
-
-use crate::{ast::{self, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, main_parser::parser, native::get_native_fun};
+use crate::{ast::{self, Span, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, native::get_native_fun};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleStatus {
@@ -66,7 +64,7 @@ impl ModuleRegistry for GlobalRegistry {
                 if map.contains_key(&path) {
                     return Err(Spanned {
                         inner: "Circular or duplicate load".into(),
-                        span: SimpleSpan::from(0..0)
+                        span: Span::from(0..0)
                     });
                 } else {
                     map.insert(path.clone(), TypeModule {
@@ -84,7 +82,7 @@ impl ModuleRegistry for GlobalRegistry {
                 if map.contains_key(&path) {
                     return Err(Spanned {
                         inner: "Circular or duplicate load".into(),
-                        span: SimpleSpan::from(0..0)
+                        span: Span::from(0..0)
                     });
                 } else {
                     map.insert(path.clone(), RuntimeModule {
@@ -192,7 +190,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
     registry.get_status(RegistryType::Runtime, path) == Some(ModuleStatus::Loading) {
         return Err(Spanned {
             inner: "Cycle detected".into(),
-            span: SimpleSpan::from(0..0)
+            span: Span::from(0..0)
         });
     } else if registry.get_status(RegistryType::Type, path) == Some(ModuleStatus::Evaluated) {
         return Ok((registry.get_var_exports(path).unwrap(), registry.get_type_exports(path).unwrap()))
@@ -206,7 +204,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
         Ok(s) => src = s,
         Err(_) => return Err(Spanned {
             inner: "File IO failed".into(),
-            span: SimpleSpan::from(0..0)
+            span: Span::from(0..0)
         }),
     }
     let (mut module_env, mut module_type_env);
@@ -228,7 +226,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
             }
             return Err(Spanned {
                 inner: format!("Module parsing failed due to {} previous errors", errors.len()),
-                span: SimpleSpan::from(0..0)
+                span: Span::from(0..0)
             })
         },
     }
@@ -255,7 +253,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
             ast::Statement::Import { symbols, path } => {
                 if module_type_env.is_top_level() {
                     let global_reg = GlobalRegistry;
-                    let module_types = eval_import(path, &global_reg)?;
+                    let module_types = eval_import(path.inner.as_str(), &global_reg)?;
                     for (name, alias, is_type) in symbols {
                         let actual_name = alias.as_ref().unwrap_or(&name.inner);
                         if *is_type {
@@ -308,7 +306,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                 for (variant_name, variant_type) in variants {
                     let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
                         inner: TypeInfo::Void,
-                        span: SimpleSpan::from(0..0)
+                        span: Span::from(0..0)
                     }), &mut generic_scope, false)?;
                     variant_map.insert(variant_name.clone(), param_type.clone());
                     variant_vec.push((variant_name.clone(), Spanned {
@@ -520,7 +518,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
             
                         let r_type = return_type.clone().unwrap_or(Spanned {
                             inner: TypeInfo::Void,
-                            span: SimpleSpan::from(0..0)
+                            span: Span::from(0..0)
                         });
             
                         let mut unwrapped_params = Vec::new();
@@ -585,7 +583,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                         for (variant_name, variant_type) in variants {
                             let param_type = unwrap_custom_type(variant_type.clone().unwrap_or(Spanned {
                                 inner: TypeInfo::Void,
-                                span: SimpleSpan::from(0..0)
+                                span: Span::from(0..0)
                             }), &mut generic_scope, false)?;
                             variant_map.insert(variant_name.clone(), param_type.clone());
                             variant_vec.push((variant_name.clone(), Spanned {
@@ -721,7 +719,7 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                     ir::Statement::Expr(spanned) => {
                         return Err(Spanned {
                             inner: "Cannot export an expression".into(),
-                            span: spanned.span
+                            span: spanned.span.clone()
                         })
                     },
                     ir::Statement::Import { symbols: _, path: _ } => panic!(),
@@ -740,7 +738,7 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                             },
                             None => return Err(Spanned {
                                 inner: format!("Cannot find native function definition for {}", name),
-                                span: statement.span
+                                span: statement.span.clone()
                             })
                         }
                         
