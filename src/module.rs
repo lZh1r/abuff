@@ -1,6 +1,6 @@
 use std::{collections::HashMap, env::current_dir, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
-use crate::{ast::{self, Span, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, native::get_native_fun};
+use crate::{ast::{self, Span, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleStatus {
@@ -214,23 +214,26 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
         (module_env, module_type_env) = (Env::new(), TypeEnv::new())
     }
     
-    let parse_result = parser().parse(src.as_str()).into_result();
-    match parse_result {
-        Ok(_) => (),
+    let parse_result = Parser::new(&lex(src.as_str())?).parse();
+    let statements = match parse_result {
+        Ok(s) => s,
         Err(errors) => {
-            for e in &errors {
-                build_report(Spanned {
-                    inner: e.reason().to_string(),
-                    span: e.span().clone()
-                }, &src);
-            }
+            // for e in &errors {
+            //     build_report(Spanned {
+            //         inner: e.reason().to_string(),
+            //         span: e.span().clone()
+            //     }, &src);
+            // }
+            build_report(Spanned {
+                inner: errors.inner,
+                span: errors.span
+            }, &src);
             return Err(Spanned {
-                inner: format!("Module parsing failed due to {} previous errors", errors.len()),
+                inner: format!("Module parsing failed"),
                 span: Span::from(0..0)
             })
         },
-    }
-    let statements = parse_result.unwrap();
+    };
     
     let mut type_exports: HashMap<String, Spanned<TypeInfo>> = HashMap::new();
     let mut var_exports: HashMap<String, Spanned<TypeInfo>> = HashMap::new();

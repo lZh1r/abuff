@@ -1,9 +1,6 @@
 use std::{env::current_dir};
 
-use abuff::{checker::{hoist, lower_statement}, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, main_parser::parser, module::{GlobalRegistry, run}};
-
-use ariadne::{Color, Label, Report, ReportKind, Source};
-use chumsky::Parser;
+use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}};
 
 fn main() {
     let (mut stack, mut type_env) = DEFAULT_ENVS.get_or_init(|| create_default_env()).clone();
@@ -26,25 +23,25 @@ fn main() {
         
         let _ = std::io::stdin().read_line(&mut src);
         
-        let parsed = parser().parse(&src);
+        let parse_result = Parser::new(&lex(src.as_str()).unwrap()).parse();
+        let parsed = match parse_result {
+            Ok(s) => s,
+            Err(errors) => {
+                // for e in &errors {
+                //     build_report(Spanned {
+                //         inner: e.reason().to_string(),
+                //         span: e.span().clone()
+                //     }, &src);
+                // }
+                build_report(Spanned {
+                    inner: errors.inner,
+                    span: errors.span
+                }, &src);
+                return 
+            },
+        };
         
-        if parsed.has_errors() {
-            for error in parsed.errors() {
-                Report::build(ReportKind::Error, error.span().into_range())
-                    .with_message(error.to_string())
-                    .with_label(
-                        Label::new(error.span().into_range())
-                            .with_message(error.reason().to_string())
-                            .with_color(Color::Red),
-                    )
-                    .finish()
-                    .print(Source::from(src.clone()))
-                    .unwrap();
-            }
-            continue;
-        }
-        
-        let res = hoist(&parsed.unwrap(), &mut type_env);
+        let res = hoist(&parsed, &mut type_env);
         match res {
             Err(e) => build_report(e, &src),
             Ok(result) => {

@@ -7,7 +7,7 @@ mod common;
 #[test]
 fn test_math_precedence() {
     let src = r#"
-        2 + 3 * 6 / 3 - 4 * (9 - 5);
+        2 + 3 * 6 / 3 - 4 * (9 - 5)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -145,6 +145,24 @@ fn test_whitespace_min() {
         ControlFlow::Value(v) => {
             match v {
                 Value::Int(i) => assert_eq!(i, 14),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_if_else() {
+    let src = r#"
+        if (4 < 3) 3
+        else if (2 == 2) 2
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 2),
                 _ => panic!()
             }
         }

@@ -2,7 +2,7 @@ use logos::Logos;
 
 use crate::ast::{Span, Spanned};
 
-#[derive(Logos, Debug, PartialEq)]
+#[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip r"[ \t\n\f]+")]
 #[logos(skip r"///[^\n]*")] //TODO: actually parse this as docs
 #[logos(skip r"//[^\n]*")]
@@ -124,6 +124,9 @@ pub enum Token {
     
     #[token("%=")]
     PercentEq,
+    
+    #[token("->")]
+    Arrow,
     
     #[token("(")]
     LParen,
