@@ -169,3 +169,20 @@ fn test_if_else() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_anon_fun() {
+    let src = r#"
+        (fun (a: Int): Int a*2)(2)
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 4),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
