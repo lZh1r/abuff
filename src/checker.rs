@@ -631,7 +631,7 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
                     },
                     (false, false) => (),
                 }
-                
+        
                 if spread {
                     match unwrap_custom_type(param_type.clone(), env, false)?.inner {
                         TypeInfo::Array(_) => (),
@@ -793,6 +793,7 @@ pub fn lower_expr(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanne
                 span: expr.span
             })
         },
+        ast::Expr::Void => Ok(Spanned { inner: ir::Expr::Void, span: expr.span }),
     }
 }
 
@@ -903,7 +904,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                 span: generic.span
                             });
                         }
-                        
+                
                         let mut unwrapped_params = Vec::new();
                         let mut spread_encountered = false;
                         for ((spread, param_name), param_type) in params {
@@ -925,13 +926,13 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                             unwrapped_params.push(((spread.clone(), param_name.clone()), unwrapped.clone()));
                             new_scope.add_var_type(param_name.to_string(), unwrapped);
                         }
-                        
+                
                         let r_type = unwrap_custom_type(
                             return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span}),
                             &mut new_scope, 
                             false
                         )?;
-                        
+                
                         new_scope.add_var_type("&return".to_string(), r_type.clone());
                         inner_env.add_var_type(name.to_string(), Spanned {
                             inner: TypeInfo::Fun { 
@@ -941,7 +942,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                             },
                             span: st.span
                         });
-                        
+                
                         let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope, false)?;
                         if inferred_type.inner != r_type.inner {
                             return Err(Spanned {
@@ -1013,7 +1014,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                     span: generic.span
                 });
             }
-            
+    
             let mut unwrapped_params = Vec::new();
             let mut spread_encountered = false;
             for ((spread, param_name), param_type) in params {
@@ -1035,16 +1036,16 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                 unwrapped_params.push(((spread.clone(), param_name.clone()), unwrapped.clone()));
                 new_scope.add_var_type(param_name.to_string(), unwrapped);
             }
-            
+    
             let r_type = unwrap_custom_type(
                 return_type.clone().unwrap_or(Spanned {inner: TypeInfo::Void, span: body.span}),
                 &mut new_scope, 
                 false
             )?;
-            
-            
+    
+    
             new_scope.add_var_type("&return".to_string(), r_type.clone());
-            
+    
             let inferred_type = unwrap_custom_type(get_type(&body, &mut new_scope)?, &mut new_scope, false)?;
             if inferred_type.inner != r_type.inner {
                 return Err(Spanned {
@@ -1105,7 +1106,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                             });
                                         }
                                     }
-                    
+            
                                     let spread_param_type = params.last().unwrap().1.clone();
                                     let spread_args = &args[cmp::max(params.len() - 1, 0)..];
                                     let expected_spread_type = match unwrap_custom_type(spread_param_type.clone(), &mut new_scope, false)?.inner {
@@ -1161,7 +1162,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     todo!()
                                 },
                             }
-                            
+                    
                         },
                     }
     
@@ -1314,6 +1315,7 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                 })
             }
         },
+        ast::Expr::Void => Ok(Spanned { inner: TypeInfo::Void, span: expr.span }),
     }
 }
 

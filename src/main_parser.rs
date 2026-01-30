@@ -130,9 +130,13 @@ impl<'a> Parser<'a> {
     //parsers
     //=======
 
+    //----------
+    //statements
+    //----------
+    
     fn parse_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
         match &self.peek().unwrap().inner {
-            Token::Let => todo!(),
+            Token::Let => self.let_statement(),
             Token::Fun => todo!(),
             Token::Type => todo!(),
             Token::Enum => todo!(),
@@ -153,386 +157,53 @@ impl<'a> Parser<'a> {
             )),
         }
     }
+    
+    fn let_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
+        let start_span = self.advance().unwrap().span; //consume let
+        if self.peek().is_none() {
+            return Err(spanned("Unexpected EOF in let declaration".into(), start_span))
+        }
+        
+        let ident_token = self.advance().unwrap().clone();
+        let var_name = match ident_token.inner {
+            Token::Ident(i) => i,
+            t => return Err(spanned(format!("Expected identifier, got {t:?} instead"), ident_token.span))
+        };
+        
+        let var_type = if self.check(&Token::Colon) {
+            self.advance(); //consume colon
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        self.expect(&Token::Eq)?;
+        
+        let var_expr = self.parse_expression()?;
+        
+        let end_span = if self.check(&Token::Semicolon) {
+            self.advance().unwrap().span
+        } else {
+            return Err(spanned(
+                "Expected a semicolon at the end of the statement".into(),
+                self.peek().unwrap().span
+            ));
+        };
+        
+        Ok(spanned(
+            Statement::Let { name: var_name, expr: var_expr, type_info: var_type },
+            Span::from(start_span.start..end_span.end)
+        ))
+    }
+    
+    //-----------
+    //expressions
+    //-----------
 
     fn parse_expression(&mut self) -> Result<Spanned<Expr>, Spanned<String>> {
         self.parse_expression_bp(1)
     }
-
-    fn parse_expression_bp(&mut self, min_prec: u8) -> Result<Spanned<Expr>, Spanned<String>> {
-        let mut left = self.parse_atom()?;
-        left = self.parse_postfix(left)?;
-
-        loop {
-            let op_sp = match self.peek() {
-                Some(s) => s.clone(),
-                None => break,
-            };
-            let prec = Parser::get_precedence(&op_sp.inner);
-            if prec == 0 || prec < min_prec {
-                break;
-            }
-
-            let is_right_assoc = Parser::is_assignment_token(&op_sp.inner);
-            let next_min = if is_right_assoc { prec } else { prec + 1 };
-
-            let op_token = self.advance().unwrap().clone();
-
-            let mut right = self.parse_expression_bp(next_min)?;
-            right = self.parse_postfix(right)?;
-
-            // build node
-            if Parser::is_assignment_token(&op_token.inner) {
-                if !Parser::is_assignable(&left.inner) {
-                    return Err(spanned(
-                        "Invalid assignment target".into(),
-                        left.span,
-                    ));
-                }
-
-                let value = match &op_token.inner {
-                    Token::Eq => right.clone(),
-                    Token::PlusEq => {
-                        let op = crate::ast::Operation::Add;
-                        let bin_span = Span { start: left.span.start, end: right.span.end };
-                        spanned(
-                            Expr::Binary {
-                                left: Box::new(left.clone()),
-                                operation: op,
-                                right: Box::new(right.clone()),
-                            },
-                            bin_span,
-                        )
-                    }
-                    Token::MinusEq => {
-                        let op = crate::ast::Operation::Subtract;
-                        let bin_span = Span { start: left.span.start, end: right.span.end };
-                        spanned(
-                            Expr::Binary {
-                                left: Box::new(left.clone()),
-                                operation: op,
-                                right: Box::new(right.clone()),
-                            },
-                            bin_span,
-                        )
-                    }
-                    Token::StarEq => {
-                        let op = crate::ast::Operation::Multiply;
-                        let bin_span = Span { start: left.span.start, end: right.span.end };
-                        spanned(
-                            Expr::Binary {
-                                left: Box::new(left.clone()),
-                                operation: op,
-                                right: Box::new(right.clone()),
-                            },
-                            bin_span,
-                        )
-                    }
-                    Token::SlashEq => {
-                        let op = crate::ast::Operation::Divide;
-                        let bin_span = Span { start: left.span.start, end: right.span.end };
-                        spanned(
-                            Expr::Binary {
-                                left: Box::new(left.clone()),
-                                operation: op,
-                                right: Box::new(right.clone()),
-                            },
-                            bin_span,
-                        )
-                    }
-                    Token::PercentEq => {
-                        let op = crate::ast::Operation::Modulo;
-                        let bin_span = Span { start: left.span.start, end: right.span.end };
-                        spanned(
-                            Expr::Binary {
-                                left: Box::new(left.clone()),
-                                operation: op,
-                                right: Box::new(right.clone()),
-                            },
-                            bin_span,
-                        )
-                    }
-                    _ => right.clone(),
-                };
-
-                let assign_span = Span { start: left.span.start, end: value.span.end };
-                left = spanned(
-                    Expr::Assign {
-                        target: Box::new(left.clone()),
-                        value: Box::new(value),
-                    },
-                    assign_span,
-                );
-            } else {
-                let op = Parser::token_to_operation(&op_token.inner).ok_or(spanned(
-                    format!("Unsupported operator: {:?}", op_token.inner),
-                    op_token.span,
-                ))?;
-
-                let combined_span = Span { start: left.span.start, end: right.span.end };
-                left = spanned(
-                    Expr::Binary {
-                        left: Box::new(left.clone()),
-                        operation: op,
-                        right: Box::new(right.clone()),
-                    },
-                    combined_span,
-                );
-            }
-        }
-
-        Ok(left)
-    }
-
-    fn parse_postfix(&mut self, mut expr: Spanned<Expr>) -> Result<Spanned<Expr>, Spanned<String>> {
-        loop {
-            match self.peek() {
-                Some(sp) => match &sp.inner {
-                    Token::LParen => {
-                        // call
-                        let start_span = expr.span;
-                        self.advance();
-                        let mut args: Vec<Spanned<Expr>> = Vec::new();
-                        if !self.check(&Token::RParen) {
-                            loop {
-                                let arg = self.parse_expression()?;
-                                args.push(arg);
-                                if self.check(&Token::Comma) {
-                                    self.advance();
-                                    continue;
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-                        let end_span = if self.peek().is_some() {
-                            let r = self.peek().unwrap().span;
-                            self.expect(&Token::RParen)?;
-                            r
-                        } else {
-                            return Err(spanned("Unexpected EOF in call".into(), Span::from(0..0)));
-                        };
-                        let call_span = Span { start: start_span.start, end: end_span.end };
-                        expr = spanned(
-                            Expr::Call {
-                                fun: Box::new(expr.clone()),
-                                args,
-                                generic_args: Vec::new(),
-                            },
-                            call_span,
-                        );
-                    }
-                    Token::LBracket => {
-                        // indexing
-                        let start_span = expr.span;
-                        self.advance();
-                        let index_expr = if !self.check(&Token::RBracket) {
-                            let e = self.parse_expression()?;
-                            e
-                        } else {
-                            return Err(spanned("Empty index".into(), self.peek().unwrap().span));
-                        };
-                        let end_span = if self.peek().is_some() {
-                            let r = self.peek().unwrap().span;
-                            self.expect(&Token::RBracket)?;
-                            r
-                        } else {
-                            return Err(spanned("Unexpected EOF in index".into(), Span::from(0..0)));
-                        };
-                        let idx_span = Span { start: start_span.start, end: end_span.end };
-                        expr = spanned(
-                            Expr::Index(Box::new(expr.clone()), Box::new(index_expr)),
-                            idx_span,
-                        );
-                    }
-                    Token::Dot => {
-                        // field access
-                        let start_span = expr.span;
-                        self.advance();
-                        match self.advance() {
-                            Some(next) => match &next.inner {
-                                Token::Ident(name) => {
-                                    let access_span = Span { start: start_span.start, end: next.span.end };
-                                    expr = spanned(Expr::Get(Box::new(expr.clone()), name.clone()), access_span);
-                                }
-                                _ => {
-                                    return Err(spanned("Expected identifier after '.'".into(), next.span));
-                                }
-                            },
-                            None => {
-                                return Err(spanned("Unexpected EOF after '.'".into(), Span::from(0..0)));
-                            }
-                        }
-                    }
-                    _ => break,
-                },
-                None => break,
-            }
-        }
-        Ok(expr)
-    }
- 
-    // -------------------------
-    // Type parsing
-    // -------------------------
- 
-    fn parse_type(&mut self) -> Result<Spanned<TypeInfo>, Spanned<String>> {
-        // parse primary and apply postfix (array) operators
-        let mut ty = self.parse_type_primary()?;
-        // postfix arrays: Type[]
-        loop {
-            if self.check(&Token::LBracket) && self.peek_at(1).map(|t| matches!(t.inner, Token::RBracket)).unwrap_or(false) {
-                // consume '[' and ']'
-                let _l = self.advance().unwrap().clone();
-                let r = self.advance().unwrap().clone(); // RBracket
-                let combined = Span { start: ty.span.start, end: r.span.end };
-                ty = spanned(TypeInfo::Array(Box::new(ty)), combined);
-            } else {
-                break;
-            }
-        }
-        Ok(ty)
-    }
- 
-    fn parse_type_ident_or_enumvariant(&mut self) -> Result<Spanned<TypeInfo>, Spanned<String>> {
-        // Assumes next token is Ident
-        let ident_sp = self.advance().ok_or(spanned("Unexpected EOF parsing type".into(), Span::from(0..0)))?.clone();
-        let name = if let Token::Ident(s) = ident_sp.inner.clone() {
-            s
-        } else {
-            return Err(spanned("Expected identifier in type".into(), ident_sp.span));
-        };
-        // enforce that type names start with a capital letter
-        if name.chars().next().map(|c| !c.is_uppercase()).unwrap_or(true) {
-            return Err(spanned("Type names must start with a capital letter".into(), ident_sp.span));
-        }
-        // enum variant: Ident . Ident
-        if self.check(&Token::Dot) {
-            // consume dot
-            self.advance();
-            let var_sp = self.advance().ok_or(spanned("Unexpected EOF in enum variant".into(), ident_sp.span))?.clone();
-            if let Token::Ident(var_name) = var_sp.inner.clone() {
-                let span = Span { start: ident_sp.span.start, end: var_sp.span.end };
-                return Ok(spanned(TypeInfo::EnumVariant { enum_name: name, variant: var_name }, span));
-            } else {
-                return Err(spanned("Expected variant identifier after .".into(), var_sp.span));
-            }
-        }
-
-        // custom type, possibly with generic args: Ident<...>
-        let mut generic_args: Vec<Spanned<TypeInfo>> = Vec::new();
-        if self.check(&Token::Lt) {
-            // consume '<'
-            self.advance();
-            if !self.check(&Token::Gt) {
-                loop {
-                    let arg = self.parse_type()?;
-                    generic_args.push(arg);
-                    if self.check(&Token::Comma) {
-                        self.advance();
-                        continue;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            // expect '>'
-            if !self.check(&Token::Gt) {
-                return Err(spanned("Expected > after generic args".into(), self.peek().unwrap().span));
-            }
-            let gt = self.advance().unwrap().clone();
-            let span = Span { start: ident_sp.span.start, end: gt.span.end };
-            return Ok(spanned(TypeInfo::Custom { name, generic_args }, span));
-        }
-
-        // primitives mapping (must start with capital letter)
-        let ty = match name.as_str() {
-            "Int" => TypeInfo::Int,
-            "Float" => TypeInfo::Float,
-            "String" => TypeInfo::String,
-            "Char" => TypeInfo::Char,
-            "Bool" => TypeInfo::Bool,
-            "Void" => TypeInfo::Void,
-            "Null" => TypeInfo::Null,
-            "Any" => TypeInfo::Any,
-            "Unknown" => TypeInfo::Unknown,
-            _ => TypeInfo::Custom { name: name.clone(), generic_args: vec![] },
-        };
-        Ok(spanned(ty, ident_sp.span))
-    }
- 
-    fn parse_type_primary(&mut self) -> Result<Spanned<TypeInfo>, Spanned<String>> {
-        let t_peek = self.peek().cloned().ok_or(spanned("Unexpected EOF parsing type".into(), Span::from(0..0)))?;
-        match &t_peek.inner {
-            Token::LParen => {
-                self.advance();
-                let mut params: Vec<((bool, String), Spanned<TypeInfo>)> = Vec::new();
-                if !self.check(&Token::RParen) {
-                    loop {
-                        let mut variadic = false;
-                        if self.check(&Token::DotDotDot) {
-                            variadic = true;
-                            self.advance();
-                        }
-                        // expect name
-                        let name_tok = self.advance().ok_or(spanned("Unexpected EOF in function type params".into(), Span::from(0..0)))?.clone();
-                        let pname = if let Token::Ident(n) = name_tok.inner.clone() { n } else { return Err(spanned("Expected identifier in function type params".into(), name_tok.span)); };
-                        // expect colon
-                        self.expect(&Token::Colon)?;
-                        // parse type
-                        let ptype = self.parse_type()?;
-                        params.push(((variadic, pname), ptype));
-                        if self.check(&Token::Comma) {
-                            self.advance();
-                            continue;
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                let rpar = self.advance().ok_or(spanned("Unexpected EOF, expected )".into(), Span::from(0..0)))?.clone();
-                // if arrow follows, it's a function type
-                if self.check(&Token::Arrow) {
-                    // consume arrow
-                    self.advance();
-                    // parse return type
-                    let ret = self.parse_type()?;
-                    let span = Span { start: t_peek.span.start, end: ret.span.end };
-                    Ok(spanned(TypeInfo::Fun { params, return_type: Box::new(ret), generic_params: vec![] }, span))
-                } else {
-                    // grouped type -> ambiguous in this grammar
-                    Err(spanned("Parenthesized types are only allowed for function types".into(), rpar.span))
-                }
-            }
-            Token::LBrace => {
-                // record type { name: Type, ... }
-                self.advance(); // consume '{'
-                let mut fields: Vec<(String, Spanned<TypeInfo>)> = Vec::new();
-                if !self.check(&Token::RBrace) {
-                    loop {
-                        let name_tok = self.advance().ok_or(spanned("Unexpected EOF in record type".into(), Span::from(0..0)))?.clone();
-                        let fname = if let Token::Ident(s) = name_tok.inner.clone() { s } else { return Err(spanned("Expected identifier in record type".into(), name_tok.span)); };
-                        self.expect(&Token::Colon)?;
-                        let ftype = self.parse_type()?;
-                        fields.push((fname, ftype));
-                        if self.check(&Token::Comma) {
-                            self.advance();
-                            continue;
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                let r = self.advance().ok_or(spanned("Unexpected EOF in record type".into(), Span::from(0..0)))?.clone();
-                let span = Span { start: t_peek.span.start, end: r.span.end };
-                Ok(spanned(TypeInfo::Record(fields), span))
-            }
-            Token::Ident(_) => {
-                self.parse_type_ident_or_enumvariant()
-            }
-            _ => Err(spanned(format!("Unexpected token in type: {:?}", t_peek.inner), t_peek.span)),
-        }
-    }
- 
+    
     fn parse_atom(&mut self) -> Result<Spanned<Expr>, Spanned<String>> {
         let token = self
             .advance()
@@ -787,6 +458,7 @@ impl<'a> Parser<'a> {
  
                 // parse body: either a block or a single expression
                 let body = if self.check(&Token::LBrace) {
+                    self.advance();
                     self.parse_block_expr()?
                 } else {
                     self.parse_expression()?
@@ -802,7 +474,8 @@ impl<'a> Parser<'a> {
                     },
                     combined_span,
                 ))
-            }
+            },
+            Token::Semicolon => Ok(spanned(Expr::Void, token.span)),
             // Token::DotDotDot => todo!(), TODO: spread operator later
             _ => Err(spanned(
                 format!("Expected expression, got {:?}", token.inner),
@@ -812,9 +485,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_block_expr(&mut self) -> Result<Spanned<Expr>, Spanned<String>> {
-        // assumes current token is LBrace; consume it
         let start_span = self.peek().map(|s| s.span).unwrap_or(Span::from(0..0));
-        self.expect(&Token::LBrace)?;
         let mut stmts: Vec<Spanned<Statement>> = Vec::new();
         let mut maybe_expr: Option<Box<Spanned<Expr>>> = None;
 
@@ -855,5 +526,380 @@ impl<'a> Parser<'a> {
         let combined_span = Span { start: start_span.start, end: end_span.end };
 
         Ok(spanned(Expr::Block(stmts, maybe_expr), combined_span))
+    }
+
+    fn parse_expression_bp(&mut self, min_prec: u8) -> Result<Spanned<Expr>, Spanned<String>> {
+        let mut left = self.parse_atom()?;
+        left = self.parse_postfix(left)?;
+
+        loop {
+            let op_sp = match self.peek() {
+                Some(s) => s.clone(),
+                None => break,
+            };
+            let prec = Parser::get_precedence(&op_sp.inner);
+            if prec == 0 || prec < min_prec {
+                break;
+            }
+
+            let is_right_assoc = Parser::is_assignment_token(&op_sp.inner);
+            let next_min = if is_right_assoc { prec } else { prec + 1 };
+
+            let op_token = self.advance().unwrap().clone();
+
+            let mut right = self.parse_expression_bp(next_min)?;
+            right = self.parse_postfix(right)?;
+
+            // build node
+            if Parser::is_assignment_token(&op_token.inner) {
+                if !Parser::is_assignable(&left.inner) {
+                    return Err(spanned(
+                        "Invalid assignment target".into(),
+                        left.span,
+                    ));
+                }
+
+                let value = match &op_token.inner {
+                    Token::Eq => right.clone(),
+                    Token::PlusEq => {
+                        let op = crate::ast::Operation::Add;
+                        let bin_span = Span { start: left.span.start, end: right.span.end };
+                        spanned(
+                            Expr::Binary {
+                                left: Box::new(left.clone()),
+                                operation: op,
+                                right: Box::new(right.clone()),
+                            },
+                            bin_span,
+                        )
+                    }
+                    Token::MinusEq => {
+                        let op = crate::ast::Operation::Subtract;
+                        let bin_span = Span { start: left.span.start, end: right.span.end };
+                        spanned(
+                            Expr::Binary {
+                                left: Box::new(left.clone()),
+                                operation: op,
+                                right: Box::new(right.clone()),
+                            },
+                            bin_span,
+                        )
+                    }
+                    Token::StarEq => {
+                        let op = crate::ast::Operation::Multiply;
+                        let bin_span = Span { start: left.span.start, end: right.span.end };
+                        spanned(
+                            Expr::Binary {
+                                left: Box::new(left.clone()),
+                                operation: op,
+                                right: Box::new(right.clone()),
+                            },
+                            bin_span,
+                        )
+                    }
+                    Token::SlashEq => {
+                        let op = crate::ast::Operation::Divide;
+                        let bin_span = Span { start: left.span.start, end: right.span.end };
+                        spanned(
+                            Expr::Binary {
+                                left: Box::new(left.clone()),
+                                operation: op,
+                                right: Box::new(right.clone()),
+                            },
+                            bin_span,
+                        )
+                    }
+                    Token::PercentEq => {
+                        let op = crate::ast::Operation::Modulo;
+                        let bin_span = Span { start: left.span.start, end: right.span.end };
+                        spanned(
+                            Expr::Binary {
+                                left: Box::new(left.clone()),
+                                operation: op,
+                                right: Box::new(right.clone()),
+                            },
+                            bin_span,
+                        )
+                    }
+                    _ => right.clone(),
+                };
+
+                let assign_span = Span { start: left.span.start, end: value.span.end };
+                left = spanned(
+                    Expr::Assign {
+                        target: Box::new(left.clone()),
+                        value: Box::new(value),
+                    },
+                    assign_span,
+                );
+            } else {
+                let op = Parser::token_to_operation(&op_token.inner).ok_or(spanned(
+                    format!("Unsupported operator: {:?}", op_token.inner),
+                    op_token.span,
+                ))?;
+
+                let combined_span = Span { start: left.span.start, end: right.span.end };
+                left = spanned(
+                    Expr::Binary {
+                        left: Box::new(left.clone()),
+                        operation: op,
+                        right: Box::new(right.clone()),
+                    },
+                    combined_span,
+                );
+            }
+        }
+
+        Ok(left)
+    }
+
+    fn parse_postfix(&mut self, mut expr: Spanned<Expr>) -> Result<Spanned<Expr>, Spanned<String>> {
+        loop {
+            match self.peek() {
+                Some(sp) => match &sp.inner {
+                    Token::LParen => {
+                        // call
+                        let start_span = expr.span;
+                        self.advance();
+                        let mut args: Vec<Spanned<Expr>> = Vec::new();
+                        if !self.check(&Token::RParen) {
+                            loop {
+                                let arg = self.parse_expression()?;
+                                args.push(arg);
+                                if self.check(&Token::Comma) {
+                                    self.advance();
+                                    continue;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        let end_span = if self.peek().is_some() {
+                            let r = self.peek().unwrap().span;
+                            self.expect(&Token::RParen)?;
+                            r
+                        } else {
+                            return Err(spanned("Unexpected EOF in call".into(), Span::from(0..0)));
+                        };
+                        let call_span = Span { start: start_span.start, end: end_span.end };
+                        expr = spanned(
+                            Expr::Call {
+                                fun: Box::new(expr.clone()),
+                                args,
+                                generic_args: Vec::new(),
+                            },
+                            call_span,
+                        );
+                    }
+                    Token::LBracket => {
+                        // indexing
+                        let start_span = expr.span;
+                        self.advance();
+                        let index_expr = if !self.check(&Token::RBracket) {
+                            let e = self.parse_expression()?;
+                            e
+                        } else {
+                            return Err(spanned("Empty index".into(), self.peek().unwrap().span));
+                        };
+                        let end_span = if self.peek().is_some() {
+                            let r = self.peek().unwrap().span;
+                            self.expect(&Token::RBracket)?;
+                            r
+                        } else {
+                            return Err(spanned("Unexpected EOF in index".into(), Span::from(0..0)));
+                        };
+                        let idx_span = Span { start: start_span.start, end: end_span.end };
+                        expr = spanned(
+                            Expr::Index(Box::new(expr.clone()), Box::new(index_expr)),
+                            idx_span,
+                        );
+                    }
+                    Token::Dot => {
+                        // field access
+                        let start_span = expr.span;
+                        self.advance();
+                        match self.advance() {
+                            Some(next) => match &next.inner {
+                                Token::Ident(name) => {
+                                    let access_span = Span { start: start_span.start, end: next.span.end };
+                                    expr = spanned(Expr::Get(Box::new(expr.clone()), name.clone()), access_span);
+                                }
+                                _ => {
+                                    return Err(spanned("Expected identifier after '.'".into(), next.span));
+                                }
+                            },
+                            None => {
+                                return Err(spanned("Unexpected EOF after '.'".into(), Span::from(0..0)));
+                            }
+                        }
+                    }
+                    _ => break,
+                },
+                None => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    //-----
+    //types
+    //-----
+    
+    fn parse_type(&mut self) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+        // parse primary and apply postfix (array) operators
+        let mut ty = self.parse_type_primary()?;
+        // postfix arrays: Type[]
+        loop {
+            if self.check(&Token::LBracket) && self.peek_at(1).map(|t| matches!(t.inner, Token::RBracket)).unwrap_or(false) {
+                // consume '[' and ']'
+                let _l = self.advance().unwrap().clone();
+                let r = self.advance().unwrap().clone(); // RBracket
+                let combined = Span { start: ty.span.start, end: r.span.end };
+                ty = spanned(TypeInfo::Array(Box::new(ty)), combined);
+            } else {
+                break;
+            }
+        }
+        Ok(ty)
+    }
+ 
+    fn parse_type_ident_or_enumvariant(&mut self) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+        // Assumes next token is Ident
+        let ident_sp = self.advance().ok_or(spanned("Unexpected EOF parsing type".into(), Span::from(0..0)))?.clone();
+        let name = if let Token::Ident(s) = ident_sp.inner.clone() {
+            s
+        } else {
+            return Err(spanned("Expected identifier in type".into(), ident_sp.span));
+        };
+        // enforce that type names start with a capital letter
+        if name.chars().next().map(|c| !c.is_uppercase()).unwrap_or(true) {
+            return Err(spanned("Type names must start with a capital letter".into(), ident_sp.span));
+        }
+        // enum variant: Ident . Ident
+        if self.check(&Token::Dot) {
+            // consume dot
+            self.advance();
+            let var_sp = self.advance().ok_or(spanned("Unexpected EOF in enum variant".into(), ident_sp.span))?.clone();
+            if let Token::Ident(var_name) = var_sp.inner.clone() {
+                let span = Span { start: ident_sp.span.start, end: var_sp.span.end };
+                return Ok(spanned(TypeInfo::EnumVariant { enum_name: name, variant: var_name }, span));
+            } else {
+                return Err(spanned("Expected variant identifier after .".into(), var_sp.span));
+            }
+        }
+
+        // custom type, possibly with generic args: Ident<...>
+        let mut generic_args: Vec<Spanned<TypeInfo>> = Vec::new();
+        if self.check(&Token::Lt) {
+            // consume '<'
+            self.advance();
+            if !self.check(&Token::Gt) {
+                loop {
+                    let arg = self.parse_type()?;
+                    generic_args.push(arg);
+                    if self.check(&Token::Comma) {
+                        self.advance();
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            // expect '>'
+            if !self.check(&Token::Gt) {
+                return Err(spanned("Expected > after generic args".into(), self.peek().unwrap().span));
+            }
+            let gt = self.advance().unwrap().clone();
+            let span = Span { start: ident_sp.span.start, end: gt.span.end };
+            return Ok(spanned(TypeInfo::Custom { name, generic_args }, span));
+        }
+
+        // primitives mapping (must start with capital letter)
+        let ty = match name.as_str() {
+            "Int" => TypeInfo::Int,
+            "Float" => TypeInfo::Float,
+            "String" => TypeInfo::String,
+            "Char" => TypeInfo::Char,
+            "Bool" => TypeInfo::Bool,
+            "Void" => TypeInfo::Void,
+            "Null" => TypeInfo::Null,
+            "Any" => TypeInfo::Any,
+            "Unknown" => TypeInfo::Unknown,
+            _ => TypeInfo::Custom { name: name.clone(), generic_args: vec![] },
+        };
+        Ok(spanned(ty, ident_sp.span))
+    }
+ 
+    fn parse_type_primary(&mut self) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+        let t_peek = self.peek().cloned().ok_or(spanned("Unexpected EOF parsing type".into(), Span::from(0..0)))?;
+        match &t_peek.inner {
+            Token::LParen => {
+                self.advance();
+                let mut params: Vec<((bool, String), Spanned<TypeInfo>)> = Vec::new();
+                if !self.check(&Token::RParen) {
+                    loop {
+                        let mut variadic = false;
+                        if self.check(&Token::DotDotDot) {
+                            variadic = true;
+                            self.advance();
+                        }
+                        // expect name
+                        let name_tok = self.advance().ok_or(spanned("Unexpected EOF in function type params".into(), Span::from(0..0)))?.clone();
+                        let pname = if let Token::Ident(n) = name_tok.inner.clone() { n } else { return Err(spanned("Expected identifier in function type params".into(), name_tok.span)); };
+                        // expect colon
+                        self.expect(&Token::Colon)?;
+                        // parse type
+                        let ptype = self.parse_type()?;
+                        params.push(((variadic, pname), ptype));
+                        if self.check(&Token::Comma) {
+                            self.advance();
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                let rpar = self.advance().ok_or(spanned("Unexpected EOF, expected )".into(), Span::from(0..0)))?.clone();
+                // if arrow follows, it's a function type
+                if self.check(&Token::Arrow) {
+                    // consume arrow
+                    self.advance();
+                    // parse return type
+                    let ret = self.parse_type()?;
+                    let span = Span { start: t_peek.span.start, end: ret.span.end };
+                    Ok(spanned(TypeInfo::Fun { params, return_type: Box::new(ret), generic_params: vec![] }, span))
+                } else {
+                    // grouped type -> ambiguous in this grammar
+                    Err(spanned("Parenthesized types are only allowed for function types".into(), rpar.span))
+                }
+            }
+            Token::LBrace => {
+                // record type { name: Type, ... }
+                self.advance(); // consume '{'
+                let mut fields: Vec<(String, Spanned<TypeInfo>)> = Vec::new();
+                if !self.check(&Token::RBrace) {
+                    loop {
+                        let name_tok = self.advance().ok_or(spanned("Unexpected EOF in record type".into(), Span::from(0..0)))?.clone();
+                        let fname = if let Token::Ident(s) = name_tok.inner.clone() { s } else { return Err(spanned("Expected identifier in record type".into(), name_tok.span)); };
+                        self.expect(&Token::Colon)?;
+                        let ftype = self.parse_type()?;
+                        fields.push((fname, ftype));
+                        if self.check(&Token::Comma) {
+                            self.advance();
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                let r = self.advance().ok_or(spanned("Unexpected EOF in record type".into(), Span::from(0..0)))?.clone();
+                let span = Span { start: t_peek.span.start, end: r.span.end };
+                Ok(spanned(TypeInfo::Record(fields), span))
+            }
+            Token::Ident(_) => {
+                self.parse_type_ident_or_enumvariant()
+            }
+            _ => Err(spanned(format!("Unexpected token in type: {:?}", t_peek.inner), t_peek.span)),
+        }
     }
 }

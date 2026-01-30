@@ -32,7 +32,7 @@ fn test_block_and_anon_abuse() {
                 })({ d: 3 }.d)
             };
             b - 4
-        } + (fun(x: Int): Int {x * x})(4);
+        } + (fun(x: Int): Int {x * x})(4)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -60,7 +60,7 @@ fn test_nested_records() {
                 }
             }
         };
-        obj.a.b.c.d.e;
+        obj.a.b.c.d.e
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -78,7 +78,7 @@ fn test_nested_records() {
 fn test_nested_fun_calls() {
     let src = r#"
         let f = fun(x: Int): Int {x+1};
-        f(f(f(f(f(1)))));
+        f(f(f(f(f(1)))))
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -101,7 +101,7 @@ fn test_fun_shadowing() {
             x+a
         };
         let a = 3;
-        f(1);
+        f(1)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -139,7 +139,7 @@ fn test_whitespace_max() {
 
 #[test]
 fn test_whitespace_min() {
-    let src = r#"let a=12;let mega_function=fun(x:Int):Int{a+x};let b={bb:2};mega_function(b.bb);"#;
+    let src = r#"let a=12;let mega_function=fun(x:Int):Int{a+x};let b={bb:2};mega_function(b.bb)"#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
@@ -173,7 +173,7 @@ fn test_if_else() {
 #[test]
 fn test_anon_fun() {
     let src = r#"
-        (fun (a: Int): Int a*2)(2)
+        (fun (a: Int): Int {a*2})(2)
     "#;
     
     match run_typed(src.to_string()).unwrap() {

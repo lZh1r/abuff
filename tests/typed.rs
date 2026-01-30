@@ -18,7 +18,7 @@ fn test_custom_type_spam() {
             pos: { x: 100, y: 200 },
             id: 1
         };
-        get_player_x(raw_data);
+        get_player_x(raw_data)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -64,7 +64,7 @@ fn test_comment_handling() {
         /// This is a doc comment
         let result = z * 2;
         
-        result;
+        result
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -87,7 +87,7 @@ fn test_factorial() {
             acc = acc * n;
             n = n - 1;
         };
-        acc;
+        acc
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -128,7 +128,7 @@ fn test_nested_function_return() {
 fn test_array_indexing() {
     let src = r#"
         let a = [ 1 , 2 , 3 ];
-        a[2] + a[3 % 2];
+        a[2] + a[3 % 2]
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -147,7 +147,7 @@ fn test_array_mutation() {
     let src = r#"
         let a = [ 1 , 2 , 3 ];
         a[2] = 4;
-        a[2];
+        a[2]
     "#;
     
     match run_typed(src.to_string()).unwrap() {

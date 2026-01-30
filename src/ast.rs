@@ -33,6 +33,7 @@ pub enum Expr {
     Float(f64),
     Int(i64),
     String(String),
+    Void,
     Var(String),
     Array(Vec<Spanned<Expr>>),
     Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
