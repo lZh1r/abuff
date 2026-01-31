@@ -154,7 +154,7 @@ impl<'a> Parser<'a> {
                     _ => Ok(self.fun_statement()?)
                 }
             },
-            Token::Type => todo!(),
+            Token::Type => self.type_statement(),
             Token::Enum => todo!(),
             Token::Import => todo!(),
             Token::Native => todo!(),
@@ -314,6 +314,61 @@ impl<'a> Parser<'a> {
                 generic_params: fun_generics 
             },
             Span::from(start_span.start..end_span)
+        ))
+    }
+    
+    fn type_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
+        let start_span = self.advance().unwrap().span; //consume type
+        if self.peek().is_none() {
+            return Err(spanned("Unexpected EOF in let declaration".into(), start_span))
+        }
+        
+        let ident_token = self.advance().unwrap().clone();
+        let type_name = match ident_token.inner {
+            Token::Ident(i) => i,
+            t => return Err(spanned(format!("Expected identifier, got {t:?} instead"), ident_token.span))
+        };
+        
+        let type_generics = if self.check(&Token::Lt) {
+            let mut params = Vec::new();
+            let lt = self.advance().unwrap().clone();
+            loop {
+                let g = self.advance().ok_or(spanned("Unexpected EOF in generic params".into(), lt.span))?.clone();
+                match g.inner {
+                    Token::Ident(name) => params.push(spanned(name, g.span)),
+                    _ => return Err(spanned("Expected identifier in generic params".into(), g.span)),
+                }
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            
+            if !self.check(&Token::Gt) {
+                return Err(spanned("Expected > after generic params".into(), self.peek().unwrap().span));
+            }
+            self.advance();
+            params
+        } else {
+            Vec::new()
+        };
+        
+        self.expect(&Token::Eq)?;
+        let type_expr = self.parse_type()?;
+        
+        let end_span = if self.check(&Token::Semicolon) {
+            self.advance().unwrap().span
+        } else {
+            return Err(spanned(
+                "Expected a semicolon at the end of the statement".into(),
+                self.peek().unwrap().span
+            ));
+        };
+        
+        Ok(spanned(
+            Statement::TypeDef { name: type_name, type_info: type_expr, generic_params: type_generics },
+            Span::from(start_span.start..end_span.end)
         ))
     }
     
