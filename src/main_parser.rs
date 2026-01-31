@@ -1,5 +1,3 @@
-use std::fmt::format;
-
 use crate::{
     ast::{Expr, Span, Spanned, Statement, UnaryOp, TypeInfo},
     lexer::Token,
@@ -1172,6 +1170,7 @@ impl<'a> Parser<'a> {
                             | Expr::Call { fun: _, args: _, generic_args: _ }
                             | Expr::Fun { params: _, body: _, return_type: _, generic_params: _ }
                             | Expr::Index(_, _)
+                            | Expr::Get(_, _)
                             | Expr::If { condition: _, body: _, else_block: _ } => {
                                 let position = self.cursor;
                                 match || -> Result<Spanned<Expr>, Spanned<String>> {
