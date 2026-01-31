@@ -155,7 +155,7 @@ impl<'a> Parser<'a> {
                 }
             },
             Token::Type => self.type_statement(),
-            Token::Enum => todo!(),
+            Token::Enum => self.enum_statement(),
             Token::Import => todo!(),
             Token::Native => todo!(),
             Token::Export => {
@@ -368,6 +368,78 @@ impl<'a> Parser<'a> {
         
         Ok(spanned(
             Statement::TypeDef { name: type_name, type_info: type_expr, generic_params: type_generics },
+            Span::from(start_span.start..end_span.end)
+        ))
+    }
+    
+    fn enum_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
+        let start_span = self.advance().unwrap().span; //consume enum
+        if self.peek().is_none() {
+            return Err(spanned("Unexpected EOF in let declaration".into(), start_span))
+        }
+        
+        let ident_token = self.advance().unwrap().clone();
+        let enum_name = match ident_token.inner {
+            Token::Ident(i) => i,
+            t => return Err(spanned(format!("Expected identifier, got {t:?} instead"), ident_token.span))
+        };
+        
+        let enum_generics = if self.check(&Token::Lt) {
+            let mut params = Vec::new();
+            let lt = self.advance().unwrap().clone();
+            loop {
+                let g = self.advance().ok_or(spanned("Unexpected EOF in generic params".into(), lt.span))?.clone();
+                match g.inner {
+                    Token::Ident(name) => params.push(spanned(name, g.span)),
+                    _ => return Err(spanned("Expected identifier in generic params".into(), g.span)),
+                }
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            
+            if !self.check(&Token::Gt) {
+                return Err(spanned("Expected > after generic params".into(), self.peek().unwrap().span));
+            }
+            self.advance();
+            params
+        } else {
+            Vec::new()
+        };
+        
+        let mut enum_variants = Vec::new();
+        let brace = self.peek().cloned();
+        self.expect(&Token::LBrace)?;
+        let brace = brace.unwrap().span;
+        while !self.check(&Token::RBrace) {
+            let ident = self.advance().ok_or(spanned("Unexpected EOF in enum declaration".to_string(), brace))?;
+            let variant_name = match ident.inner.clone() {
+                Token::Ident(name) => name,
+                t => return Err(spanned(format!("Expected identifier, got {:?} instead", t), ident.span))
+            };
+            
+            let variant_type = if self.check(&Token::Colon) {
+                self.advance();
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            
+            enum_variants.push((variant_name, variant_type));
+            
+            if self.check(&Token::Comma) {
+                self.advance();
+            } else {
+                break
+            }
+        }
+        let end_span = self.peek().unwrap().span;
+        self.expect(&Token::RBrace)?;
+        
+        Ok(spanned(
+            Statement::EnumDef { name: enum_name, variants: enum_variants, generic_params: enum_generics },
             Span::from(start_span.start..end_span.end)
         ))
     }

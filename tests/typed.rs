@@ -192,7 +192,7 @@ fn test_simpler_enum() {
         fun giveColor(x: Color): Color {
             x
         }
-        giveColor(Color.Red());
+        giveColor(Color.Red())
     "#;
     
     match run_typed(src.to_string()).unwrap() {
