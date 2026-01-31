@@ -8,7 +8,7 @@ mod common;
 fn test_import() {
     let src = r#"
         import {a} from "tests/stubs/test";
-        a;
+        a
     "#;
     
     let res = run_typed(src.to_string());
@@ -29,7 +29,7 @@ fn test_type_import() {
     let src = r#"
         import {type A} from "tests/stubs/test";
         let a: A = 6;
-        a + 4;
+        a + 4
     "#;
     
     let res = run_typed(src.to_string());
@@ -50,7 +50,7 @@ fn test_multiple_imports() {
     let src = r#"
         import {type A, a} from "tests/stubs/test";
         let b: A = 6;
-        a + b;
+        a + b
     "#;
     
     let res = run_typed(src.to_string());
@@ -70,7 +70,7 @@ fn test_multiple_imports() {
 fn test_chain_imports() {
     let src = r#"
         import {b} from "tests/stubs/hello";
-        b(5);
+        b(5)
     "#;
     
     let res = run_typed(src.to_string());
@@ -91,7 +91,7 @@ fn test_intersecting_imports() {
     let src = r#"
         import {b} from "tests/stubs/hello";
         import {a} from "tests/stubs/test";
-        b(a);
+        b(a)
     "#;
     
     let res = run_typed(src.to_string());
@@ -115,7 +115,7 @@ fn test_struct_with_custom_type_imports() {
             a: 2,
             b: 3
         };
-        s.a * s.b;
+        s.a * s.b
     "#;
     
     let res = run_typed(src.to_string());
@@ -135,7 +135,7 @@ fn test_struct_with_custom_type_imports() {
 fn test_aliased_imports() {
     let src = r#"
         import {b as c} from "tests/stubs/hello";
-        c(5);
+        c(5)
     "#;
     
     let res = run_typed(src.to_string());
@@ -155,7 +155,7 @@ fn test_aliased_imports() {
 fn test_builtins_imports() {
     let src = r#"
         print(1);
-        7;
+        7
     "#;
     
     let res = run_typed(src.to_string());
@@ -178,7 +178,7 @@ fn test_import_simple_enum() {
         fun test(x: Test): Test {
             x
         }
-        test(Test.A(2));
+        test(Test.A(2))
     "#;
     
     match run_typed(src.to_string()).unwrap() {

@@ -9,7 +9,7 @@ fn test_len() {
     let src = r#"
         let string = "Hello";
         let array = [1,2,3];
-        len(string) + len(array);
+        len(string) + len(array)
     "#;
     
     let res = run_typed(src.to_string());

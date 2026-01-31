@@ -1,3 +1,5 @@
+use std::fmt::format;
+
 use crate::{
     ast::{Expr, Span, Spanned, Statement, UnaryOp, TypeInfo},
     lexer::Token,
@@ -156,8 +158,8 @@ impl<'a> Parser<'a> {
             },
             Token::Type => self.type_statement(),
             Token::Enum => self.enum_statement(),
-            Token::Import => todo!(),
-            Token::Native => todo!(),
+            Token::Import => self.import_statement(),
+            Token::Native => self.native_fun_statement(),
             Token::Export => {
                 // consume Export
                 let span = self.peek().unwrap().span;
@@ -320,7 +322,7 @@ impl<'a> Parser<'a> {
     fn type_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
         let start_span = self.advance().unwrap().span; //consume type
         if self.peek().is_none() {
-            return Err(spanned("Unexpected EOF in let declaration".into(), start_span))
+            return Err(spanned("Unexpected EOF in type declaration".into(), start_span))
         }
         
         let ident_token = self.advance().unwrap().clone();
@@ -375,7 +377,7 @@ impl<'a> Parser<'a> {
     fn enum_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
         let start_span = self.advance().unwrap().span; //consume enum
         if self.peek().is_none() {
-            return Err(spanned("Unexpected EOF in let declaration".into(), start_span))
+            return Err(spanned("Unexpected EOF in enum declaration".into(), start_span))
         }
         
         let ident_token = self.advance().unwrap().clone();
@@ -440,6 +442,185 @@ impl<'a> Parser<'a> {
         
         Ok(spanned(
             Statement::EnumDef { name: enum_name, variants: enum_variants, generic_params: enum_generics },
+            Span::from(start_span.start..end_span.end)
+        ))
+    }
+    
+    fn import_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
+        let start_span = self.advance().unwrap().span; //consume import
+        if self.peek().is_none() {
+            return Err(spanned("Unexpected EOF in import statement".into(), start_span))
+        }
+        
+        self.expect(&Token::LBrace)?;
+        let mut prev_span = Span::from(0..0);
+        let mut imports = Vec::new();
+        while !self.check(&Token::RBrace) {
+            let is_type = if self.check(&Token::Type) {
+                prev_span = self.advance().unwrap().span;
+                true
+            } else {
+                false
+            };
+            
+            let import_name = match self.advance() {
+                Some(t) => match t.inner.clone() {
+                    Token::Ident(i) => spanned(i, t.span),
+                    a => return Err(spanned(format!("Expected identifier, got {a:?} instead"), t.span))
+                },
+                None => return Err(spanned("Unexpected EOF in import statement".into(), prev_span)),
+            };
+            
+            let alias = if self.check(&Token::As) {
+                prev_span = self.advance().unwrap().span; //as
+                match self.peek() {
+                    Some(t) => match t.inner.clone() {
+                        Token::Ident(i) => {
+                            self.advance();
+                            Some(i)
+                        },
+                        a => return Err(spanned(format!("Expected identifier, got {a:?} instead"), t.span))
+                    },
+                    None => return Err(spanned("Unexpected EOF in import statement".into(), prev_span)),
+                }
+            } else {
+                None
+            };
+            
+            imports.push((import_name, alias, is_type));
+            
+            if self.check(&Token::Comma) {
+                self.advance();
+            } else {
+                break
+            }
+        }
+        self.advance(); // RBrace
+        
+        let from_span = self.peek().cloned();
+        self.expect(&Token::From)?;
+        let from_span = from_span.unwrap().span;
+        let path = match self.advance() {
+            Some(t) => match t.inner.clone() {
+                Token::String(s) => spanned(s, t.span),
+                a => return Err(spanned(format!("Expected file path, got {a:?} instead"), t.span))
+            },
+            None => return Err(spanned("Unexpected EOF in import statement".into(), from_span)),
+        };
+        
+        let end_span = if self.check(&Token::Semicolon) {
+            self.advance().unwrap().span
+        } else {
+            return Err(spanned(
+                "Expected a semicolon at the end of the statement".into(),
+                self.peek().unwrap().span
+            ));
+        };
+        
+        Ok(spanned(
+            Statement::Import { symbols: imports, path },
+            Span::from(start_span.start..end_span.end)
+        ))
+    }
+    
+    fn native_fun_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
+        let start_span = self.advance().unwrap().span; //consume native
+        self.expect(&Token::Fun)?;
+        
+        if self.peek().is_none() {
+            return Err(spanned("Unexpected EOF in fun declaration".into(), start_span))
+        }
+        
+        let ident_token = self.advance().unwrap().clone();
+        let fun_name = match ident_token.inner {
+            Token::Ident(i) => i,
+            t => return Err(spanned(format!("Expected identifier, got {t:?} instead"), ident_token.span))
+        };
+        
+        let fun_generics = if self.check(&Token::Lt) {
+            let mut params = Vec::new();
+            let lt = self.advance().unwrap().clone();
+            loop {
+                let g = self.advance().ok_or(spanned("Unexpected EOF in generic params".into(), lt.span))?.clone();
+                match g.inner {
+                    Token::Ident(name) => params.push(spanned(name, g.span)),
+                    _ => return Err(spanned("Expected identifier in generic params".into(), g.span)),
+                }
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            
+            if !self.check(&Token::Gt) {
+                return Err(spanned("Expected > after generic params".into(), self.peek().unwrap().span));
+            }
+            self.advance();
+            params
+        } else {
+            Vec::new()
+        };
+        
+        self.expect(&Token::LParen)?;
+        let mut fun_params: Vec<((bool, String), Spanned<TypeInfo>)> = Vec::new();
+        if !self.check(&Token::RParen) {
+            loop {
+                // variadic marker: ... before ident
+                let mut variadic = false;
+                if self.check(&Token::DotDotDot) {
+                    variadic = true;
+                    self.advance();
+                }
+                // expect ident
+                let name_tok = self.advance().ok_or(spanned("Unexpected EOF in params".into(), Span::from(0..0)))?.clone();
+                let name = match name_tok.inner {
+                    Token::Ident(s) => s,
+                    _ => return Err(spanned("Expected identifier in parameters".into(), name_tok.span)),
+                };
+
+                // type annotation required: ":" TypeInfo (like Rust)
+                if !self.check(&Token::Colon) {
+                    return Err(spanned("Expected : Type for function parameter".into(), self.peek().map(|s| s.span).unwrap_or(name_tok.span)));
+                }
+                self.advance(); // consume ':'
+                let type_info_spanned = self.parse_type()?;
+
+                fun_params.push(((variadic, name), type_info_spanned));
+
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RParen)?;
+        
+        let fun_type = if self.check(&Token::Colon) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        let end_span = if self.check(&Token::Semicolon) {
+            self.advance().unwrap().span
+        } else {
+            return Err(spanned(
+                "Expected a semicolon at the end of the statement".into(),
+                self.peek().unwrap().span
+            ));
+        };
+        
+        Ok(spanned(
+            Statement::NativeFun { 
+                name: fun_name,
+                params: fun_params, 
+                return_type: fun_type,
+                generic_params: fun_generics 
+            },
             Span::from(start_span.start..end_span.end)
         ))
     }

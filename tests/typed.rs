@@ -220,7 +220,7 @@ fn test_simple_enum() {
         fun world(x: Hello.A): Hello {
             x
         }
-        world(Hello.A(2));
+        world(Hello.A(2))
     "#;
     
     match run_typed(src.to_string()).unwrap() {
