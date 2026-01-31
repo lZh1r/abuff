@@ -1,6 +1,6 @@
 use std::{collections::HashMap, env::current_dir, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
-use crate::{ast::{self, Span, Spanned, Statement, TypeInfo}, checker::{get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun};
+use crate::{ast::{self, Span, Spanned, Statement, TypeInfo}, checker::{get_generic_params, get_type, lower_statement, unwrap_custom_type}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleStatus {
@@ -312,13 +312,18 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                         span: Span::from(0..0)
                     }), &mut generic_scope, false)?;
                     variant_map.insert(variant_name.clone(), param_type.clone());
+                    let g_params = get_generic_params(param_type.clone());
                     variant_vec.push((variant_name.clone(), Spanned {
                         inner: TypeInfo::Fun {
-                            params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                            params: match variant_type {
+                                Some(_) => vec![((false, "a".to_string()), param_type.clone())],
+                                None => Vec::new(),
+                            },
+                            return_type: Box::new(Spanned {
                                 inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
                                 span: param_type.span
                             }),
-                            generic_params: vec![], },
+                            generic_params: g_params, },
                         span: param_type.span
                     }));
                 }
@@ -543,8 +548,15 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                             }
                 
                             if spread {
-                                match unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner {
-                                    TypeInfo::Array(ti) => unwrapped_params.push(((spread, param_name), *ti)),
+                                let unwrapped = unwrap_custom_type(param_type.clone(), &mut new_scope, false)?;
+                                match unwrapped.inner {
+                                    TypeInfo::Array(ti) => unwrapped_params.push((
+                                        (spread, param_name),
+                                        Spanned {
+                                            inner: TypeInfo::Array(ti),
+                                            span: unwrapped.span
+                                        }
+                                    )),
                                     _ => return Err(Spanned {
                                         inner: "Spread param's type should be an array".into(),
                                         span: param_type.span
@@ -589,13 +601,18 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                                 span: Span::from(0..0)
                             }), &mut generic_scope, false)?;
                             variant_map.insert(variant_name.clone(), param_type.clone());
+                            let g_params = get_generic_params(param_type.clone());
                             variant_vec.push((variant_name.clone(), Spanned {
                                 inner: TypeInfo::Fun {
-                                    params: vec![((false, "a".to_string()), param_type.clone())], return_type: Box::new(Spanned {
+                                    params: match variant_type {
+                                        Some(_) => vec![((false, "a".to_string()), param_type.clone())],
+                                        None => Vec::new(),
+                                    },
+                                    return_type: Box::new(Spanned {
                                         inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
                                         span: param_type.span
                                     }),
-                                    generic_params: vec![], },
+                                    generic_params: g_params, },
                                 span: param_type.span
                             }));
                         }

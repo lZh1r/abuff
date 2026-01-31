@@ -186,3 +186,23 @@ fn test_anon_fun() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_fun_in_record() {
+    let src = r#"
+        let a = {
+            b: fun (x: Int): Int x*2
+        };
+        a.b(2)
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 4),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
