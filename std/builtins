@@ -27,7 +27,7 @@
 /// print(print);
 /// // output: native function "print" from "std/builtins"
 /// ```
-export native fun print(...args: Any[]);
+export native fun print<T>(...args: T[]);
 
 /// Returns program's uptime in nanoseconds.
 /// Can be used for benchmarking performance:
@@ -46,4 +46,4 @@ export native fun clock(): Int;
 /// let a = [1,2,3];
 /// len(a); // 3
 /// ```
-export native fun len(obj: Any): Int;
+export native fun len<T>(obj: T): Int;

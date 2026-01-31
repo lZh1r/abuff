@@ -1,4 +1,4 @@
-use std::{cmp, collections::HashMap, env::current_dir};
+use std::{cmp, collections::{HashMap, HashSet}, env::current_dir};
 
 use crate::{ast::{self, Span, Spanned, TypeInfo}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
 
@@ -1068,12 +1068,17 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                 TypeInfo::Fun { params, return_type, generic_params } => {
                     let mut new_scope = env.enter_scope();
                     let mut is_variadic = false;
-                    for ((spread, _), _) in &params {
+                    //convert GenericParam into Custom
+                    let mut new_params = Vec::new();
+                    for ((spread, name), ti) in &params {
+                        let ti = unwrap_generic(ti)?;
+                        new_params.push(((spread.clone(), name.clone()), ti.clone()));
                         if spread.clone() {
                             is_variadic = true;
                             break;
                         }
                     }
+                    let params = new_params;
                     if generic_args.len() != 0 && generic_args.len() != generic_params.len() {
                         return Err(Spanned {
                             inner: "Partially supplied generic arguments are not allowed".into(),
@@ -1098,10 +1103,11 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     for (((spread, _), param_type), arg_expr) in params.iter().zip(args.iter()) {
                                         if spread.clone() {break}
                                         let arg_type = get_type(&arg_expr, &mut new_scope)?;
-                                        if unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner
-                                        != unwrap_custom_type(arg_type, &mut new_scope, false)?.inner {
+                                        let param_type = unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner;
+                                        let arg_type = unwrap_custom_type(arg_type, &mut new_scope, false)?.inner;
+                                        if param_type != arg_type {
                                             return Err(Spanned {
-                                                inner: "Argument type mismatch".to_string(),
+                                                inner: format!("Argument type mismatch: expected {:?}, got {:?}", param_type, arg_type),
                                                 span: arg_expr.span
                                             });
                                         }
@@ -1127,8 +1133,70 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     }
                                 },
                                 false => {
-                                    //implicit generics are hard rn
-                                    todo!()
+                                    let mut generic_set = HashSet::new();
+                                    for g in generic_params {
+                                        generic_set.insert(g.inner);
+                                    }
+                                    for (((spread, _), param_type), arg_expr) in params.iter().zip(args.iter()) {
+                                        if spread.clone() {break}
+                                        let arg_type = get_type(&arg_expr, &mut new_scope)?;
+                                        match &param_type.inner {
+                                            TypeInfo::Custom { name, generic_args: _ } => {
+                                                if generic_set.get(name).is_some() {
+                                                    new_scope.add_custom_type(name.clone(), arg_type.clone());
+                                                }
+                                            },
+                                            _ => ()
+                                        };
+                                        let param_type = unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner;
+                                        let arg_type = unwrap_custom_type(arg_type, &mut new_scope, false)?.inner;
+                                        if param_type != arg_type {
+                                            return Err(Spanned {
+                                                inner: format!("Argument type mismatch: expected {:?}, got {:?}", param_type, arg_type),
+                                                span: arg_expr.span
+                                            });
+                                        }
+                                    }
+                                    
+                                    let spread_param_type = params.last().unwrap().1.clone();
+                                    let spread_args = &args[cmp::max(params.len() - 1, 0)..];
+                                    
+                                    let unwrapped_spread_type = unwrap_custom_type(spread_param_type.clone(), &mut new_scope, true)?;
+                                    match &unwrapped_spread_type.inner {
+                                        TypeInfo::Array(ti) => {
+                                            match &ti.inner {
+                                                TypeInfo::Custom { name, generic_args: _ } => {
+                                                    if generic_set.get(name).is_some() {
+                                                        let unwrapped = unwrap_custom_type(
+                                                            get_type(spread_args.first().unwrap(), &mut new_scope)?,
+                                                            &mut new_scope,
+                                                            false
+                                                        )?;
+                                                        new_scope.add_custom_type(name.clone(), unwrapped);
+                                                    }
+                                                }
+                                                _ => ()
+                                            };
+                                        },
+                                        _ => ()
+                                    };
+                                    
+                                    let expected_spread_type = match unwrap_custom_type(spread_param_type.clone(), &mut new_scope, false)?.inner {
+                                        TypeInfo::Array(a) => a.inner,
+                                        _ => return Err(Spanned {
+                                            inner: "Spread param's type should be an array".into(),
+                                            span: spread_param_type.span
+                                        })
+                                    };
+                                    for arg_expr in spread_args {
+                                        let arg_type = get_type(arg_expr, &mut new_scope)?;
+                                        if expected_spread_type != unwrap_custom_type(arg_type, &mut new_scope, false)?.inner {
+                                            return Err(Spanned {
+                                                inner: "Argument type mismatch".to_string(),
+                                                span: arg_expr.span
+                                            });
+                                        }
+                                    }
                                 },
                             }
                         },
@@ -1148,18 +1216,40 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     }
                                     for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
                                         let arg_type = get_type(&arg_expr, &mut new_scope)?;
-                                        if unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner 
-                                        != unwrap_custom_type(arg_type, &mut new_scope, false)?.inner {
+                                        let param_type = unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner;
+                                        let arg_type = unwrap_custom_type(arg_type, &mut new_scope, false)?.inner;
+                                        if param_type != arg_type {
                                             return Err(Spanned {
-                                                inner: "Argument type mismatch".to_string(),
+                                                inner: format!("Argument type mismatch: expected {:?}, got {:?}", param_type, arg_type),
                                                 span: arg_expr.span
                                             });
                                         }
                                     }
                                 },
                                 false => {
-                                    //implicit generics are hard rn
-                                    todo!()
+                                    let mut generic_set = HashSet::new();
+                                    for g in generic_params {
+                                        generic_set.insert(g.inner);
+                                    }
+                                    for ((_, param_type), arg_expr) in params.iter().zip(args.iter()) {
+                                        let arg_type = get_type(&arg_expr, &mut new_scope)?;
+                                        match &param_type.inner {
+                                            TypeInfo::Custom { name, generic_args: _ } => {
+                                                if generic_set.get(name).is_some() {
+                                                    new_scope.add_custom_type(name.clone(), arg_type.clone());
+                                                }
+                                            },
+                                            _ => ()
+                                        };
+                                        let param_type = unwrap_custom_type(param_type.clone(), &mut new_scope, false)?.inner;
+                                        let arg_type = unwrap_custom_type(arg_type, &mut new_scope, false)?.inner;
+                                        if param_type != arg_type {
+                                            return Err(Spanned {
+                                                inner: format!("Argument type mismatch: expected {:?}, got {:?}", param_type, arg_type),
+                                                span: arg_expr.span
+                                            });
+                                        }
+                                    }
                                 },
                             }
                     
@@ -1390,5 +1480,16 @@ pub fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv, shall
             span: type_info.span
         }),
         _ => Ok(type_info)
+    }
+}
+
+fn unwrap_generic(type_info: &Spanned<TypeInfo>) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+    match type_info.inner.clone() {
+        TypeInfo::GenericParam(name) => Ok(Spanned {
+            inner: TypeInfo::Custom { name, generic_args: Vec::new() },
+            span: type_info.span
+        }),
+        TypeInfo::Array(ti) => Ok(unwrap_generic(&*ti)?),
+        _ => Ok(type_info.clone())
     }
 }
