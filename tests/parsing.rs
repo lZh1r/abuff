@@ -123,7 +123,7 @@ fn test_whitespace_max() {
             a + x
         }
         let b = { bb : 2 } ;
-        mega_function ( b . bb ) ;
+        mega_function ( b . bb )
     "#;
     
     match run_typed(src.to_string()).unwrap() {

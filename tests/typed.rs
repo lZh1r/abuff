@@ -110,7 +110,7 @@ fn test_nested_function_return() {
                 x
             }
         }
-        ff()(2);
+        ff()(2)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -167,7 +167,7 @@ fn test_spread_params() {
         fun f(...x: Int[]): Int[] {
             x
         }
-        f(1,2,3);
+        f(1,2,3)
     "#;
     
     match run_typed(src.to_string()).unwrap() {

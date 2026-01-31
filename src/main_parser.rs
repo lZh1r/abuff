@@ -137,7 +137,23 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
         match &self.peek().unwrap().inner {
             Token::Let => self.let_statement(),
-            Token::Fun => todo!(),
+            Token::Fun => {
+                let next_token = match self.peek_at(1) {
+                    Some(t) => t,
+                    None => return Err(spanned("Unexpected EOF in let declaration".into(), self.peek().unwrap().span)),
+                };
+                match next_token.inner {
+                    Token::Lt | Token::LParen => {
+                        let expr = self.parse_expression()?;
+                        let span = expr.span.clone();
+                        Ok(spanned(
+                            Statement::Expr(expr),
+                            span,
+                        ))
+                    },
+                    _ => Ok(self.fun_statement()?)
+                }
+            },
             Token::Type => todo!(),
             Token::Enum => todo!(),
             Token::Import => todo!(),
@@ -151,10 +167,14 @@ impl<'a> Parser<'a> {
                     span,
                 ))
             }
-            _ => Ok(spanned(
-                Statement::Expr(self.parse_expression()?),
-                self.peek().map(|s| s.span).unwrap_or(Span::from(0..0)),
-            )),
+            _ => {
+                let expr = self.parse_expression()?;
+                let span = expr.span.clone();
+                Ok(spanned(
+                    Statement::Expr(expr),
+                    span,
+                ))
+            },
         }
     }
     
@@ -178,7 +198,6 @@ impl<'a> Parser<'a> {
         };
         
         self.expect(&Token::Eq)?;
-        
         let var_expr = self.parse_expression()?;
         
         let end_span = if self.check(&Token::Semicolon) {
@@ -193,6 +212,108 @@ impl<'a> Parser<'a> {
         Ok(spanned(
             Statement::Let { name: var_name, expr: var_expr, type_info: var_type },
             Span::from(start_span.start..end_span.end)
+        ))
+    }
+    
+    fn fun_statement(&mut self) -> Result<Spanned<Statement>, Spanned<String>> {
+        let start_span = self.advance().unwrap().span; //consume fun
+        if self.peek().is_none() {
+            return Err(spanned("Unexpected EOF in fun declaration".into(), start_span))
+        }
+        
+        let ident_token = self.advance().unwrap().clone();
+        let fun_name = match ident_token.inner {
+            Token::Ident(i) => i,
+            t => return Err(spanned(format!("Expected identifier, got {t:?} instead"), ident_token.span))
+        };
+        
+        let fun_generics = if self.check(&Token::Lt) {
+            let mut params = Vec::new();
+            let lt = self.advance().unwrap().clone();
+            loop {
+                let g = self.advance().ok_or(spanned("Unexpected EOF in generic params".into(), lt.span))?.clone();
+                match g.inner {
+                    Token::Ident(name) => params.push(spanned(name, g.span)),
+                    _ => return Err(spanned("Expected identifier in generic params".into(), g.span)),
+                }
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            
+            if !self.check(&Token::Gt) {
+                return Err(spanned("Expected > after generic params".into(), self.peek().unwrap().span));
+            }
+            self.advance();
+            params
+        } else {
+            Vec::new()
+        };
+        
+        self.expect(&Token::LParen)?;
+        let mut fun_params: Vec<((bool, String), Spanned<TypeInfo>)> = Vec::new();
+        if !self.check(&Token::RParen) {
+            loop {
+                // variadic marker: ... before ident
+                let mut variadic = false;
+                if self.check(&Token::DotDotDot) {
+                    variadic = true;
+                    self.advance();
+                }
+                // expect ident
+                let name_tok = self.advance().ok_or(spanned("Unexpected EOF in params".into(), Span::from(0..0)))?.clone();
+                let name = match name_tok.inner {
+                    Token::Ident(s) => s,
+                    _ => return Err(spanned("Expected identifier in parameters".into(), name_tok.span)),
+                };
+
+                // type annotation required: ":" TypeInfo (like Rust)
+                if !self.check(&Token::Colon) {
+                    return Err(spanned("Expected : Type for function parameter".into(), self.peek().map(|s| s.span).unwrap_or(name_tok.span)));
+                }
+                self.advance(); // consume ':'
+                let type_info_spanned = self.parse_type()?;
+
+                fun_params.push(((variadic, name), type_info_spanned));
+
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RParen)?;
+        
+        let fun_type = if self.check(&Token::Colon) {
+            self.advance();
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        
+        let fun_body = if self.check(&Token::LBrace) {
+            self.parse_block_expr()?
+        } else {
+            let body = self.parse_expression()?;
+            self.expect(&Token::Semicolon)?;
+            body
+        };
+        
+        let end_span = fun_body.span.end;
+        
+        Ok(spanned(
+            Statement::Fun { 
+                name: fun_name, 
+                params: fun_params, 
+                body: fun_body, 
+                return_type: fun_type, 
+                generic_params: fun_generics 
+            },
+            Span::from(start_span.start..end_span)
         ))
     }
     
@@ -344,8 +465,6 @@ impl<'a> Parser<'a> {
                 Ok(spanned(Expr::Array(elements), combined_span))
             }
             Token::LBrace => {
-                // Need to distinguish record literal vs block.
-                // If next tokens are Ident + Colon => record
                 if let (Some(next), Some(next2)) = (self.peek(), self.peek_at(1)) {
                     match (&next.inner, &next2.inner) {
                         (Token::Ident(_), Token::Colon) => {
@@ -375,12 +494,14 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                             // block
+                            self.cursor -= 1; //since we consume the token here AND the block parser does that we have to put this here
                             let block_expr = self.parse_block_expr()?;
                             Ok(block_expr)
                         }
                     }
                 } else {
                     // if no lookahead, treat as block (likely error, but try)
+                    self.cursor -= 1; //since we consume the token here AND the block parser does that we have to put this here
                     let block_expr = self.parse_block_expr()?;
                     Ok(block_expr)
                 }
@@ -458,7 +579,6 @@ impl<'a> Parser<'a> {
  
                 // parse body: either a block or a single expression
                 let body = if self.check(&Token::LBrace) {
-                    self.advance();
                     self.parse_block_expr()?
                 } else {
                     self.parse_expression()?
@@ -485,18 +605,19 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_block_expr(&mut self) -> Result<Spanned<Expr>, Spanned<String>> {
-        let start_span = self.peek().map(|s| s.span).unwrap_or(Span::from(0..0));
+        let start_span = self.peek().map(|s| s.span).unwrap();
+        self.advance();
         let mut stmts: Vec<Spanned<Statement>> = Vec::new();
         let mut maybe_expr: Option<Box<Spanned<Expr>>> = None;
 
         while !self.check(&Token::RBrace) {
             if self.peek().is_none() {
-                return Err(spanned("Unexpected EOF in block".into(), Span::from(0..0)));
+                return Err(spanned("Unexpected EOF in block".into(), start_span ));
             }
  
             // parse a statement
             let stmt = self.parse_statement()?;
- 
+
             // if statement is an Expr and next token is RBrace -> treat as final expr
             match &stmt.inner {
                 Statement::Expr(e) => {
@@ -660,6 +781,7 @@ impl<'a> Parser<'a> {
                     Token::LParen => {
                         // call
                         let start_span = expr.span;
+                        
                         self.advance();
                         let mut args: Vec<Spanned<Expr>> = Vec::new();
                         if !self.check(&Token::RParen) {
@@ -674,6 +796,7 @@ impl<'a> Parser<'a> {
                                 }
                             }
                         }
+                        
                         let end_span = if self.peek().is_some() {
                             let r = self.peek().unwrap().span;
                             self.expect(&Token::RParen)?;
@@ -731,6 +854,72 @@ impl<'a> Parser<'a> {
                             None => {
                                 return Err(spanned("Unexpected EOF after '.'".into(), Span::from(0..0)));
                             }
+                        }
+                    },
+                    //generic function call
+                    Token::Lt => {
+                        match expr.inner {
+                            Expr::Var(_) 
+                            | Expr::Block(_, _) 
+                            | Expr::Call { fun: _, args: _, generic_args: _ }
+                            | Expr::Fun { params: _, body: _, return_type: _, generic_params: _ }
+                            | Expr::Index(_, _)
+                            | Expr::If { condition: _, body: _, else_block: _ } => {
+                                let position = self.cursor;
+                                match || -> Result<Spanned<Expr>, Spanned<String>> {
+                                    let generics = {
+                                        let mut args = Vec::new();
+                                        self.advance();
+                                        loop {
+                                            args.push(self.parse_type()?);
+                                            if self.check(&Token::Comma) {
+                                                self.advance();
+                                                continue;
+                                            }
+                                            break;
+                                        }
+                                        args
+                                    };
+                                    
+                                    self.expect(&Token::Gt)?;
+                                    self.expect(&Token::LParen)?;
+                                    let mut args: Vec<Spanned<Expr>> = Vec::new();
+                                    if !self.check(&Token::RParen) {
+                                        loop {
+                                            let arg = self.parse_expression()?;
+                                            args.push(arg);
+                                            if self.check(&Token::Comma) {
+                                                self.advance();
+                                                continue;
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    
+                                    let end_span = if self.peek().is_some() {
+                                        let r = self.peek().unwrap().span;
+                                        self.expect(&Token::RParen)?;
+                                        r
+                                    } else {
+                                        return Err(spanned("Unexpected EOF in call".into(), Span::from(0..0)));
+                                    };
+                                    
+                                    Ok(spanned(Expr::Call { 
+                                        fun: Box::new(expr.clone()),
+                                        args, 
+                                        generic_args: generics
+                                    }, Span::from(position..end_span.end)))
+                                }() {
+                                    Ok(e) => return Ok(e),
+                                    Err(e) => {
+                                        println!("{e:?}");
+                                        self.cursor = position;
+                                        break
+                                    },
+                                }
+                            }
+                            _ => break,
                         }
                     }
                     _ => break,

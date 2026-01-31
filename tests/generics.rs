@@ -10,7 +10,7 @@ fn test_simle_generic() {
         fun f<T>(x: T): T {
             x
         }
-        f<Int>(1);
+        f<Int>(1)
     "#;
     
     let res = run_typed(src.to_string());
