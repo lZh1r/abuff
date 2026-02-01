@@ -9,15 +9,27 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
     for st in statements.iter() {
         match &st.inner {
             ast::Statement::TypeDef { name, type_info, generic_params } => {
-                let mut generic_scope = env.enter_scope();
-                for generic in generic_params {
-                    generic_scope.add_custom_type(generic.inner.clone(), Spanned {
-                        inner: TypeInfo::GenericParam(generic.inner.clone()),
-                        span: generic.span
+                if generic_params.len() == 0 {
+                    let resolved_type = unwrap_custom_type(type_info.clone(), env, false)?;
+                    env.add_custom_type(name.clone(), resolved_type);
+                } else {
+                    let mut generic_scope = env.enter_scope();
+                    for generic in generic_params {
+                        generic_scope.add_custom_type(generic.inner.clone(), Spanned {
+                            inner: TypeInfo::GenericParam(generic.inner.clone()),
+                            span: generic.span
+                        });
+                    }
+                    let resolved_type = unwrap_custom_type(type_info.clone(), &mut generic_scope, false)?;
+                    env.add_custom_type(name.clone(), Spanned { 
+                        inner: TypeInfo::TypeClosure { 
+                            params: generic_params.clone(),
+                            env: generic_scope,
+                            body: Box::new(resolved_type)
+                        },
+                        span: st.span
                     });
                 }
-                let resolved_type = unwrap_custom_type(type_info.clone(), &mut generic_scope, false)?;
-                env.add_custom_type(name.clone(), resolved_type);
             },
             ast::Statement::Import { symbols, path } => {
                 if env.is_top_level() {
@@ -1485,13 +1497,33 @@ pub fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv, shall
                             for arg in &generic_args {
                                 unwrapped_args.push(unwrap_custom_type(arg.clone(), env, shallow)?);
                             }
-                            Ok(Spanned {
-                                inner: TypeInfo::Custom { 
-                                    name, 
-                                    generic_args: unwrapped_args
+                            let (generic_params, mut scope, body) = match env.resolve_type(&name) {
+                                Some(ti) => match unwrap_custom_type(ti.clone(), env, false)?.inner.clone() {
+                                    TypeInfo::TypeClosure { params, env: scope, body } => {
+                                        (params, scope, body)
+                                    },
+                                    _ => return Err(Spanned { 
+                                        inner: format!("Type {ti:?} does not accept generic args"), 
+                                        span: type_info.span
+                                    }),
                                 },
-                                span: type_info.span
-                            })
+                                None => return Err(Spanned { 
+                                    inner: format!("Cannot resolve type {name}"), 
+                                    span: type_info.span
+                                }),
+                            };
+                            
+                            if generic_args.len() == generic_params.len() {
+                                for (p_name, arg) in generic_params.iter().zip(generic_args.iter()) {
+                                    scope.add_custom_type(p_name.to_string(), arg.clone());
+                                }
+                                Ok(unwrap_custom_type(unwrap_generic(&*body)?, &mut scope, false)?)
+                            } else {
+                                return Err(Spanned { 
+                                    inner: format!("Expected {} arguments, but got {}", generic_params.len(), generic_args.len()), 
+                                    span: type_info.span
+                                })
+                            }
                         }
                     }
                 },
@@ -1548,6 +1580,16 @@ fn unwrap_generic(type_info: &Spanned<TypeInfo>) -> Result<Spanned<TypeInfo>, Sp
             span: type_info.span
         }),
         TypeInfo::Array(ti) => Ok(Spanned {inner: TypeInfo::Array(Box::new(unwrap_generic(&*ti)?)), span: ti.span}),
+        TypeInfo::Record(entries) => {
+            let mut new_entries = Vec::new();
+            for (name, ti) in entries {
+                new_entries.push((name, unwrap_generic(&ti)?));
+            }
+            Ok(Spanned { 
+                inner: TypeInfo::Record(new_entries),
+                span: type_info.span
+            })
+        },
         _ => Ok(type_info.clone())
     }
 }

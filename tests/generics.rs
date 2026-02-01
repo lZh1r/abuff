@@ -189,3 +189,25 @@ fn test_enum_generic() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_generic_types() {
+    let src = r#"
+        type A<T> = {a: T};
+        fun f(a: A<Int>): Int {
+            a.a
+        }
+        let a: A<Int> = {a: 1};
+        f(a)
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

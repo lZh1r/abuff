@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fmt::Display, ops::Range};
 
+use crate::env::TypeEnv;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Span {
     pub start: usize,
@@ -137,7 +139,8 @@ pub enum TypeInfo {
         variants: HashMap<String, Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<String>>
     },
-    EnumVariant {enum_name: String, variant: String}
+    EnumVariant {enum_name: String, variant: String},
+    TypeClosure {params: Vec<Spanned<String>>, env: TypeEnv, body: Box<Spanned<TypeInfo>>}
 }
 
 impl PartialEq for TypeInfo {
