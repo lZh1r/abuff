@@ -1218,11 +1218,10 @@ impl<'a> Parser<'a> {
                                         generic_args: generics
                                     }, Span::from(position..end_span.end)))
                                 }() {
-                                    Ok(e) => return Ok(e),
+                                    Ok(e) => expr = e,
                                     Err(e) => {
                                         println!("{e:?}");
                                         self.cursor = position;
-                                        break
                                     },
                                 }
                             }
@@ -1270,18 +1269,6 @@ impl<'a> Parser<'a> {
         // enforce that type names start with a capital letter
         if name.chars().next().map(|c| !c.is_uppercase()).unwrap_or(true) {
             return Err(spanned("Type names must start with a capital letter".into(), ident_sp.span));
-        }
-        // enum variant: Ident . Ident
-        if self.check(&Token::Dot) {
-            // consume dot
-            self.advance();
-            let var_sp = self.advance().ok_or(spanned("Unexpected EOF in enum variant".into(), ident_sp.span))?.clone();
-            if let Token::Ident(var_name) = var_sp.inner.clone() {
-                let span = Span { start: ident_sp.span.start, end: var_sp.span.end };
-                return Ok(spanned(TypeInfo::EnumVariant { enum_name: name, variant: var_name }, span));
-            } else {
-                return Err(spanned("Expected variant identifier after .".into(), var_sp.span));
-            }
         }
 
         // custom type, possibly with generic args: Ident<...>
