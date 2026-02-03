@@ -237,3 +237,43 @@ fn test_simple_enum() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_hoist_type() {
+    let src = r#"
+        let a: T = {a: 5};
+        type T = {a: Int};
+        a.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 5),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_hoist_function() {
+    let src = r#"
+        let a: T = f(5);
+        fun f(val: Int): Int {
+            val*val
+        }
+        a.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 25),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
