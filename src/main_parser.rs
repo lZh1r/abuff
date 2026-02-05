@@ -1222,6 +1222,7 @@ impl<'a> Parser<'a> {
                                     Err(e) => {
                                         println!("{e:?}");
                                         self.cursor = position;
+                                        break;
                                     },
                                 }
                             }
