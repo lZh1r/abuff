@@ -39,7 +39,7 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                 let (var_exports, type_exports) = eval_import(path.inner.as_str(), &GlobalRegistry)?;
                 for (symbol, alias, is_type) in symbols {
                     match is_type {
-                        true => {
+                        false => {
                             let var_type = var_exports.get(&symbol.inner);
                             if var_type.is_none() {
                                 return Err(spanned(
@@ -49,7 +49,7 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                             }
                             env.add_var_type(alias.clone().unwrap_or(symbol.inner.clone()), var_type.unwrap().clone());
                         },
-                        false => {
+                        true => {
                             let import_type = type_exports.get(&symbol.inner);
                             if import_type.is_none() {
                                 return Err(spanned(
