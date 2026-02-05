@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{collections::HashMap};
 
-use crate::{ast::{Spanned, UnaryOp}, env::Env, native::NativeFun};
+use crate::{ast::{Operation, Spanned, UnaryOp}, env::Env, native::NativeFun};
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -36,23 +36,6 @@ pub enum Statement {
     NativeFun(String),
     Import {symbols: Vec<(Spanned<String>, Option<String>)>, path: Spanned<String>},
     Export(Box<Spanned<Statement>>)
-}
-
-#[derive(Debug, Clone)]
-pub enum Operation {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-    Eq,
-    NotEq,
-    LessThan,
-    LessThanEq,
-    GreaterThan,
-    GreaterThanEq,
-    And,
-    Or
 }
 
 #[derive(Debug, Clone)]

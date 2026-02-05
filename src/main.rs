@@ -1,6 +1,6 @@
 use std::{env::current_dir};
 
-use abuff::{ast::Spanned, checker::{hoist, lower_statement}, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}};
+use abuff::{ast::Spanned, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist, lower_statement}};
 
 fn main() {
     let (mut stack, mut type_env) = DEFAULT_ENVS.get_or_init(|| create_default_env()).clone();
@@ -41,12 +41,12 @@ fn main() {
             },
         };
         
-        let res = hoist(&parsed, &mut type_env);
+        let res = hoist(&parsed, &mut type_env, current_dir().unwrap().to_str().unwrap());
         match res {
             Err(e) => build_report(e, &src),
             Ok(result) => {
                 let mut lowered_statements = Vec::new();
-                for s in result {
+                for s in result.0 {
                     match lower_statement(&s, &mut type_env) {
                         Ok(st) => match st {
                             Some(st) => lowered_statements.push(st),

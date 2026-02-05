@@ -277,16 +277,30 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                         var_exports.insert(name.clone(), function_type);
                     },
                     ast::Statement::TypeDef { name, type_info, generic_params } => {
-                        let mut generic_scope = env.enter_scope();
-                        for generic in generic_params {
-                            generic_scope.add_custom_type(generic.inner.clone(), Spanned {
-                                inner: TypeInfo::GenericParam(generic.inner.clone()),
-                                span: generic.span
-                            });
+                        if generic_params.len() == 0 {
+                            let resolved_type = unwrap_custom_type(type_info.clone(), env, false)?;
+                            env.add_custom_type(name.clone(), resolved_type.clone());
+                            type_exports.insert(name.clone(), resolved_type);
+                        } else {
+                            let mut generic_scope = env.enter_scope();
+                            for generic in generic_params {
+                                generic_scope.add_custom_type(generic.inner.clone(), Spanned {
+                                    inner: TypeInfo::GenericParam(generic.inner.clone()),
+                                    span: generic.span
+                                });
+                            }
+                            let body_type = unwrap_custom_type(type_info.clone(), &mut generic_scope, false)?;
+                            let resolved_type = Spanned { 
+                                inner: TypeInfo::TypeClosure { 
+                                    params: generic_params.clone(),
+                                    env: generic_scope,
+                                    body: Box::new(body_type)
+                                },
+                                span: st.span
+                            };
+                            env.add_custom_type(name.clone(), resolved_type.clone());
+                            type_exports.insert(name.clone(), resolved_type);
                         }
-                        let resolved_type = unwrap_custom_type(type_info.clone(), &mut generic_scope, false)?;
-                        env.add_custom_type(name.clone(), resolved_type.clone());
-                        type_exports.insert(name.clone(), resolved_type);
                     },
                     ast::Statement::Expr(_) => return Err(Spanned {
                         inner: "Cannot export expressions".to_string(),
@@ -393,7 +407,8 @@ pub fn hoist(statements: &[Spanned<ast::Statement>], env: &mut TypeEnv) -> Resul
                                         inner: TypeInfo::EnumVariant { enum_name: name.clone(), variant: variant_name.clone() },
                                         span: param_type.span
                                     }),
-                                    generic_params: g_params, },
+                                    generic_params: g_params, 
+                                },
                                 span: param_type.span
                             }));
                         }
@@ -1206,7 +1221,6 @@ pub fn get_type(expr: &Spanned<ast::Expr>, env: &mut TypeEnv) -> Result<Spanned<
                                     }
                                     
                                     let spread_param_type = params.last().unwrap().1.clone();
-                                    println!("{spread_param_type:?}");
                                     let spread_args = &args[cmp::max(params.len() - 1, 0)..];
                                     
                                     let unwrapped_spread_type = unwrap_custom_type(spread_param_type.clone(), &mut new_scope, true)?;
@@ -1502,6 +1516,13 @@ pub fn unwrap_custom_type(type_info: Spanned<TypeInfo>, env: &mut TypeEnv, shall
                                     TypeInfo::TypeClosure { params, env: scope, body } => {
                                         (params, scope, body)
                                     },
+                                    TypeInfo::Enum { name, variants, generic_params: _ } => {
+                                        // return Ok(ti),
+                                        return Ok(Spanned { 
+                                            inner: TypeInfo::EnumInstance { enum_name: name, variants, generic_args: unwrapped_args }, 
+                                            span: type_info.span
+                                        })
+                                    },
                                     _ => return Err(Spanned { 
                                         inner: format!("Type {ti:?} does not accept generic args"), 
                                         span: type_info.span
@@ -1588,6 +1609,16 @@ fn unwrap_generic(type_info: &Spanned<TypeInfo>) -> Result<Spanned<TypeInfo>, Sp
             Ok(Spanned { 
                 inner: TypeInfo::Record(new_entries),
                 span: type_info.span
+            })
+        },
+        TypeInfo::EnumInstance { enum_name, variants, generic_args } => {
+            let mut new_args = Vec::new();
+            for ti in generic_args {
+                new_args.push(unwrap_generic(&ti)?);
+            }
+            Ok(Spanned { 
+                inner: TypeInfo::EnumInstance { enum_name, variants, generic_args: new_args },
+                span: type_info.span 
             })
         },
         _ => Ok(type_info.clone())

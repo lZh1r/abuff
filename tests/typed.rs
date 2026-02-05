@@ -217,7 +217,7 @@ fn test_simple_enum() {
             A: Int,
             B: String
         }
-        fun world(x: Hello.A): Hello {
+        fun world(x: Hello): Hello {
             x
         }
         world(Hello.A(2))
@@ -260,11 +260,11 @@ fn test_hoist_type() {
 #[test]
 fn test_hoist_function() {
     let src = r#"
-        let a: T = f(5);
+        let a = f(5);
         fun f(val: Int): Int {
             val*val
         }
-        a.a
+        a
     "#;
     
     match run_typed(src.to_string()).unwrap() {

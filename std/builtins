@@ -47,3 +47,21 @@ export native fun clock(): Int;
 /// len(a); // 3
 /// ```
 export native fun len<T>(obj: T): Int;
+
+//export enum Option<T> {
+//    Some: T,
+//    None
+//}
+
+//export fun Some<T>(value: T): Option<T> {
+//    Option.Some(value)
+//}
+
+//export fun None(): Option<Any> {
+//    Option.None()
+//}
+
+//export enum Result<T, E> {
+//    Ok: T,
+//    Err: E
+//}

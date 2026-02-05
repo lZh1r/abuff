@@ -211,3 +211,46 @@ fn test_generic_types() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_nested_generics() {
+    let src = r#"
+        fun f<T>(): (y: T) -> T {
+            fun g(y: T): T {
+                y
+            }
+            g
+        }
+        f<Int>()(9)
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 9),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_generic_return() {
+    let src = r#"
+        type A<T> = T;
+        fun f<T>(a: T): A<T> {
+            a
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 9),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

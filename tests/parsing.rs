@@ -5,6 +5,23 @@ use crate::common::{run_typed};
 mod common;
 
 #[test]
+fn test_simple_number() {
+    let src = r#"
+        22
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 22),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
 fn test_math_precedence() {
     let src = r#"
         2 + 3 * 6 / 3 - 4 * (9 - 5)

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{ast::Spanned, env::Env, ir::{ControlFlow, Expr, Operation, Statement, Value}};
+use crate::{ast::Spanned, ast::Operation, env::Env, ir::{ControlFlow, Expr, Statement, Value}};
 
 pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
     match &expr.inner {
