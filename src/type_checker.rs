@@ -88,8 +88,8 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
     loop {
         if types.is_empty() {break}
         let st = types.pop().unwrap();
-        let (name, var_export, type_export) = process_statement(&st, env, path)?;
-        if let Some(name) = name {
+        let (name, var_export, type_export, is_exported) = process_statement(&st, env, path)?;
+        if is_exported && let Some(name) = name {
             if let Some(ti) = var_export {
                 var_exports.insert(name.clone(), ti);
             }
@@ -104,8 +104,8 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
     loop {
         if functions.is_empty() {break}
         let st = functions.pop().unwrap();
-        let (name, var_export, type_export) = process_statement(&st, env, path)?;
-        if let Some(name) = name {
+        let (name, var_export, type_export, is_exported) = process_statement(&st, env, path)?;
+        if is_exported && let Some(name) = name {
             if let Some(ti) = var_export {
                 var_exports.insert(name.clone(), ti);
             }
@@ -120,8 +120,8 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
     loop {
         if rest.is_empty() {break}
         let st = rest.pop().unwrap();
-        let (name, var_export, type_export) = process_statement(&st, env, path)?;
-        if let Some(name) = name {
+        let (name, var_export, type_export, is_exported) = process_statement(&st, env, path)?;
+        if is_exported && let Some(name) = name {
             if let Some(ti) = var_export {
                 var_exports.insert(name.clone(), ti);
             }
@@ -133,14 +133,14 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
     }
     
     let reg = GlobalRegistry;
-    insert_type_module(&reg, var_exports.clone(), type_exports.clone(), env.clone());
+    insert_type_module(&reg, var_exports.clone(), type_exports.clone(), env.clone(), path);
     
     Ok((new_statements, var_exports, type_exports))
 }
 
-//adds statement's type to the type env and returns (name, var_type, type_type) tuple where type_type is for type_exports in the module
+//adds statement's type to the type env and returns (name, var_type, type_type, is_exported) tuple where type_type is for type_exports in the module
 fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &str) -> Result<
-    (Option<String>, Option<Spanned<TypeInfo>>, Option<Spanned<TypeInfo>>),
+    (Option<String>, Option<Spanned<TypeInfo>>, Option<Spanned<TypeInfo>>, bool),
     Spanned<String>
 > {
     match &statement.inner {
@@ -156,7 +156,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 }
             }
             env.add_var_type(name.clone(), expr_type.clone());
-            Ok((Some(name.clone()), Some(expr_type), None))
+            Ok((Some(name.clone()), Some(expr_type), None, false))
         },
         Statement::TypeDef { name, type_info, generic_params } => {
             if generic_params.len() != 0 {
@@ -166,15 +166,15 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     statement.span
                 );
                 env.add_custom_type(name.to_string(), closure_type.clone());
-                Ok((Some(name.clone()), None, Some(closure_type)))
+                Ok((Some(name.clone()), None, Some(closure_type), false))
             } else {
                 let flat_type = flatten_type(type_info, env, path)?.into_owned();
                 env.add_custom_type(name.clone(), flat_type.clone());
-                Ok((Some(name.clone()), None, Some(flat_type)))
+                Ok((Some(name.clone()), None, Some(flat_type), false))
             }
         },
         Statement::Expr(expr) => {
-            Ok((None, Some(get_type(expr, env, path)?), None))
+            Ok((None, Some(get_type(expr, env, path)?), None, false))
         },
         Statement::Fun { name, params, body, return_type, generic_params } => {
             let mut inner_scope = env.enter_scope();
@@ -213,7 +213,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 Ok((
                     Some(name.to_string()),
                     Some(fun_type),
-                    None
+                    None,
+                    false
                 ))
             } else {
                 inner_scope.add_var_type(
@@ -252,7 +253,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 Ok((
                     Some(name.to_string()),
                     Some(fun_type),
-                    None
+                    None,
+                    false
                 ))
             }
         },
@@ -285,7 +287,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 Ok((
                     Some(name.to_string()),
                     Some(fun_type),
-                    None
+                    None,
+                    false
                 ))
             } else {
                 let fun_type = spanned(
@@ -303,7 +306,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 Ok((
                     Some(name.to_string()),
                     Some(fun_type),
-                    None
+                    None,
+                    false
                 ))
             }
         },
@@ -312,10 +316,28 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             "Imports should be made at the top level".into(),
             statement.span
         )),
-        Statement::Export(_) => Err(spanned(
-            "Exports should be made at the top level".into(),
-            statement.span
-        )),
+        Statement::Export(st) => {
+            if !env.is_top_level() {
+                return Err(spanned(
+                    "Exports should be made at the top level".into(),
+                    statement.span
+                ))
+            }
+            let (name, var_export, type_export, is_exported) = process_statement(st, env, path)?;
+            if is_exported {
+                return Err(spanned(
+                    "Cannot export an export statement".into(),
+                    st.span
+                ))
+            }
+            if name.is_none() {
+                return Err(spanned(
+                    "Cannot export this".into(),
+                    st.span
+                ))
+            }
+            Ok((name, var_export, type_export, true))
+        },
     }
 }
 
@@ -327,7 +349,9 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         Expr::Int(_) => Ok(spanned(TypeInfo::Int, expr.span)),
         Expr::String(_) => Ok(spanned(TypeInfo::String, expr.span)),
         Expr::Void => Ok(spanned(TypeInfo::Void, expr.span)),
-        Expr::Var(name) => Ok(env.get_var_type(name).ok_or(spanned(format!("Cannot resolve variable {name}"), expr.span))?),
+        Expr::Var(name) => {
+            Ok(env.get_var_type(name).ok_or(spanned(format!("Cannot resolve variable {name}"), expr.span))?)
+        },
         Expr::Array(spanneds) => {
             if spanneds.len() == 0 {
                 return Ok(spanned(

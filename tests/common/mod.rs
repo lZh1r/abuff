@@ -3,8 +3,8 @@ use std::env::current_dir;
 use abuff::{ast::{Span, Spanned}, env::{Env, TypeEnv, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist, lower_statement}};
 
 pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<String>> {
-    // let (mut env, mut type_env) = create_default_env();
-    let (mut env, mut type_env) = (Env::new(), TypeEnv::new());
+    let (mut env, mut type_env) = create_default_env();
+    // let (mut env, mut type_env) = (Env::new(), TypeEnv::new());
     let parse_result = Parser::new(&lex(src.as_str())?).parse();
     
     let parsed = match parse_result {

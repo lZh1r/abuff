@@ -144,10 +144,11 @@ pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<
 pub fn insert_type_module<R: ModuleRegistry>(
     registry: &R,
     var_exports: HashMap<String, Spanned<TypeInfo>>,
-    type_exports: HashMap<String, 
-    Spanned<TypeInfo>>, env: TypeEnv
+    type_exports: HashMap<String, Spanned<TypeInfo>>,
+    env: TypeEnv,
+    path: &str
 ) {
-    let path = current_dir().unwrap();
+    let path = PathBuf::from(path);
     registry.insert_type_module(TypeModule {
         path,
         var_exports,
