@@ -293,6 +293,8 @@ impl PartialEq for TypeInfo {
                 }
             },
             (TypeInfo::GenericParam(a), TypeInfo::GenericParam(b)) => a == b,
+            (TypeInfo::GenericParam(a), TypeInfo::Custom { name, generic_args })
+            | (TypeInfo::Custom { name, generic_args }, TypeInfo::GenericParam(a)) => a == name && generic_args.len() == 0,
             (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
             _ => false,
         }

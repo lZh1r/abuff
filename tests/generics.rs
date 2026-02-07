@@ -74,7 +74,7 @@ fn test_array_generic_implicit() {
 fn test_array_generic() {
     let src = r#"
         fun f<T>(x: T[]): Int {
-            len(x)
+            len<T[]>(x)
         }
         f<Int>([3,5,6]) + f<String>(["Hello"])
     "#;
@@ -118,7 +118,7 @@ fn test_nested_array_generic_implicit() {
 fn test_nested_array_generic() {
     let src = r#"
         fun f<T>(x: T[][]): Int {
-            len(x)
+            len<T[][]>(x)
         }
         f<Int>([[3,5,6], [1]])
     "#;
@@ -215,13 +215,13 @@ fn test_generic_types() {
 #[test]
 fn test_nested_generics() {
     let src = r#"
-        fun f<T>(): (y: T) -> T {
-            fun g(y: T): T {
+        fun f<T>(x: T): T {
+            fun g<T>(y: T): T {
                 y
             }
-            g
+            g<T>(x)
         }
-        f<Int>()(9)
+        f<Int>(9)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -242,12 +242,34 @@ fn test_generic_return() {
         fun f<T>(a: T): A<T> {
             a
         }
+        f<Int>(9)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
             match v {
                 Value::Int(i) => assert_eq!(i, 9),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_generic_type() {
+    let src = r#"
+        type A<T> = {a: T};
+        type B<T> = {b: A<T>};
+        let a: A<Int> = {a: 3};
+        let c: B<Int> = {b: a};
+        c.b.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 3),
                 _ => panic!()
             }
         }

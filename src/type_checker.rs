@@ -217,35 +217,51 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     false
                 ))
             } else {
+                // Register generic params in the inner scope so they can be referenced
+                for generic in generic_params {
+                    inner_scope.add_custom_type(
+                        generic.inner.clone(),
+                        spanned(
+                            TypeInfo::GenericParam(generic.inner.clone()),
+                            generic.span
+                        )
+                    );
+                }
+
+                // Flatten parameter types with generics in scope and add them to the inner scope
+                let mut flat_params = Vec::new();
+                for (n, p_type) in params {
+                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    flat_params.push((n.clone(), flattened));
+                }
+
+                let expected_flat = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+
                 inner_scope.add_var_type(
                     name.to_string(),
                     spanned(
                         TypeInfo::Fun {
-                            params: params.clone(), 
-                            return_type: Box::new(expected_type.clone()),
+                            params: flat_params.clone(),
+                            return_type: Box::new(expected_flat.clone()),
                             generic_params: generic_params.clone()
                         },
                         statement.span
                     )
                 );
-                for (n, p_type) in params {
-                    inner_scope.add_var_type(n.1.clone(), p_type.clone());
-                }
+
                 let actual_type = get_type(body, &mut inner_scope, path)?;
-                if actual_type.inner != expected_type.inner {
+                if actual_type.inner != expected_flat.inner {
                     return Err(spanned(
-                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner),
-                        expected_type.span
+                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner),
+                        expected_flat.span
                     ))
                 }
                 let fun_type = spanned(
-                    TypeInfo::TypeClosure { 
-                        params: generic_params.clone(),
-                        env: inner_scope.clone(),
-                        body: Box::new(spanned(
-                            TypeInfo::Fun { params: params.clone(), return_type: Box::new(expected_type), generic_params: Vec::new() },
-                            statement.span
-                        )) 
+                    TypeInfo::Fun {
+                        params: flat_params.clone(),
+                        return_type: Box::new(expected_flat.clone()),
+                        generic_params: generic_params.clone()
                     },
                     statement.span
                 );
@@ -291,14 +307,32 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     false
                 ))
             } else {
+                // Register generic params in the inner scope so they can be referenced
+                for generic in generic_params {
+                    inner_scope.add_custom_type(
+                        generic.inner.clone(),
+                        spanned(
+                            TypeInfo::GenericParam(generic.inner.clone()),
+                            generic.span
+                        )
+                    );
+                }
+
+                let mut flat_params = Vec::new();
+                for (n, p_type) in params {
+                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    flat_params.push((n.clone(), flattened));
+                }
+
+                // Flatten return type as well
+                let r_flat = flatten_type(&r_type, &mut inner_scope, path)?.into_owned();
+
+                // Create the type-closure representing the generic native function
                 let fun_type = spanned(
-                    TypeInfo::TypeClosure { 
-                        params: generic_params.clone(),
-                        env: inner_scope.clone(),
-                        body: Box::new(spanned(
-                            TypeInfo::Fun { params: params.clone(), return_type: Box::new(r_type), generic_params: Vec::new() },
-                            statement.span
-                        )) 
+                    TypeInfo::Fun {
+                        params: flat_params.clone(),
+                        return_type: Box::new(r_flat.clone()),
+                        generic_params: generic_params.clone()
                     },
                     statement.span
                 );
@@ -338,6 +372,42 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             }
             Ok((name, var_export, type_export, true))
         },
+    }
+}
+
+fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &HashMap<String, Spanned<TypeInfo>>) -> Spanned<TypeInfo> {
+    match &type_info.inner {
+        TypeInfo::GenericParam(name) => {
+            if let Some(concrete_type) = generic_arg_map.get(name) {
+                concrete_type.clone()
+            } else {
+                spanned(TypeInfo::GenericParam(name.clone()), type_info.span)
+            }
+        },
+        TypeInfo::Fun { params, return_type, generic_params } => {
+            let new_params = params.iter().map(|(n, ti)| {
+                (n.clone(), substitute_generic_params(ti, generic_arg_map))
+            }).collect();
+            let new_return_type = Box::new(substitute_generic_params(return_type, generic_arg_map));
+            spanned(
+                TypeInfo::Fun {
+                    params: new_params,
+                    return_type: new_return_type,
+                    generic_params: generic_params.clone()
+                },
+                type_info.span
+            )
+        },
+        TypeInfo::Record(entries) => {
+            let new_entries = entries.iter().map(|(name, ti)| {
+                (name.clone(), substitute_generic_params(ti, generic_arg_map))
+            }).collect();
+            spanned(TypeInfo::Record(new_entries), type_info.span)
+        },
+        TypeInfo::Array(ti) => {
+            spanned(TypeInfo::Array(Box::new(substitute_generic_params(ti, generic_arg_map))), type_info.span)
+        },
+        _ => type_info.clone()
     }
 }
 
@@ -512,43 +582,46 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                     expr.span
                 ))
             } else {
-                for (n, p_type) in params {
-                    inner_scope.add_var_type(n.1.clone(), p_type.clone());
+                for generic in generic_params {
+                    inner_scope.add_custom_type(generic.inner.clone(), spanned(
+                        TypeInfo::GenericParam(generic.inner.clone()),
+                        generic.span
+                    ));
                 }
+
+                let mut flat_params = Vec::new();
+                for (n, p_type) in params {
+                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    flat_params.push((n.clone(), flattened));
+                }
+
+                let expected_flat = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+
                 let actual_type = get_type(body, &mut inner_scope, path)?;
-                if actual_type.inner != expected_type.inner {
+                if actual_type.inner != expected_flat.inner {
                     return Err(spanned(
-                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner),
-                        expected_type.span
+                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner),
+                        expected_flat.span
                     ))
                 }
+
                 Ok(spanned(
-                    TypeInfo::TypeClosure { 
-                        params: generic_params.clone(),
-                        env: inner_scope.clone(),
-                        body: Box::new(spanned(
-                            TypeInfo::Fun { params: params.clone(), return_type: Box::new(expected_type), generic_params: Vec::new() },
-                            expr.span
-                        )) 
+                    TypeInfo::Fun {
+                        params: flat_params.clone(),
+                        return_type: Box::new(expected_flat.clone()),
+                        generic_params: generic_params.clone()
                     },
                     expr.span
                 ))
             }
         },
         Expr::Call { fun, args, generic_args } => {
-            let mut inner_scope = env.enter_scope();
-            // treat fun + generic_args as a custom type with generic args provided.
-            // this way we can hand off all the generic manipulations to flatten_type fn
-            let target_type = spanned(
-                TypeInfo::Custom { name: "+temp".into(), generic_args: generic_args.clone() },
-                expr.span
-            );
-            let fun_type = get_type(fun, &mut inner_scope, path)?;
-            inner_scope.add_custom_type("+temp".to_string(), fun_type);
+            let fun_type = get_type(fun, env, path)?;
             
-            match &flatten_type(&target_type, &mut inner_scope, path)?.inner {
-                TypeInfo::Fun { params, return_type, generic_params } => {
-                    if generic_params.len() != 0 {
+            match &fun_type.inner {
+                TypeInfo::Fun { params: _, return_type: _, generic_params } => {
+                    if generic_params.len() != generic_args.len() {
                         return Err(spanned(
                             format!(
                                 "Insufficient generic arguments provided: expected {}, got {}",
@@ -558,20 +631,45 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             expr.span
                         ))
                     }
-                    let is_variadic = if let Some (last) = params.last() {
+                    
+                    let mut generic_arg_map = HashMap::new();
+                    for (param, arg) in generic_params.iter().zip(generic_args.iter()) {
+                        generic_arg_map.insert(param.inner.clone(), arg.clone());
+                    }
+                    
+                    let substituted_fun = substitute_generic_params(&fun_type, &generic_arg_map);
+                    
+                    let substituted_params = match &substituted_fun.inner {
+                        TypeInfo::Fun { params, .. } => params,
+                        _ => return Err(spanned(
+                            format!("Substitution failed for function type"),
+                            expr.span
+                        ))
+                    };
+                    
+                    let substituted_return_type = match &substituted_fun.inner {
+                        TypeInfo::Fun { return_type, .. } => return_type,
+                        _ => return Err(spanned(
+                            format!("Substitution failed for function type"),
+                            expr.span
+                        ))
+                    };
+                    
+                    let is_variadic = if let Some (last) = substituted_params.last() {
                         last.0.0
                     } else {false};
+                    
                     if is_variadic {
-                        if params.len() > args.len() {
+                        if substituted_params.len() > args.len() {
                             return Err(spanned(
-                                format!("Insufficient amount of arguments: expected at least {}, got {}", params.len(), args.len()),
+                                format!("Insufficient amount of arguments: expected at least {}, got {}", substituted_params.len(), args.len()),
                                 expr.span
                             ))
                         }
-                        for (i, (((v, _), p_type), arg_expr)) in params.iter().zip(args.iter()).enumerate() {
+                        for (i, (((v, _), p_type), arg_expr)) in substituted_params.iter().zip(args.iter()).enumerate() {
                             match v {
                                 true => {
-                                    if i != params.len() - 1 {
+                                    if i != substituted_params.len() - 1 {
                                         return Err(spanned(
                                             format!("Cannot have multiple spread params in a function"),
                                             p_type.span
@@ -580,7 +678,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                                 },
                                 false => (),
                             }
-                            let arg_type = get_type(arg_expr, &mut inner_scope, path)?;
+                            let arg_type = get_type(arg_expr, env, path)?;
                             if arg_type.inner != p_type.inner {
                                 return Err(spanned(
                                     format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner),
@@ -588,9 +686,9 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                                 ))
                             }
                         }
-                        let spread_args = args[params.len()-1..].into_iter();
-                        let temp = params.last().unwrap().1.clone();
-                        let spread_type = match flatten_type(&temp, &mut inner_scope, path)?.into_owned().inner {
+                        let spread_args = args[substituted_params.len()-1..].into_iter();
+                        let temp = substituted_params.last().unwrap().1.clone();
+                        let spread_type = match temp.inner {
                             TypeInfo::Array(ti) => ti,
                             o => return Err(spanned(
                                 format!("Spread parameter should be an array: found {:?} instead", o),
@@ -598,7 +696,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             ))
                         };
                         for arg in spread_args {
-                            let arg_type = get_type(arg, &mut inner_scope, path)?;
+                            let arg_type = get_type(arg, env, path)?;
                             if arg_type.inner != spread_type.inner {
                                 return Err(spanned(
                                     format!("Argument type mismatch: expected {:?}, got {:?}", spread_type.inner, arg_type.inner),
@@ -607,14 +705,14 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             }
                         }
                     } else {
-                        if params.len() != args.len() {
+                        if substituted_params.len() != args.len() {
                             return Err(spanned(
-                                format!("Argument type mismatch: expected {} args, got {}", params.len(), args.len()),
+                                format!("Argument type mismatch: expected {} args, got {}", substituted_params.len(), args.len()),
                                 expr.span
                             ))
                         }
-                        for ((_, p_type), arg_expr) in params.iter().zip(args.iter()) {
-                            let arg_type = get_type(arg_expr, &mut inner_scope, path)?;
+                        for ((_, p_type), arg_expr) in substituted_params.iter().zip(args.iter()) {
+                            let arg_type = get_type(arg_expr, env, path)?;
                             if arg_type.inner != p_type.inner {
                                 return Err(spanned(
                                     format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner),
@@ -624,7 +722,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                         }
                     }
                     
-                    Ok(spanned(return_type.inner.clone(), expr.span))
+                    Ok(substituted_return_type.as_ref().clone())
                 },
                 ti => Err(spanned(
                     format!("Type {:?} is not callable", ti),
@@ -795,7 +893,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                     }
                     let mut inner_scope = closure_scope.clone();
                     for (param, arg) in params.iter().zip(generic_args.iter()) {
-                        let flat_arg = flatten_type(arg, &mut inner_scope, path)?.into_owned();
+                        let flat_arg = flatten_type(arg, env, path)?.into_owned();
                         inner_scope.add_custom_type(param.inner.clone(), flat_arg);
                     }
                     Ok(Cow::Owned(flatten_type(body, &mut inner_scope, path)?.into_owned()))
