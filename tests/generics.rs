@@ -5,7 +5,7 @@ use crate::common::run_typed;
 mod common;
 
 #[test]
-fn test_simle_generic_implicit() {
+fn test_implicit_simle_generic() {
     let src = r#"
         fun f<T>(x: T): T {
             x
@@ -49,7 +49,7 @@ fn test_simle_generic() {
 }
 
 #[test]
-fn test_array_generic_implicit() {
+fn test_implicit_array_generic() {
     let src = r#"
         fun f<T>(x: T[]): Int {
             len(x)
@@ -93,7 +93,7 @@ fn test_array_generic() {
 }
 
 #[test]
-fn test_nested_array_generic_implicit() {
+fn test_implicit_nested_array_generic() {
     let src = r#"
         fun f<T>(x: T[][]): Int {
             len(x)
@@ -137,7 +137,7 @@ fn test_nested_array_generic() {
 }
 
 #[test]
-fn test_enum_generic_implicit() {
+fn test_implicit_enum_generic() {
     let src = r#"
         enum A<T> {
             B: T

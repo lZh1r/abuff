@@ -411,6 +411,65 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
     }
 }
 
+fn collect_generic_params(
+    generic_type: &Spanned<TypeInfo>,
+    concrete_type: &Spanned<TypeInfo>,
+) -> Vec<(String, Spanned<TypeInfo>)> {
+    fn walk(
+        gener: &Spanned<TypeInfo>,
+        con: &Spanned<TypeInfo>,
+        out: &mut Vec<(String, Spanned<TypeInfo>)>,
+    ) {
+        match (&gener.inner, &con.inner) {
+            (TypeInfo::GenericParam(name), _) => {
+                out.push((name.clone(), con.clone()));
+            }
+            (
+                TypeInfo::Fun {
+                    params: gen_params,
+                    return_type: gen_ret,
+                    ..
+                },
+                TypeInfo::Fun {
+                    params: con_params,
+                    return_type: con_ret,
+                    ..
+                },
+            ) => {
+                for ((_, gen_p), (_, con_p)) in gen_params.iter().zip(con_params.iter()) {
+                    walk(gen_p, con_p, out);
+                }
+                walk(gen_ret, con_ret, out);
+            }
+            (TypeInfo::Record(gen_entries), TypeInfo::Record(con_entries)) => {
+                for ((_, gen_e), (_, con_e)) in gen_entries.iter().zip(con_entries.iter()) {
+                    walk(gen_e, con_e, out);
+                }
+            }
+            (TypeInfo::Array(gen_inner), TypeInfo::Array(con_inner)) => {
+                walk(gen_inner, con_inner, out);
+            }
+            (
+                TypeInfo::Custom {
+                    generic_args: gen_args, ..
+                },
+                TypeInfo::Custom {
+                    generic_args: con_args, ..
+                },
+            ) => {
+                for (gen_arg, con_arg) in gen_args.iter().zip(con_args.iter()) {
+                    walk(gen_arg, con_arg, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut result = Vec::new();
+    walk(generic_type, concrete_type, &mut result);
+    result
+}
+
 //returrs the type of an expression while also checking for type errors
 fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spanned<TypeInfo>, Spanned<String>> {
     match &expr.inner {
@@ -620,21 +679,31 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             let fun_type = get_type(fun, env, path)?;
             
             match &fun_type.inner {
-                TypeInfo::Fun { params: _, return_type: _, generic_params } => {
-                    if generic_params.len() != generic_args.len() {
-                        return Err(spanned(
-                            format!(
-                                "Insufficient generic arguments provided: expected {}, got {}",
-                                generic_params.len(),
-                                generic_args.len()
-                            ),
-                            expr.span
-                        ))
-                    }
-                    
+                TypeInfo::Fun { params, return_type: _, generic_params } => {
                     let mut generic_arg_map = HashMap::new();
-                    for (param, arg) in generic_params.iter().zip(generic_args.iter()) {
-                        generic_arg_map.insert(param.inner.clone(), arg.clone());
+                    if generic_params.len() > 0 && generic_args.len() == 0 && args.len() >= generic_params.len() {
+                        for (param, arg) in params.iter().zip(args.iter()) {
+                            for (p_name, ti) in collect_generic_params(
+                                &param.1,
+                                &get_type(arg, env, path)?
+                            ) {
+                                generic_arg_map.insert(p_name, ti);
+                            }
+                        }
+                    } else {
+                        if generic_params.len() != generic_args.len() {
+                            return Err(spanned(
+                                format!(
+                                    "Insufficient generic arguments provided: expected {}, got {}",
+                                    generic_params.len(),
+                                    generic_args.len()
+                                ),
+                                expr.span
+                            ))
+                        }
+                        for (param, arg) in generic_params.iter().zip(generic_args.iter()) {
+                            generic_arg_map.insert(param.inner.clone(), arg.clone());
+                        }
                     }
                     
                     let substituted_fun = substitute_generic_params(&fun_type, &generic_arg_map);
