@@ -724,6 +724,7 @@ impl<'a> Parser<'a> {
             Token::Int(i) => Ok(spanned(Expr::Int(i), token.span)),
             Token::Float(f) => Ok(spanned(Expr::Float(f), token.span)),
             Token::String(s) => Ok(spanned(Expr::String(s), token.span)),
+            Token::Char(c) => Ok(spanned(Expr::Char(c), token.span)),
             Token::Minus => {
                 if self.peek().is_some() {
                     let expr = self.parse_expression()?;

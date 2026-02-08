@@ -238,6 +238,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             Ok(ControlFlow::Value(Value::Void))
         },
         Expr::String(s) => Ok(ControlFlow::Value(Value::String(s.clone()))),
+        Expr::Char(c) => Ok(ControlFlow::Value(Value::Char(c.clone()))),
         Expr::Break => Ok(ControlFlow::Break),
         Expr::Continue => Ok(ControlFlow::Continue),
         Expr::Return(inner_expr) => {

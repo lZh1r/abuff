@@ -572,6 +572,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         Expr::Float(_) => Ok(spanned(TypeInfo::Float, expr.span)),
         Expr::Int(_) => Ok(spanned(TypeInfo::Int, expr.span)),
         Expr::String(_) => Ok(spanned(TypeInfo::String, expr.span)),
+        Expr::Char(_) => Ok(spanned(TypeInfo::Char, expr.span)),
         Expr::Void => Ok(spanned(TypeInfo::Void, expr.span)),
         Expr::Var(name) => {
             Ok(env.get_var_type(name).ok_or(spanned(format!("Cannot resolve variable {name}"), expr.span))?)
@@ -702,7 +703,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             };
             let mut r_type = TypeInfo::Void;
             let _ = hoist(statements, &mut inner_scope, path)?;
-             
+     
             if let Some(e) = final_expr {
                 r_type = get_type(e, &mut inner_scope, path)?.inner;
                 r_span = e.span;
@@ -715,7 +716,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         Expr::Fun { params, body, return_type, generic_params } => {
             let mut inner_scope = env.enter_scope();
             let expected_type = return_type.clone().unwrap_or(spanned(TypeInfo::Void, Span::from(0..0)));
-            
+    
             if generic_params.len() == 0 {
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
@@ -800,7 +801,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             generic_arg_map.insert(param.inner.clone(), arg.clone());
                         }
                     }
-                    
+            
                     let substituted_fun = substitute_generic_params(&fun_type, &generic_arg_map);
                     let substituted_params = match &substituted_fun.inner {
                         TypeInfo::Fun { params, .. } => params,
@@ -809,7 +810,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             expr.span
                         ))
                     };
-                    
+            
                     let substituted_return_type = match &substituted_fun.inner {
                         TypeInfo::Fun { return_type, .. } => return_type,
                         _ => return Err(spanned(
@@ -817,11 +818,11 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             expr.span
                         ))
                     };
-                    
+            
                     let is_variadic = if let Some (last) = substituted_params.last() {
                         last.0.0
                     } else {false};
-                    
+            
                     if is_variadic {
                         if substituted_params.len() > args.len() {
                             return Err(spanned(
@@ -884,7 +885,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             }
                         }
                     }
-                    
+            
                     Ok(substituted_return_type.as_ref().clone())
                 },
                 ti => Err(spanned(
@@ -1321,6 +1322,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<ir::Exp
         Expr::Float(f) => Ok(spanned(ir::Expr::Float(*f), expr.span)),
         Expr::Int(i) => Ok(spanned(ir::Expr::Int(*i), expr.span)),
         Expr::String(s) => Ok(spanned(ir::Expr::String(s.clone()), expr.span)),
+        Expr::Char(c) => Ok(spanned(ir::Expr::Char(c.clone()), expr.span)),
         Expr::Void => Ok(spanned(ir::Expr::Void, expr.span)),
         Expr::Var(name) => Ok(spanned(ir::Expr::Var(name.clone()), expr.span)),
         Expr::Array(spanneds) => {

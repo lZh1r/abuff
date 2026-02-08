@@ -71,6 +71,9 @@ pub enum Token {
     #[regex(r#""([^"\\]|\\["\\nrt])*""#, parse_string)]
     String(String),
     
+    #[regex("'.'", |lex| lex.slice().to_string().as_bytes()[1] as char)]
+    Char(char),
+    
     #[token("+")]
     Plus,
     
