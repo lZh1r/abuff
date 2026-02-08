@@ -276,3 +276,49 @@ fn test_generic_type() {
         _ => panic!()
     };
 }
+
+#[test]
+fn test_implicit_generic_fun_type() {
+    let src = r#"
+        fun f(): <T>(a: T) -> T {
+            fun g<T>(a: T): T {
+                a
+            }
+            g
+        }
+        f()("test")
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "test".to_string()),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn test_generic_fun_type() {
+    let src = r#"
+        fun f(): <T>(a: T) -> T {
+            fun g<T>(a: T): T {
+                a
+            }
+            g
+        }
+        f()<String>("test")
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "test".to_string()),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

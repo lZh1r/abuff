@@ -1318,6 +1318,7 @@ impl<'a> Parser<'a> {
         let t_peek = self.peek().cloned().ok_or(spanned("Unexpected EOF parsing type".into(), Span::from(0..0)))?;
         match &t_peek.inner {
             Token::LParen => {
+                // plain function type without generic parameters
                 self.advance();
                 let mut params: Vec<((bool, String), Spanned<TypeInfo>)> = Vec::new();
                 if !self.check(&Token::RParen) {
@@ -1346,15 +1347,81 @@ impl<'a> Parser<'a> {
                 let rpar = self.advance().ok_or(spanned("Unexpected EOF, expected )".into(), Span::from(0..0)))?.clone();
                 // if arrow follows, it's a function type
                 if self.check(&Token::Arrow) {
-                    // consume arrow
-                    self.advance();
-                    // parse return type
+                    self.advance(); // consume arrow
                     let ret = self.parse_type()?;
                     let span = Span { start: t_peek.span.start, end: ret.span.end };
                     Ok(spanned(TypeInfo::Fun { params, return_type: Box::new(ret), generic_params: vec![] }, span))
                 } else {
-                    // grouped type -> ambiguous in this grammar
                     Err(spanned("Parenthesized types are only allowed for function types".into(), rpar.span))
+                }
+            }
+            Token::Lt => {
+                // generic function type: <generic_params>(args) -> return_type
+                // parse generic parameters
+                let lt = self.advance().unwrap().clone(); // consume '<'
+                let mut generic_params: Vec<Spanned<String>> = Vec::new();
+                loop {
+                    let g = self.advance().ok_or(spanned("Unexpected EOF in generic function type params".into(), lt.span))?.clone();
+                    match g.inner {
+                        Token::Ident(name) => generic_params.push(spanned(name, g.span)),
+                        _ => return Err(spanned("Expected identifier in generic function type params".into(), g.span)),
+                    }
+                    if self.check(&Token::Comma) {
+                        self.advance();
+                        continue;
+                    }
+                    break;
+                }
+                // expect closing '>'
+                if !self.check(&Token::Gt) {
+                    return Err(spanned("Expected > after generic function type params".into(), self.peek().unwrap().span));
+                }
+                self.advance(); // consume '>'
+
+                // now expect '(' for the function parameters
+                if !self.check(&Token::LParen) {
+                    return Err(spanned("Expected '(' after generic parameters in function type".into(), self.peek().unwrap().span));
+                }
+                self.advance(); // consume '('
+                let mut params: Vec<((bool, String), Spanned<TypeInfo>)> = Vec::new();
+                if !self.check(&Token::RParen) {
+                    loop {
+                        let mut variadic = false;
+                        if self.check(&Token::DotDotDot) {
+                            variadic = true;
+                            self.advance();
+                        }
+                        // expect name
+                        let name_tok = self.advance().ok_or(spanned("Unexpected EOF in function type params".into(), Span::from(0..0)))?.clone();
+                        let pname = if let Token::Ident(n) = name_tok.inner.clone() { n } else { return Err(spanned("Expected identifier in function type params".into(), name_tok.span)); };
+                        self.expect(&Token::Colon)?;
+                        let ptype = self.parse_type()?;
+                        params.push(((variadic, pname), ptype));
+                        if self.check(&Token::Comma) {
+                            self.advance();
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                let rpar = self.advance().ok_or(spanned("Unexpected EOF, expected ')' after function parameters".into(), Span::from(0..0)))?.clone();
+
+                // arrow and return type
+                if self.check(&Token::Arrow) {
+                    self.advance(); // consume '->'
+                    let ret = self.parse_type()?;
+                    let span = Span { start: lt.span.start, end: ret.span.end };
+                    Ok(spanned(
+                        TypeInfo::Fun {
+                            params,
+                            return_type: Box::new(ret),
+                            generic_params,
+                        },
+                        span,
+                    ))
+                } else {
+                    Err(spanned("Expected '->' after generic function type parameters".into(), rpar.span))
                 }
             }
             Token::LBrace => {

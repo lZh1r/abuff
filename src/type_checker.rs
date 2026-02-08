@@ -1107,51 +1107,71 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                             entries.iter().any(|(_, e)| contains_generic(e, generic_names))
                         }
                         TypeInfo::Array(inner) => contains_generic(inner, generic_names),
-                        TypeInfo::Custom { generic_args, .. } => {
+                        TypeInfo::Custom { generic_args, name } => {
                             generic_args.iter().any(|arg| contains_generic(arg, generic_names))
+                                || generic_names.contains(name)
                         }
                         _ => false,
                     }
                 }
 
-                // Flatten parameter types where possible
+                // Helper to replace a Custom type with a GenericParam when appropriate
+                fn replace_custom_with_generic(
+                    ti: Spanned<TypeInfo>,
+                    generic_names: &std::collections::HashSet<String>,
+                ) -> Spanned<TypeInfo> {
+                    match &ti.inner {
+                        TypeInfo::Custom { generic_args, name }
+                            if generic_args.is_empty() && generic_names.contains(name) =>
+                        {
+                            spanned(TypeInfo::GenericParam(name.clone()), ti.span)
+                        }
+                        _ => ti,
+                    }
+                }
+
+                // Flatten parameter types where possible, applying the replacement rule
                 let mut new_params = Vec::new();
                 for (a, ti) in params {
-                    let new_ti = if contains_generic(ti, &generic_names) {
+                    let flattened = if contains_generic(ti, &generic_names) {
                         ti.clone()
                     } else {
                         flatten_type(ti, env, path)?.into_owned()
                     };
-                    new_params.push((a.clone(), new_ti));
+                    let final_ti = replace_custom_with_generic(flattened, &generic_names);
+                    new_params.push((a.clone(), final_ti));
                 }
 
-                // Flatten return type where possible
+                // Flatten return type where possible, applying the replacement rule
                 let new_return = if contains_generic(return_type.as_ref(), &generic_names) {
                     (**return_type).clone()
                 } else {
                     flatten_type(return_type.as_ref(), env, path)?.into_owned()
                 };
+                let final_return = replace_custom_with_generic(new_return, &generic_names);
 
                 return Ok(Cow::Owned(spanned(
                     TypeInfo::Fun {
                         params: new_params,
-                        return_type: Box::new(new_return),
+                        return_type: Box::new(final_return),
                         generic_params: generic_params.clone(),
                     },
                     type_info.span,
                 )));
             }
+
+            // No generic parameters: just flatten everything normally
             let mut new_params = Vec::new();
             for (a, ti) in params {
-                new_params.push((a.clone(), flatten_type(ti, env, path)?.into_owned()))
+                new_params.push((a.clone(), flatten_type(ti, env, path)?.into_owned()));
             }
             Ok(Cow::Owned(spanned(
-                TypeInfo::Fun { 
-                    params: new_params, 
+                TypeInfo::Fun {
+                    params: new_params,
                     return_type: Box::new(flatten_type(return_type, env, path)?.into_owned()),
-                    generic_params: Vec::new()
+                    generic_params: Vec::new(),
                 },
-                type_info.span
+                type_info.span,
             )))
         },
         TypeInfo::Record(entries) => {
