@@ -187,6 +187,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
                     flat_params.push((n.clone(), flattened))
                 }
+                let expected_type = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
                 inner_scope.add_var_type(
                     name.to_string(),
                     spanned(
@@ -291,6 +292,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 for (n, p_type) in params {
                     flat_params.push((n.clone(), flatten_type(p_type, &mut inner_scope, path)?.into_owned()))
                 }
+                let r_type = flatten_type(&r_type, &mut inner_scope, path)?.into_owned();
                 let fun_type = spanned(
                     TypeInfo::Fun {
                         params: flat_params, 
@@ -345,7 +347,80 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 ))
             }
         },
-        Statement::EnumDef { name, variants, generic_params } => todo!(),
+        Statement::EnumDef { name, variants, generic_params } => {
+            let mut inner_scope = env.enter_scope();
+            for p in generic_params {
+                inner_scope.add_custom_type(p.inner.clone(), spanned(
+                    TypeInfo::GenericParam(p.inner.clone()),
+                    p.span
+                ));
+            }
+            
+            let mut variant_funs = Vec::new();
+            let mut variant_hashmap = HashMap::new();
+            
+            for (n, maybe_ti) in variants {
+                if let Some(ti) = maybe_ti {
+                    let ti = flatten_type(ti, &mut inner_scope, path)?.into_owned();
+                    variant_funs.push((n.clone(), spanned(
+                        TypeInfo::Fun { 
+                            params: vec![((false, "+arg".into()), ti.clone())],
+                            return_type: Box::new(spanned(
+                                TypeInfo::EnumVariant { 
+                                    enum_name: name.clone(),
+                                    variant: n.clone(),
+                                    generic_args: generic_params
+                                        .clone()
+                                        .into_iter()
+                                        .map(|name| TypeInfo::Custom { name: name.inner, generic_args: Vec::new() })
+                                        .collect()
+                                },
+                                statement.span
+                            )), 
+                            generic_params: generic_params.clone()
+                        },
+                        statement.span
+                    )));
+                    variant_hashmap.insert(n.clone(), ti.clone());
+                } else {
+                    variant_funs.push((n.clone(), spanned(
+                        TypeInfo::Fun { 
+                            params: Vec::new(),
+                            return_type: Box::new(spanned(
+                                TypeInfo::EnumVariant { 
+                                    enum_name: name.clone(),
+                                    variant: n.clone(),
+                                    generic_args: vec![TypeInfo::Any; generic_params.len()]
+                                },
+                                statement.span
+                            )), 
+                            generic_params: Vec::new()
+                        },
+                        statement.span
+                    )));
+                    variant_hashmap.insert(n.clone(), spanned(TypeInfo::Void, statement.span));
+                }
+            }
+            
+            let enum_var = spanned(
+                TypeInfo::Record(variant_funs),
+                statement.span
+            );
+            let enum_type = spanned(
+                TypeInfo::Enum { name: name.clone(), variants: variant_hashmap, generic_params: generic_params.clone() },
+                statement.span
+            );
+            
+            env.add_custom_type(name.clone(), enum_type.clone());
+            env.add_var_type(name.clone(), enum_var.clone());
+            
+            Ok((
+                Some(name.to_string()),
+                Some(enum_var),
+                Some(enum_type),
+                false
+            ))
+        },
         Statement::Import { symbols: _, path: _ } => Err(spanned(
             "Imports should be made at the top level".into(),
             statement.span
@@ -407,60 +482,80 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
         TypeInfo::Array(ti) => {
             spanned(TypeInfo::Array(Box::new(substitute_generic_params(ti, generic_arg_map))), type_info.span)
         },
+        TypeInfo::EnumInstance { enum_name, variants, generic_args } => {
+            let new_args = generic_args.iter()
+                .map(|arg| substitute_generic_params(arg, generic_arg_map))
+                .collect();
+            spanned(
+                TypeInfo::EnumInstance {
+                    enum_name: enum_name.clone(),
+                    variants: variants.clone(),
+                    generic_args: new_args,
+                },
+                type_info.span
+            )
+        },
+        TypeInfo::EnumVariant { enum_name, variant, generic_args } => {
+            let new_args = generic_args.iter()
+                .map(|arg| substitute_generic_params(&spanned(arg.clone(), type_info.span), generic_arg_map).inner)
+                .collect();
+            spanned(
+                TypeInfo::EnumVariant {
+                    enum_name: enum_name.clone(),
+                    variant: variant.clone(),
+                    generic_args: new_args,
+                },
+                type_info.span
+            )
+        },
         _ => type_info.clone()
     }
 }
 
 fn collect_generic_params(
-    generic_type: &Spanned<TypeInfo>,
+    generic_type: (&Spanned<TypeInfo>, bool), //bool is for handling variadics
     concrete_type: &Spanned<TypeInfo>,
 ) -> Vec<(String, Spanned<TypeInfo>)> {
     fn walk(
-        gener: &Spanned<TypeInfo>,
+        gener: (&Spanned<TypeInfo>, bool),
         con: &Spanned<TypeInfo>,
         out: &mut Vec<(String, Spanned<TypeInfo>)>,
     ) {
-        match (&gener.inner, &con.inner) {
+        match (&gener.0.inner, &con.inner) {
             (TypeInfo::GenericParam(name), _) => {
                 out.push((name.clone(), con.clone()));
-            }
+            },
             (
-                TypeInfo::Fun {
-                    params: gen_params,
-                    return_type: gen_ret,
-                    ..
-                },
-                TypeInfo::Fun {
-                    params: con_params,
-                    return_type: con_ret,
-                    ..
-                },
+                TypeInfo::Fun { params: gen_params, return_type: gen_ret, ..},
+                TypeInfo::Fun { params: con_params, return_type: con_ret, ..},
             ) => {
-                for ((_, gen_p), (_, con_p)) in gen_params.iter().zip(con_params.iter()) {
-                    walk(gen_p, con_p, out);
+                for ((extra, gen_p), (_, con_p)) in gen_params.iter().zip(con_params.iter()) {
+                    walk((gen_p, extra.0), con_p, out);
                 }
-                walk(gen_ret, con_ret, out);
-            }
+                walk((gen_ret, false), con_ret, out);
+            },
             (TypeInfo::Record(gen_entries), TypeInfo::Record(con_entries)) => {
                 for ((_, gen_e), (_, con_e)) in gen_entries.iter().zip(con_entries.iter()) {
-                    walk(gen_e, con_e, out);
+                    walk((gen_e, false), con_e, out);
                 }
-            }
+            },
             (TypeInfo::Array(gen_inner), TypeInfo::Array(con_inner)) => {
-                walk(gen_inner, con_inner, out);
-            }
+                walk((gen_inner, false), con_inner, out);
+            },
+            //for variadic
+            (TypeInfo::Array(gen_inner), _) => {
+                if gener.1 {
+                    walk((gen_inner, true), con, out);
+                }
+            },
             (
-                TypeInfo::Custom {
-                    generic_args: gen_args, ..
-                },
-                TypeInfo::Custom {
-                    generic_args: con_args, ..
-                },
+                TypeInfo::Custom { generic_args: gen_args, .. },
+                TypeInfo::Custom { generic_args: con_args, .. },
             ) => {
                 for (gen_arg, con_arg) in gen_args.iter().zip(con_args.iter()) {
-                    walk(gen_arg, con_arg, out);
+                    walk((gen_arg, false), con_arg, out);
                 }
-            }
+            },
             _ => {}
         }
     }
@@ -628,6 +723,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
                     flat_params.push((n.clone(), flattened))
                 }
+                let expected_type = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
                 let non_flat = get_type(body, &mut inner_scope, path)?;
                 let actual_type = flatten_type(&non_flat, env, path)?;
                 if actual_type.inner != expected_type.inner {
@@ -677,14 +773,13 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         },
         Expr::Call { fun, args, generic_args } => {
             let fun_type = get_type(fun, env, path)?;
-            
             match &fun_type.inner {
                 TypeInfo::Fun { params, return_type: _, generic_params } => {
                     let mut generic_arg_map = HashMap::new();
                     if generic_params.len() > 0 && generic_args.len() == 0 && args.len() >= generic_params.len() {
                         for (param, arg) in params.iter().zip(args.iter()) {
                             for (p_name, ti) in collect_generic_params(
-                                &param.1,
+                                (&param.1, param.0.0),
                                 &get_type(arg, env, path)?
                             ) {
                                 generic_arg_map.insert(p_name, ti);
@@ -707,7 +802,6 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                     }
                     
                     let substituted_fun = substitute_generic_params(&fun_type, &generic_arg_map);
-                    
                     let substituted_params = match &substituted_fun.inner {
                         TypeInfo::Fun { params, .. } => params,
                         _ => return Err(spanned(
@@ -915,6 +1009,14 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                 ));
             };
             
+            let generic_args = {
+                let mut new_args = Vec::new();
+                for ti in generic_args {
+                    new_args.push(flatten_type(ti, env, path)?.into_owned())
+                }
+                new_args
+            };
+            
             match &resolved_type.inner {
                 //useless but idc
                 TypeInfo::Fun { params, return_type, generic_params } => {
@@ -979,7 +1081,66 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
             }
         },
         TypeInfo::Fun { params, return_type, generic_params } => {
-            if generic_params.len() > 0 {panic!()}
+            if generic_params.len() > 0 {
+                // Build a set of generic parameter names
+                let generic_names: std::collections::HashSet<String> = generic_params
+                    .iter()
+                    .map(|gp| gp.inner.clone())
+                    .collect();
+
+                // Helper to determine if a type contains any of the generic parameters
+                fn contains_generic(
+                    ti: &Spanned<TypeInfo>,
+                    generic_names: &std::collections::HashSet<String>,
+                ) -> bool {
+                    match &ti.inner {
+                        TypeInfo::GenericParam(name) => generic_names.contains(name),
+                        TypeInfo::Fun {
+                            params,
+                            return_type,
+                            generic_params: _,
+                        } => {
+                            params.iter().any(|(_, p)| contains_generic(p, generic_names))
+                                || contains_generic(return_type, generic_names)
+                        }
+                        TypeInfo::Record(entries) => {
+                            entries.iter().any(|(_, e)| contains_generic(e, generic_names))
+                        }
+                        TypeInfo::Array(inner) => contains_generic(inner, generic_names),
+                        TypeInfo::Custom { generic_args, .. } => {
+                            generic_args.iter().any(|arg| contains_generic(arg, generic_names))
+                        }
+                        _ => false,
+                    }
+                }
+
+                // Flatten parameter types where possible
+                let mut new_params = Vec::new();
+                for (a, ti) in params {
+                    let new_ti = if contains_generic(ti, &generic_names) {
+                        ti.clone()
+                    } else {
+                        flatten_type(ti, env, path)?.into_owned()
+                    };
+                    new_params.push((a.clone(), new_ti));
+                }
+
+                // Flatten return type where possible
+                let new_return = if contains_generic(return_type.as_ref(), &generic_names) {
+                    (**return_type).clone()
+                } else {
+                    flatten_type(return_type.as_ref(), env, path)?.into_owned()
+                };
+
+                return Ok(Cow::Owned(spanned(
+                    TypeInfo::Fun {
+                        params: new_params,
+                        return_type: Box::new(new_return),
+                        generic_params: generic_params.clone(),
+                    },
+                    type_info.span,
+                )));
+            }
             let mut new_params = Vec::new();
             for (a, ti) in params {
                 new_params.push((a.clone(), flatten_type(ti, env, path)?.into_owned()))
@@ -1048,7 +1209,64 @@ pub fn lower_statement(statement: &Spanned<Statement>, env: &mut TypeEnv) -> Res
                 statement.span
             )))
         },
-        Statement::EnumDef { name, variants, generic_params: _ } => todo!(),
+        Statement::EnumDef { name, variants, generic_params: _ } => {
+            let mut record_exprs = Vec::new();
+            for (v_name, v_type) in variants{
+                match v_type {
+                    Some(ti) => {
+                        record_exprs.push(
+                            (v_name.clone(), Spanned {
+                                inner: ir::Expr::Fun { 
+                                    params: vec![(false, "+arg".to_string())], 
+                                    body: Box::new(Spanned {
+                                        inner: ir::Expr::EnumConstructor { 
+                                            enum_name: name.clone(),
+                                            variant: v_name.clone(),
+                                            value: Box::new(Spanned {
+                                                inner: ir::Expr::Var("+arg".to_string()),
+                                                span: ti.span
+                                            })
+                                        },
+                                        span: ti.span
+                                    })
+                                },
+                                span: ti.span
+                            })
+                        )
+                    },
+                    None => record_exprs.push(
+                        (v_name.clone(), Spanned {
+                            inner: ir::Expr::Fun { 
+                                params: vec![], 
+                                body: Box::new(Spanned {
+                                    inner: ir::Expr::EnumConstructor { 
+                                        enum_name: name.clone(),
+                                        variant: v_name.clone(),
+                                        value: Box::new(Spanned {
+                                            inner: ir::Expr::Void,
+                                            span: Span::from(0..0)
+                                        })
+                                    },
+                                    span: Span::from(0..0)
+                                })
+                            },
+                            span: Span::from(0..0)
+                        })
+                    )
+                }
+                
+            }
+            Ok(Some(Spanned {
+                inner: ir::Statement::Let { 
+                    name: name.clone(),
+                    expr: Spanned {
+                        inner: ir::Expr::Record(record_exprs),
+                        span: statement.span
+                    }
+                },
+                span: statement.span
+            }))
+        },
         Statement::Import { symbols, path } => {
             let mut new_symbols = Vec::new();
             for (name, alias, is_type) in symbols {

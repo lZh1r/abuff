@@ -48,20 +48,15 @@ export native fun clock(): Int;
 /// ```
 export native fun len<T>(obj: T): Int;
 
-//export enum Option<T> {
-//    Some: T,
-//    None
-//}
+export enum Option<T> {
+    Some: T,
+    None
+}
 
-//export fun Some<T>(value: T): Option<T> {
-//    Option.Some(value)
-//}
+export fun Some<T>(value: T): Option<T> {
+    Option.Some(value)
+}
 
-//export fun None(): Option<Any> {
-//    Option.None()
-//}
-
-//export enum Result<T, E> {
-//    Ok: T,
-//    Err: E
-//}
+export fun None(): Option<Any> {
+    Option.None()
+}

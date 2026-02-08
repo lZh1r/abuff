@@ -140,7 +140,7 @@ pub enum TypeInfo {
         generic_params: Vec<Spanned<String>>
     },
     EnumInstance {enum_name: String, variants: HashMap<String, Spanned<TypeInfo>>, generic_args: Vec<Spanned<TypeInfo>>},
-    EnumVariant {enum_name: String, variant: String},
+    EnumVariant {enum_name: String, variant: String, generic_args: Vec<TypeInfo>},
     TypeClosure {params: Vec<Spanned<String>>, env: TypeEnv, body: Box<Spanned<TypeInfo>>}
 }
 
@@ -206,15 +206,9 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
-            (TypeInfo::Enum { name, variants, generic_params: _ }, TypeInfo::EnumVariant { enum_name, variant }) 
-            | (TypeInfo::EnumVariant { enum_name, variant }, TypeInfo::Enum { name, variants, generic_params: _ }) => {
-                match name == enum_name {
-                    true => match variants.get(variant) {
-                        Some(_) => true,
-                        None => false,
-                    },
-                    false => false,
-                }
+            (TypeInfo::Enum { name, variants, generic_params: _ }, TypeInfo::EnumVariant { enum_name, variant, generic_args: _ }) 
+            | (TypeInfo::EnumVariant { enum_name, variant, generic_args: _ }, TypeInfo::Enum { name, variants, generic_params: _ }) => {
+                name == enum_name && variants.get(variant).is_some()
             },
             (
                 TypeInfo::Enum { name: name1, variants: variants1, generic_params: g_a },
@@ -238,12 +232,16 @@ impl PartialEq for TypeInfo {
                 }
             },
             (
-                TypeInfo::EnumVariant { enum_name: name1, variant: v1 }, 
-                TypeInfo::EnumVariant { enum_name: name2, variant: v2 }
+                TypeInfo::EnumVariant { enum_name: name1, variant: v1, generic_args: g_a }, 
+                TypeInfo::EnumVariant { enum_name: name2, variant: v2, generic_args: g_b }
             ) => {
-                match name1 == name2 {
-                    true => v1 == v2,
-                    false => false,
+                name1 == name2 && v1 == v2 && {
+                    for (a,b) in g_a.iter().zip(g_b.iter()) {
+                        if a != b {
+                            return false;
+                        }
+                    }
+                    true
                 }
             },
             (TypeInfo::Enum { name, variants, generic_params }, TypeInfo::EnumInstance { enum_name, variants: enum_variants, generic_args }) 
@@ -283,18 +281,37 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
-            (TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: _ }, TypeInfo::EnumVariant { enum_name: name2, variant }) 
-            | (TypeInfo::EnumVariant { enum_name: name2, variant }, TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: _ }) => {
-                match name1 == name2 {
-                    true => {
-                        variants.get(variant).is_some()
-                    },
-                    false => false,
+            (TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: args1 }, TypeInfo::EnumVariant { enum_name: name2, variant, generic_args: args2 }) 
+            | (TypeInfo::EnumVariant { enum_name: name2, variant, generic_args: args2 }, TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: args1 }) => {
+                name1 == name2 && variants.get(variant).is_some() && {
+                    true
                 }
             },
             (TypeInfo::GenericParam(a), TypeInfo::GenericParam(b)) => a == b,
             (TypeInfo::GenericParam(a), TypeInfo::Custom { name, generic_args })
             | (TypeInfo::Custom { name, generic_args }, TypeInfo::GenericParam(a)) => a == name && generic_args.len() == 0,
+            // (TypeInfo::EnumInstance{ enum_name, variants: _, generic_args }, TypeInfo::Custom { name, generic_args: g1 })
+            // | (TypeInfo::Custom { name, generic_args: g1 }, TypeInfo::EnumInstance{ enum_name, variants: _, generic_args }) => {
+            //     enum_name == name && {
+            //         for (ti1, ti2) in generic_args.iter().zip(g1.iter()) {
+            //             if ti1.inner != ti2.inner {
+            //                 return false
+            //             }
+            //         }
+            //         true
+            //     }
+            // },
+            // (TypeInfo::EnumVariant{ enum_name, variant: _, generic_args }, TypeInfo::Custom { name, generic_args: g1 })
+            // | (TypeInfo::Custom { name, generic_args: g1 }, TypeInfo::EnumVariant{ enum_name, variant: _, generic_args }) => {
+            //     enum_name == name && {
+            //         for (ti1, ti2) in generic_args.iter().zip(g1.iter()) {
+            //             if *ti1 != ti2.inner {
+            //                 return false
+            //             }
+            //         }
+            //         true
+            //     }
+            // },
             (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
             _ => false,
         }
