@@ -11,6 +11,7 @@ pub enum Expr {
     String(String),
     Char(char),
     Var(String),
+    Null,
     Void,
     Array(Vec<Spanned<Expr>>),
     Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
@@ -221,6 +222,12 @@ impl Value {
         match (self, other) {
             (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a || b)),
             (a, b) => Err(format!("Cannot perform {a:?} OR {b:?}"))
+        }
+    }
+    pub fn nullish_coalescing(self, other: Value) -> Result<Value, String> {
+        match (self, other) {
+            (Value::Null, o) => Ok(o),
+            (v, _) => Ok(v)
         }
     }
 }

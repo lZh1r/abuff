@@ -68,14 +68,15 @@ impl<'a> Parser<'a> {
 
     fn get_precedence(token: &Token) -> u8 {
         match token {
-            Token::LParen | Token::LBracket | Token::Dot => 9,
-            Token::Bang => 8,
-            Token::Star | Token::Slash | Token::Percent => 7,
-            Token::Plus | Token::Minus => 6,
-            Token::Gt | Token::GtEq | Token::Lt | Token::LtEq => 5,
-            Token::EqEq | Token::NotEq => 4,
-            Token::AndAnd => 3,
-            Token::OrOr => 2,
+            Token::LParen | Token::LBracket | Token::Dot => 10,
+            Token::Bang => 9,
+            Token::Star | Token::Slash | Token::Percent => 8,
+            Token::Plus | Token::Minus => 7,
+            Token::Gt | Token::GtEq | Token::Lt | Token::LtEq => 6,
+            Token::EqEq | Token::NotEq => 5,
+            Token::AndAnd => 4,
+            Token::OrOr => 3,
+            Token::NullCoal => 2,
             Token::Eq
             | Token::MinusEq
             | Token::PlusEq
@@ -103,6 +104,7 @@ impl<'a> Parser<'a> {
             Token::GtEq => Some(GreaterThanEq),
             Token::AndAnd => Some(And),
             Token::OrOr => Some(Or),
+            Token::NullCoal => Some(NullCoal),
             _ => None,
         }
     }
@@ -720,6 +722,7 @@ impl<'a> Parser<'a> {
             Token::Continue => Ok(spanned(Expr::Continue, token.span)),
             Token::False => Ok(spanned(Expr::Bool(false), token.span)),
             Token::True => Ok(spanned(Expr::Bool(true), token.span)),
+            Token::Null => Ok(spanned(Expr::Null, token.span)),
             Token::Ident(v) => Ok(spanned(Expr::Var(v), token.span)),
             Token::Int(i) => Ok(spanned(Expr::Int(i), token.span)),
             Token::Float(f) => Ok(spanned(Expr::Float(f), token.span)),

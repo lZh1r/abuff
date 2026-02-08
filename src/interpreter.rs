@@ -347,6 +347,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             }
         },
         Expr::Void => Ok(ControlFlow::Value(Value::Void)),
+        Expr::Null => Ok(ControlFlow::Value(Value::Null))
     }
 }
 
@@ -465,5 +466,6 @@ fn binary_operation(
         Operation::And => Ok(ControlFlow::Value(left_value.logic_and(right_value).map_err(|e| Spanned { inner: e, span })?)),
         Operation::Or => Ok(ControlFlow::Value(left_value.logic_or(right_value).map_err(|e| Spanned { inner: e, span })?)),
         Operation::Modulo => Ok(ControlFlow::Value(left_value.modulo(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::NullCoal => Ok(ControlFlow::Value(left_value.nullish_coalescing(right_value).map_err(|e| Spanned { inner: e, span })?)),
     }
 }

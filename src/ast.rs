@@ -37,6 +37,7 @@ pub enum Expr {
     String(String),
     Char(char),
     Void,
+    Null,
     Var(String),
     Array(Vec<Spanned<Expr>>),
     Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
@@ -91,7 +92,6 @@ pub enum Statement {
     Export(Box<Spanned<Statement>>)
 }
 
-//TODO: nullish coalescence
 #[derive(Debug, Clone, PartialEq)]
 pub enum Operation {
     Add,
@@ -106,7 +106,8 @@ pub enum Operation {
     GreaterThan,
     GreaterThanEq,
     And,
-    Or
+    Or,
+    NullCoal
 }
 
 #[derive(Debug, Clone, PartialEq)]

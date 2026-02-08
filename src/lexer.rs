@@ -59,6 +59,9 @@ pub enum Token {
     #[token("as")]
     As,
     
+    #[token("null")]
+    Null,
+    
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
     
@@ -112,6 +115,9 @@ pub enum Token {
     
     #[token("&&")]
     AndAnd,
+    
+    #[token("??")]
+    NullCoal,
     
     #[token("||")]
     OrOr,

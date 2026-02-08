@@ -574,6 +574,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         Expr::String(_) => Ok(spanned(TypeInfo::String, expr.span)),
         Expr::Char(_) => Ok(spanned(TypeInfo::Char, expr.span)),
         Expr::Void => Ok(spanned(TypeInfo::Void, expr.span)),
+        Expr::Null => Ok(spanned(TypeInfo::Null, expr.span)),
         Expr::Var(name) => {
             Ok(env.get_var_type(name).ok_or(spanned(format!("Cannot resolve variable {name}"), expr.span))?)
         },
@@ -690,6 +691,14 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             format!("{:?} requires both sides to be Bool, got: {:?}, {:?}", operation, a, b),
                             Span::from(left_type.span.start..right_type.span.end)
                         ))
+                    }
+                },
+                Operation::NullCoal => {
+                    match (&left_type.inner, &right_type.inner) {
+                        (TypeInfo::Null, _) => {
+                            Ok(right_type)
+                        },
+                        _ => Ok(left_type)
                     }
                 },
             }
@@ -1324,6 +1333,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<ir::Exp
         Expr::String(s) => Ok(spanned(ir::Expr::String(s.clone()), expr.span)),
         Expr::Char(c) => Ok(spanned(ir::Expr::Char(c.clone()), expr.span)),
         Expr::Void => Ok(spanned(ir::Expr::Void, expr.span)),
+        Expr::Null => Ok(spanned(ir::Expr::Null, expr.span)),
         Expr::Var(name) => Ok(spanned(ir::Expr::Var(name.clone()), expr.span)),
         Expr::Array(spanneds) => {
             let mut lowered = Vec::new();
