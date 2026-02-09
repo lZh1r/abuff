@@ -188,6 +188,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     flat_params.push((n.clone(), flattened))
                 }
                 let expected_type = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+                inner_scope.add_var_type("+return".to_string(), expected_type.clone());
                 inner_scope.add_var_type(
                     name.to_string(),
                     spanned(
@@ -238,6 +239,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 }
 
                 let expected_flat = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+                inner_scope.add_var_type("+return".to_string(), expected_flat.clone());
 
                 inner_scope.add_var_type(
                     name.to_string(),
@@ -734,6 +736,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                     flat_params.push((n.clone(), flattened))
                 }
                 let expected_type = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+                inner_scope.add_var_type("+return".to_string(), expected_type.clone());
                 let non_flat = get_type(body, &mut inner_scope, path)?;
                 let actual_type = flatten_type(&non_flat, env, path)?;
                 if actual_type.inner != expected_type.inner {
@@ -762,7 +765,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                 }
 
                 let expected_flat = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
-
+                inner_scope.add_var_type("+return".to_string(), expected_flat.clone());
                 let actual_type = get_type(body, &mut inner_scope, path)?;
                 if actual_type.inner != expected_flat.inner {
                     return Err(spanned(
@@ -1002,7 +1005,25 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             ))
         },
         Expr::Break | Expr::Continue => Ok(spanned(TypeInfo::Void, expr.span)),
-        Expr::Return(e) => Ok(get_type(e, env, path)?),
+        Expr::Return(e) => {
+            let ti = get_type(e, env, path)?;
+            let expected = env.get_var_type("+return");
+            if let Some(r_type) = expected {
+                if r_type.inner == ti.inner {
+                    Ok(ti)
+                } else {
+                    Err(spanned(
+                        format!("Return type mismatch: expected {:?}, got {:?}", r_type.inner, ti.inner),
+                        ti.span
+                    ))
+                }
+            } else {
+                Err(spanned(
+                    "Cannot return outside of the function".to_string(),
+                    expr.span
+                ))
+            }
+        },
     }
 }
 
