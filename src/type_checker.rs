@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use crate::{ast::{Expr, Operation, Span, Spanned, Statement, TypeInfo, UnaryOp}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
+use crate::{ast::{Expr, MatchArm, Operation, Span, Spanned, Statement, TypeInfo, UnaryOp}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
 
 fn spanned<T>(inner: T, span: Span) -> Spanned<T> {
     Spanned { inner, span }
@@ -145,9 +145,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
 > {
     match &statement.inner {
         Statement::Let { name, expr, type_info } => {
-            let expr_type = get_type(expr, env, path)?;
+            let expr_type = get_type(expr, env)?;
             if let Some(ti) = type_info {
-                let expected_type = flatten_type(ti, env, path)?;
+                let expected_type = flatten_type(ti, env)?;
                 if expected_type.inner != expr_type.inner {
                     return Err(spanned(
                         format!("Type mismatch in let declaration: expected {:?}, got {:?}", expected_type.inner, expr_type.inner),
@@ -168,13 +168,13 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 env.add_custom_type(name.to_string(), closure_type.clone());
                 Ok((Some(name.clone()), None, Some(closure_type), false))
             } else {
-                let flat_type = flatten_type(type_info, env, path)?.into_owned();
+                let flat_type = flatten_type(type_info, env)?.into_owned();
                 env.add_custom_type(name.clone(), flat_type.clone());
                 Ok((Some(name.clone()), None, Some(flat_type), false))
             }
         },
         Statement::Expr(expr) => {
-            Ok((None, Some(get_type(expr, env, path)?), None, false))
+            Ok((None, Some(get_type(expr, env)?), None, false))
         },
         Statement::Fun { name, params, body, return_type, generic_params } => {
             let mut inner_scope = env.enter_scope();
@@ -183,11 +183,11 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             if generic_params.len() == 0 {
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
-                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
                     flat_params.push((n.clone(), flattened))
                 }
-                let expected_type = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+                let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                 inner_scope.add_var_type("+return".to_string(), expected_type.clone());
                 inner_scope.add_var_type(
                     name.to_string(),
@@ -200,7 +200,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         statement.span
                     )
                 );
-                let actual_type = get_type(body, &mut inner_scope, path)?;
+                let actual_type = get_type(body, &mut inner_scope)?;
                 if actual_type.inner != expected_type.inner {
                     return Err(spanned(
                         format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner),
@@ -233,12 +233,12 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 // Flatten parameter types with generics in scope and add them to the inner scope
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
-                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
                     flat_params.push((n.clone(), flattened));
                 }
 
-                let expected_flat = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+                let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                 inner_scope.add_var_type("+return".to_string(), expected_flat.clone());
 
                 inner_scope.add_var_type(
@@ -253,7 +253,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     )
                 );
 
-                let actual_type = get_type(body, &mut inner_scope, path)?;
+                let actual_type = get_type(body, &mut inner_scope)?;
                 if actual_type.inner != expected_flat.inner {
                     return Err(spanned(
                         format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner),
@@ -292,9 +292,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             if generic_params.len() == 0 {
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
-                    flat_params.push((n.clone(), flatten_type(p_type, &mut inner_scope, path)?.into_owned()))
+                    flat_params.push((n.clone(), flatten_type(p_type, &mut inner_scope)?.into_owned()))
                 }
-                let r_type = flatten_type(&r_type, &mut inner_scope, path)?.into_owned();
+                let r_type = flatten_type(&r_type, &mut inner_scope)?.into_owned();
                 let fun_type = spanned(
                     TypeInfo::Fun {
                         params: flat_params, 
@@ -324,12 +324,12 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
 
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
-                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
                     flat_params.push((n.clone(), flattened));
                 }
 
                 // Flatten return type as well
-                let r_flat = flatten_type(&r_type, &mut inner_scope, path)?.into_owned();
+                let r_flat = flatten_type(&r_type, &mut inner_scope)?.into_owned();
 
                 // Create the type-closure representing the generic native function
                 let fun_type = spanned(
@@ -363,7 +363,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             
             for (n, maybe_ti) in variants {
                 if let Some(ti) = maybe_ti {
-                    let ti = flatten_type(ti, &mut inner_scope, path)?.into_owned();
+                    let ti = flatten_type(ti, &mut inner_scope)?.into_owned();
                     variant_funs.push((n.clone(), spanned(
                         TypeInfo::Fun { 
                             params: vec![((false, "+arg".into()), ti.clone())],
@@ -568,7 +568,7 @@ fn collect_generic_params(
 }
 
 //returrs the type of an expression while also checking for type errors
-fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spanned<TypeInfo>, Spanned<String>> {
+fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<String>> {
     match &expr.inner {
         Expr::Bool(_) => Ok(spanned(TypeInfo::Bool, expr.span)),
         Expr::Float(_) => Ok(spanned(TypeInfo::Float, expr.span)),
@@ -587,9 +587,9 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                     expr.span
                 ))
             }
-            let first_type = get_type(spanneds.first().unwrap(), env, path)?;
+            let first_type = get_type(spanneds.first().unwrap(), env)?;
             for ti in spanneds {
-                let element_type = get_type(ti, env, path)?.inner;
+                let element_type = get_type(ti, env)?.inner;
                 if element_type != first_type.inner {
                     return Err(spanned(
                         format!("Array Element Type Mismatch: Expected {:?}, got {:?}", element_type, first_type.inner),
@@ -600,14 +600,14 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             Ok(spanned(TypeInfo::Array(Box::new(first_type)), expr.span))
         },
         Expr::Index(target, index) => {
-            let index_type = get_type(index, env, path)?;
+            let index_type = get_type(index, env)?;
             if index_type.inner != TypeInfo::Int {
                 return Err(spanned(
                     format!("Cannot use {:?} to index arrays", index_type.inner),
                     index.span
                 ))
             }
-            let target_type = get_type(target, env, path)?;
+            let target_type = get_type(target, env)?;
             match target_type.inner {
                 TypeInfo::Array(element_type) => Ok(*element_type),
                 _ => Err(spanned(
@@ -617,8 +617,8 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             }
         },
         Expr::Binary { left, operation, right } => {
-            let left_type = get_type(left, env, path)?;
-            let right_type = get_type(right, env, path)?;
+            let left_type = get_type(left, env)?;
+            let right_type = get_type(right, env)?;
             match operation {
                 Operation::Add
                 | Operation::Subtract 
@@ -713,10 +713,10 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                 expr.span
             };
             let mut r_type = TypeInfo::Void;
-            let _ = hoist(statements, &mut inner_scope, path)?;
+            let _ = hoist(statements, &mut inner_scope, "")?;
      
             if let Some(e) = final_expr {
-                r_type = get_type(e, &mut inner_scope, path)?.inner;
+                r_type = get_type(e, &mut inner_scope)?.inner;
                 r_span = e.span;
             }
             Ok(spanned(
@@ -731,14 +731,14 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             if generic_params.len() == 0 {
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
-                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
                     flat_params.push((n.clone(), flattened))
                 }
-                let expected_type = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+                let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                 inner_scope.add_var_type("+return".to_string(), expected_type.clone());
-                let non_flat = get_type(body, &mut inner_scope, path)?;
-                let actual_type = flatten_type(&non_flat, env, path)?;
+                let non_flat = get_type(body, &mut inner_scope)?;
+                let actual_type = flatten_type(&non_flat, env)?;
                 if actual_type.inner != expected_type.inner {
                     return Err(spanned(
                         format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner),
@@ -759,14 +759,14 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
 
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
-                    let flattened = flatten_type(p_type, &mut inner_scope, path)?.into_owned();
+                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
                     flat_params.push((n.clone(), flattened));
                 }
 
-                let expected_flat = flatten_type(&expected_type, &mut inner_scope, path)?.into_owned();
+                let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                 inner_scope.add_var_type("+return".to_string(), expected_flat.clone());
-                let actual_type = get_type(body, &mut inner_scope, path)?;
+                let actual_type = get_type(body, &mut inner_scope)?;
                 if actual_type.inner != expected_flat.inner {
                     return Err(spanned(
                         format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner),
@@ -785,7 +785,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             }
         },
         Expr::Call { fun, args, generic_args } => {
-            let fun_type = get_type(fun, env, path)?;
+            let fun_type = get_type(fun, env)?;
             match &fun_type.inner {
                 TypeInfo::Fun { params, return_type: _, generic_params } => {
                     let mut generic_arg_map = HashMap::new();
@@ -793,7 +793,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                         for (param, arg) in params.iter().zip(args.iter()) {
                             for (p_name, ti) in collect_generic_params(
                                 (&param.1, param.0.0),
-                                &get_type(arg, env, path)?
+                                &get_type(arg, env)?
                             ) {
                                 generic_arg_map.insert(p_name, ti);
                             }
@@ -854,7 +854,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                                 },
                                 false => (),
                             }
-                            let arg_type = get_type(arg_expr, env, path)?;
+                            let arg_type = get_type(arg_expr, env)?;
                             if arg_type.inner != p_type.inner {
                                 return Err(spanned(
                                     format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner),
@@ -872,7 +872,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             ))
                         };
                         for arg in spread_args {
-                            let arg_type = get_type(arg, env, path)?;
+                            let arg_type = get_type(arg, env)?;
                             if arg_type.inner != spread_type.inner {
                                 return Err(spanned(
                                     format!("Argument type mismatch: expected {:?}, got {:?}", spread_type.inner, arg_type.inner),
@@ -888,7 +888,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                             ))
                         }
                         for ((_, p_type), arg_expr) in substituted_params.iter().zip(args.iter()) {
-                            let arg_type = get_type(arg_expr, env, path)?;
+                            let arg_type = get_type(arg_expr, env)?;
                             if arg_type.inner != p_type.inner {
                                 return Err(spanned(
                                     format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner),
@@ -909,7 +909,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         Expr::Record(items) => {
             let mut record_entries = Vec::new();
             for (name, e) in items {
-                record_entries.push((name.clone(), get_type(e, env, path)?));
+                record_entries.push((name.clone(), get_type(e, env)?));
             }
             Ok(spanned(
                 TypeInfo::Record(record_entries),
@@ -917,8 +917,8 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             ))
         },
         Expr::Get(target, field) => {
-            let ti = get_type(target, env, path)?;
-            let target_type = flatten_type(&ti, env, path)?;
+            let ti = get_type(target, env)?;
+            let target_type = flatten_type(&ti, env)?;
             match &target_type.inner {
                 TypeInfo::Record(fields) => {
                     for (name, e) in fields {
@@ -938,8 +938,8 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             }
         },
         Expr::Assign { target, value } => {
-            let target_type = get_type(target, env, path)?.inner;
-            let value_type = get_type(value, env, path)?.inner;
+            let target_type = get_type(target, env)?.inner;
+            let value_type = get_type(value, env)?.inner;
             if target_type != value_type {
                 return Err(spanned(
                     format!("Cannot assign {:?} to {:?}", value_type, target_type),
@@ -952,7 +952,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             ))
         },
         Expr::Unary(unary_op, e) => {
-            let expr_type = get_type(e, env, path)?;
+            let expr_type = get_type(e, env)?;
             match (unary_op, &expr_type.inner) {
                 (UnaryOp::Negate, TypeInfo::Any 
                 | TypeInfo::Float 
@@ -965,15 +965,15 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
             }
         },
         Expr::If { condition, body, else_block } => {
-            if get_type(condition, env, path)?.inner != TypeInfo::Bool {
+            if get_type(condition, env)?.inner != TypeInfo::Bool {
                 return Err(spanned(
                     format!("Loop condition should return Bool"),
                     condition.span
                 ))
             }
-            let body_type = get_type(body, env, path)?;
+            let body_type = get_type(body, env)?;
             if let Some(else_expr) = else_block {
-                let else_type = get_type(else_expr, env, path)?;
+                let else_type = get_type(else_expr, env)?;
                 if else_type.inner != body_type.inner {
                     return Err(spanned(
                         format!(
@@ -992,8 +992,8 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         },
         Expr::While { condition, body } => {
             //we *have* to check the body even though we are not using it
-            let _ = get_type(body, env, path)?;
-            if get_type(condition, env, path)?.inner != TypeInfo::Bool {
+            let _ = get_type(body, env)?;
+            if get_type(condition, env)?.inner != TypeInfo::Bool {
                 return Err(spanned(
                     format!("Loop condition should return Bool"),
                     condition.span
@@ -1006,7 +1006,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
         },
         Expr::Break | Expr::Continue => Ok(spanned(TypeInfo::Void, expr.span)),
         Expr::Return(e) => {
-            let ti = get_type(e, env, path)?;
+            let ti = get_type(e, env)?;
             let expected = env.get_var_type("+return");
             if let Some(r_type) = expected {
                 if r_type.inner == ti.inner {
@@ -1024,11 +1024,55 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv, path: &str) -> Result<Spann
                 ))
             }
         },
+        Expr::Match { target, branches } => {
+            let target_type = get_type(target, env)?;
+            
+            let mut result = None;
+            
+            fn match_branch(
+                target: &TypeInfo, 
+                pattern: &MatchArm,
+                branch: &Spanned<Expr>,
+                env: &mut TypeEnv
+            ) -> Result<Option<Spanned<TypeInfo>>, Spanned<String>> {
+                match pattern {
+                    MatchArm::Conditional { alias, condition } => todo!(),
+                    MatchArm::Value(expr) => {
+                        let pattern_type = get_type(expr, env)?;
+                    },
+                }
+            }
+            
+            match &target_type.inner {
+                TypeInfo::Fun { params: _, return_type: _, generic_params: _ } => Err(spanned(
+                    "Cannot apply match to a function".into(), 
+                    target.span
+                )),
+                TypeInfo::EnumVariant { enum_name, variant, generic_args } => todo!(),
+                ti => {
+                    for (pattern, branch) in branches {
+                        if let Some(b_ti) = match_branch(ti, pattern, branch, env)? {
+                            match result {
+                                None => result = Some(b_ti),
+                                Some(_) => return Err(spanned(
+                                    "Multiple satisfactory branches in a match expression".into(),
+                                    b_ti.span
+                                ))
+                            }
+                        }
+                    }
+                    Err(spanned(
+                        "Non-exhaustive match expression".into(),
+                        expr.span
+                    ))
+                }
+            }
+        }
     }
 }
 
 //replaces type aliases with their underlying type, processes type closures
-fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &str) -> Result<Cow<'a, Spanned<TypeInfo>>, Spanned<String>> {
+fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Result<Cow<'a, Spanned<TypeInfo>>, Spanned<String>> {
     match &type_info.inner {
         TypeInfo::Custom { name, generic_args } => {
             let resolved_type = if let Some(ti) = env.resolve_type(name.as_str()) {
@@ -1043,7 +1087,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
             let generic_args = {
                 let mut new_args = Vec::new();
                 for ti in generic_args {
-                    new_args.push(flatten_type(ti, env, path)?.into_owned())
+                    new_args.push(flatten_type(ti, env)?.into_owned())
                 }
                 new_args
             };
@@ -1063,12 +1107,12 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                     }
                     let mut new_params = Vec::new();
                     for (n, ti) in params {
-                        new_params.push((n.clone(), flatten_type(ti, &mut new_scope, path)?.into_owned()));
+                        new_params.push((n.clone(), flatten_type(ti, &mut new_scope)?.into_owned()));
                     }
                     Ok(Cow::Owned(spanned(
                         TypeInfo::Fun { 
                             params: new_params, 
-                            return_type: Box::new(flatten_type(return_type, &mut new_scope, path)?.into_owned()),
+                            return_type: Box::new(flatten_type(return_type, &mut new_scope)?.into_owned()),
                             generic_params: Vec::new()
                         },
                         type_info.span
@@ -1095,10 +1139,10 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                     }
                     let mut inner_scope = closure_scope.clone();
                     for (param, arg) in params.iter().zip(generic_args.iter()) {
-                        let flat_arg = flatten_type(arg, env, path)?.into_owned();
+                        let flat_arg = flatten_type(arg, env)?.into_owned();
                         inner_scope.add_custom_type(param.inner.clone(), flat_arg);
                     }
-                    Ok(Cow::Owned(flatten_type(body, &mut inner_scope, path)?.into_owned()))
+                    Ok(Cow::Owned(flatten_type(body, &mut inner_scope)?.into_owned()))
                 },
                 _ => {
                     if generic_args.len() != 0 {
@@ -1107,7 +1151,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                             type_info.span
                         ))
                     }
-                    Ok(Cow::Owned(flatten_type(&resolved_type, env, path)?.into_owned()))
+                    Ok(Cow::Owned(flatten_type(&resolved_type, env)?.into_owned()))
                 }
             }
         },
@@ -1167,7 +1211,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                     let flattened = if contains_generic(ti, &generic_names) {
                         ti.clone()
                     } else {
-                        flatten_type(ti, env, path)?.into_owned()
+                        flatten_type(ti, env)?.into_owned()
                     };
                     let final_ti = replace_custom_with_generic(flattened, &generic_names);
                     new_params.push((a.clone(), final_ti));
@@ -1177,7 +1221,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
                 let new_return = if contains_generic(return_type.as_ref(), &generic_names) {
                     (**return_type).clone()
                 } else {
-                    flatten_type(return_type.as_ref(), env, path)?.into_owned()
+                    flatten_type(return_type.as_ref(), env)?.into_owned()
                 };
                 let final_return = replace_custom_with_generic(new_return, &generic_names);
 
@@ -1194,12 +1238,12 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
             // No generic parameters: just flatten everything normally
             let mut new_params = Vec::new();
             for (a, ti) in params {
-                new_params.push((a.clone(), flatten_type(ti, env, path)?.into_owned()));
+                new_params.push((a.clone(), flatten_type(ti, env)?.into_owned()));
             }
             Ok(Cow::Owned(spanned(
                 TypeInfo::Fun {
                     params: new_params,
-                    return_type: Box::new(flatten_type(return_type, env, path)?.into_owned()),
+                    return_type: Box::new(flatten_type(return_type, env)?.into_owned()),
                     generic_params: Vec::new(),
                 },
                 type_info.span,
@@ -1208,7 +1252,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
         TypeInfo::Record(entries) => {
             let mut new_entries = Vec::new();
             for (name, ti) in entries {
-                new_entries.push((name.clone(), flatten_type(ti, env, path)?.into_owned()));
+                new_entries.push((name.clone(), flatten_type(ti, env)?.into_owned()));
             }
             Ok(Cow::Owned(spanned(
                 TypeInfo::Record(new_entries),
@@ -1216,7 +1260,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv, path: &
             )))
         },
         TypeInfo::Array(ti) => Ok(Cow::Owned(spanned(
-            TypeInfo::Array(Box::new(flatten_type(ti, env, path)?.into_owned())),
+            TypeInfo::Array(Box::new(flatten_type(ti, env)?.into_owned())),
             type_info.span
         ))),
         _ => Ok(Cow::Borrowed(type_info))
@@ -1479,6 +1523,15 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<ir::Exp
         Expr::Return(e) => {
             Ok(spanned(
                 ir::Expr::Return(Box::new(lower_expr(e, env)?)),
+                expr.span
+            ))
+        },
+        Expr::Match { target, branches } => {
+            Ok(spanned(
+                ir::Expr::Match { 
+                    target: Box::new(lower_expr(target, env)?),
+                    branches: branches.iter().map(|(e1, e2)| (lower_expr(e1, env).unwrap(), lower_expr(e2, env).unwrap())).collect(),
+                },
                 expr.span
             ))
         },
