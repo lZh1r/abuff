@@ -173,7 +173,43 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             })
         }
     });
-    
+        
+    register_fun(BUILTINS_PATH, "readfile", |obj| {
+        if obj.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, but got {}", obj.len()),
+                span: Span::from(0..0)
+            })
+        }
+        match obj.first().unwrap() {
+            Value::String(s) => {
+                let result = fs::read_to_string(s);
+                match result { 
+                    Ok(content) => {
+                        Ok(ControlFlow::Value(Value::EnumVariant{
+                            enum_name: "Result".into(),
+                            variant: "Ok".into(),
+                            value: Box::new(Value::String(content))
+                        }))
+                    },
+                    Err(e) => {
+                        let mut map = HashMap::new();
+                        map.insert("message".to_string(), Value::String(e.to_string()));
+                        Ok(ControlFlow::Value(Value::EnumVariant{
+                            enum_name: "Result".into(),
+                            variant: "Err".into(),
+                            value: Box::new(Value::Record(map))
+                        }))
+                    }
+                }
+            },
+            v => Err(Spanned {
+                inner: format!("{v} is not a valid path"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+ 
     let registry = GlobalRegistry;
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),

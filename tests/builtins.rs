@@ -52,7 +52,7 @@ fn test_some() {
 fn test_option() {
     let src = r#"
         let some = Some(1);
-        let none = None();
+        let none = None<Int>();
         fun f(a: Option<Int>, b: Option<Int>): Option<Int> {
             a
         }

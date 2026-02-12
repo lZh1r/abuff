@@ -48,15 +48,39 @@ export native fun clock(): Int;
 /// ```
 export native fun len<T>(obj: T): Int;
 
+export native fun readfile(path: String): Result<String>;
+
+/// Enum representing optional values.
+/// Used where a value may or may not be present.
+/// Can be unwrapped via pattern matching or methods (wip).
 export enum Option<T> {
     Some: T,
     None
 }
 
+/// Constructs an Option.Some of type T.
+/// Used as a shorthand for Option.Some().
 export fun Some<T>(value: T): Option<T> {
     Option.Some(value)
 }
 
-export fun None(): Option<Any> {
+/// Constructs an Option.None of type Any.
+/// Used as a shorthand for Option.None().
+export fun None<T>(): Option<T> {
     Option.None()
 }
+
+export type Error = {
+    message: String
+};
+
+export enum Result<T> {
+    Ok: T,
+    Err: Error
+}
+
+export enum Either<T, U> {
+    A: T,
+    B: U
+}
+
