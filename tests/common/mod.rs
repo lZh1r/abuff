@@ -1,6 +1,6 @@
 use std::env::current_dir;
 
-use abuff::{ast::{Span, Spanned}, env::{Env, TypeEnv, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist, lower_statement}};
+use abuff::{ast::{Span, Spanned}, env::{create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist, lower_statement}};
 
 pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<String>> {
     let (mut env, mut type_env) = create_default_env();

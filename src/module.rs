@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::current_dir, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
 use crate::{ast::{Span, Spanned, TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun, type_checker::{hoist, lower_statement}};
 

@@ -295,7 +295,13 @@ impl PartialEq for TypeInfo {
             (TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: args1 }, TypeInfo::EnumVariant { enum_name: name2, variant, generic_args: args2 }) 
             | (TypeInfo::EnumVariant { enum_name: name2, variant, generic_args: args2 }, TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: args1 }) => {
                 name1 == name2 && variants.get(variant).is_some() && {
-                    true
+                    {
+                        if args1.len() != args2.len() {
+                            false
+                        } else {
+                            args1.iter().zip(args2.iter()).all(|(a1, a2)| a1.inner == *a2)
+                        }
+                    }
                 }
             },
             (TypeInfo::GenericParam(a), TypeInfo::GenericParam(b)) => a == b,
