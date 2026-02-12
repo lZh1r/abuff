@@ -3,7 +3,7 @@ use std::{collections::HashMap};
 
 use crate::{ast::{Operation, Spanned, UnaryOp}, env::Env, native::NativeFun};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Bool(bool),
     Float(f64),
@@ -28,10 +28,19 @@ pub enum Expr {
     Break,
     Continue,
     Return(Box<Spanned<Expr>>),
-    EnumConstructor {enum_name: String, variant: String, value: Box<Spanned<Expr>>}
+    EnumConstructor {enum_name: String, variant: String, value: Box<Spanned<Expr>>},
+    Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchArm {
+    Conditional {alias: String, condition: Spanned<Expr>},
+    Value(Spanned<Expr>),
+    Default(String),
+    EnumConstructor {enum_name: String, variant: String, alias: String}
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let{name: String, expr: Spanned<Expr>},
     Expr(Spanned<Expr>),

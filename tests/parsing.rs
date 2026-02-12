@@ -223,3 +223,93 @@ fn test_fun_in_record() {
         _ => panic!()
     };
 }
+
+#[test]
+fn simple_int_match() {
+    let src = r#"
+        let a = 12;
+        match a {
+            1 -> 2,
+            12 -> 10,
+            _ -> 1
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 10),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn conditional_int_match() {
+    let src = r#"
+        let a = 12;
+        match a {
+            1 -> 2,
+            i if i % 2 == 0 -> 10,
+            _ -> 1
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 10),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn enum_match() {
+    let src = r#"
+        enum A {
+            B: Int,
+            C: Int
+        }
+        let a = A.B(1);
+        match a {
+            A.B(v) -> v,
+            A.C(_) -> 123
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn builtin_enum_match() {
+    let src = r#"
+        let a = Some(1);
+        match a {
+            Option.Some(v) -> v,
+            Option.None(_) -> 123
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

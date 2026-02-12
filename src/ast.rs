@@ -58,7 +58,16 @@ pub enum Expr {
     While {condition: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>},
     Break,
     Continue,
-    Return(Box<Spanned<Expr>>)
+    Return(Box<Spanned<Expr>>),
+    Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>}
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchArm {
+    Conditional {alias: String, condition: Spanned<Expr>},
+    Value(Spanned<Expr>),
+    Default(String),
+    EnumConstructor {enum_name: String, variant: String, alias: String}
 }
 
 #[derive(Debug, Clone, PartialEq)]

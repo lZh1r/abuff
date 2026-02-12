@@ -14,6 +14,9 @@ pub enum Token {
     #[token("fun")]
     Fun,
     
+    #[token("match")]
+    Match,
+    
     #[token("if")]
     If,
     

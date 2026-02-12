@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{ast::Spanned, ast::Operation, env::Env, ir::{ControlFlow, Expr, Statement, Value}};
+use crate::{ast::Spanned, ast::Operation, env::Env, ir::{ControlFlow, Expr, MatchArm, Statement, Value}};
 
 pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
     match &expr.inner {
@@ -347,7 +347,89 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             }
         },
         Expr::Void => Ok(ControlFlow::Value(Value::Void)),
-        Expr::Null => Ok(ControlFlow::Value(Value::Null))
+        Expr::Null => Ok(ControlFlow::Value(Value::Null)),
+        Expr::Match { target, branches } => {
+            fn match_pattern(
+                target: &Spanned<&Value>, 
+                pattern: &Spanned<MatchArm>, 
+                outcome: &Spanned<Expr>,
+                env: &mut Env
+            ) -> Result<Option<ControlFlow>, Spanned<String>> {
+                match &pattern.inner {
+                    MatchArm::Conditional { alias, condition } => {
+                        let mut inner_env = env.clone();
+                        inner_env.add_variable(alias.clone(), target.inner.clone());
+                        
+                        match eval_expr(condition, &mut inner_env)? {
+                            ControlFlow::Value(Value::Bool(true)) => {
+                                Ok(Some(eval_expr(outcome, &mut inner_env)?))
+                            },
+                            ControlFlow::Value(Value::Bool(false)) => Ok(None),
+                            ControlFlow::Value(v) => Err(Spanned {
+                                inner: format!("Runtime Error: match guard must be a Bool, found {:?}", v),
+                                span: condition.span
+                            }),
+                            cf => Err(Spanned {
+                                inner: format!("Runtime Error: cannot use {:?} as match guard", cf),
+                                span: condition.span
+                            })
+                        }
+                    },
+                    MatchArm::Value(pattern_expr) => {
+                        let pattern_value = match eval_expr(pattern_expr, env)? {
+                            ControlFlow::Value(v) => v,
+                            cf => return Err(Spanned {
+                                inner: format!("Runtime Error: cannot use {:?} as pattern", cf),
+                                span: pattern_expr.span
+                            })
+                        };
+                        
+                        if *target.inner == pattern_value {
+                            Ok(Some(eval_expr(outcome, env)?))
+                        } else {
+                            Ok(None)
+                        }
+                    },
+                    MatchArm::Default(alias) => {
+                        let mut inner_env = env.clone();
+                        inner_env.add_variable(alias.clone(), target.inner.clone());
+                        Ok(Some(eval_expr(outcome, &mut inner_env)?))
+                    },
+                    MatchArm::EnumConstructor { enum_name, variant, alias } => {
+                        match target.inner {
+                            Value::EnumVariant { enum_name: target_enum, variant: target_variant, value } => {
+                                if enum_name == target_enum && variant == target_variant {
+                                    let mut inner_env = env.clone();
+                                    inner_env.add_variable(alias.clone(), *value.clone());
+                                    Ok(Some(eval_expr(outcome, &mut inner_env)?))
+                                } else {
+                                    Ok(None)
+                                }
+                            },
+                            _ => Ok(None)
+                        }
+                    }
+                }
+            }
+            let val = eval_expr(target, env)?;
+            match &val {
+                ControlFlow::Value(value) => {
+                    for (pattern, outcome) in branches {
+                        if let Some(cf) = match_pattern(&Spanned {inner: value, span: expr.span}, pattern, outcome, env)? {
+                            return Ok(cf)
+                        }
+                    }
+                    Err(Spanned {
+                        inner: "Runtime Error: non-exhaustive match expression".into(),
+                        span: expr.span
+                    })
+                },
+                ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => Err(Spanned { 
+                    inner: "Cannot match control flow statements".into(),
+                    span: target.span
+                }),
+            }
+        }
     }
 }
 
