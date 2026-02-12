@@ -68,10 +68,10 @@ pub enum Token {
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
     
-    #[regex(r"-?[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
+    #[regex(r"[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
     Int(i64),
     
-    #[regex(r"-?[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
+    #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
     Float(f64),
     
     #[regex(r#""([^"\\]|\\["\\nrt])*""#, parse_string)]
