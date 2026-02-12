@@ -1074,7 +1074,7 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>
                 }
             }
             
-            fn match_enum_branch(
+            fn match_enum_variant_branch(
                 enum_name: &String,
                 variant: &String,
                 generic_args: &Vec<TypeInfo>,
@@ -1153,6 +1153,85 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>
                 }
             }
             
+            fn match_enum_instance_branch(
+                enum_name: &String,
+                variants: &HashMap<String, Spanned<TypeInfo>>,
+                generic_args: &Vec<Spanned<TypeInfo>>,
+                pattern: &Spanned<MatchArm>,
+                branch: &Spanned<Expr>,
+                env: &mut TypeEnv
+            ) -> Result<(Spanned<TypeInfo>, bool), Spanned<String>> {
+                match &pattern.inner {
+                    MatchArm::Default(alias) => {
+                        let mut inner_env = env.enter_scope();
+                        inner_env.add_var_type(alias.clone(), spanned(
+                            TypeInfo::EnumInstance { 
+                                enum_name: enum_name.clone(),
+                                variants: variants.clone(), 
+                                generic_args: generic_args.clone()
+                            },
+                            Span::from(0..0)
+                        ));
+                        Ok((get_type(branch, &mut inner_env)?, true))
+                    },
+                    MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+                        if let Some(ti) = env.resolve_type(c_name) {
+                            if c_name != enum_name {
+                                return Err(spanned(
+                                    format!("Enum mismatch: expected {enum_name}, got {c_name}"),
+                                    ti.span
+                                ))
+                            }
+                            match ti.inner {
+                                TypeInfo::Enum { name: _, variants, generic_params } => {
+                                    if generic_params.len() != generic_args.len() {
+                                        return Err(spanned(
+                                            format!(
+                                                "Incorrect amount of generic arguments provided: expected {}, got {}",
+                                                generic_params.len(),
+                                                generic_args.len()
+                                            ),
+                                            ti.span
+                                        ))
+                                    }
+                                    let inner_type = if let Some(ti) = variants.get(variant) {
+                                        ti
+                                    } else {
+                                        return Err(spanned(
+                                            format!("Enum {enum_name} does not have a variant {variant}"),
+                                            ti.span
+                                        ))
+                                    };
+                                    
+                                    let mut inner_scope = env.enter_scope();
+                                    let mut generic_map = HashMap::new();
+                                    for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
+                                        generic_map.insert(g_name.inner.clone(), g_type.clone());
+                                        inner_scope.add_custom_type(g_name.inner.clone(), g_type.clone());
+                                    }
+                                    let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
+                                    inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
+                                    Ok((get_type(branch, &mut inner_scope)?, false))
+                                },
+                                _ => Err(spanned(
+                                    format!("Type {c_name} is not an enum"),
+                                    ti.span
+                                ))
+                            }
+                        } else {
+                            Err(spanned(
+                                format!("Cannot resolve enum {c_name}"),
+                                pattern.span
+                            ))
+                        }
+                    },
+                    _ => Err(spanned(
+                        "This branch is not compatible with enums".into(),
+                        pattern.span
+                    ))
+                }
+            }
+            
             let mut expected_type = TypeInfo::Void;
             let mut has_default = false;
             
@@ -1161,9 +1240,48 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>
                     "Cannot apply match to a function".into(), 
                     target.span
                 )),
+                TypeInfo::EnumInstance { enum_name, variants, generic_args } => {
+                    for (pattern, branch) in branches {
+                        let (branch_type, is_default) = match_enum_instance_branch(
+                            enum_name, 
+                            variants, 
+                            generic_args, 
+                            pattern, 
+                            branch, 
+                            env
+                        )?;
+                        if expected_type != TypeInfo::Void && expected_type != branch_type.inner{
+                            return Err(spanned(
+                                "Match branches cannot have different return types".into(),
+                                branch_type.span
+                            ))
+                        } else {
+                            expected_type = branch_type.inner
+                        }
+                        if is_default {
+                            if has_default {
+                                return Err(spanned(
+                                    "Cannot have multiple default branches in a match expression".into(),
+                                    branch.span
+                                ))
+                            } else {
+                                has_default = true
+                            }
+                        }
+                    }
+                    let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner {
+                        TypeInfo::Enum { name: _, variants, generic_params: _ } => {
+                            variants.len()
+                        },
+                        _ => panic!()
+                    };
+                    if branches.len() == variant_count {
+                        has_default = true;
+                    }
+                }
                 TypeInfo::EnumVariant { enum_name, variant, generic_args } => {
                     for (pattern, branch) in branches {
-                        let (branch_type, is_default) = match_enum_branch(
+                        let (branch_type, is_default) = match_enum_variant_branch(
                             enum_name, 
                             variant, 
                             generic_args, 
