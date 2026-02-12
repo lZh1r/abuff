@@ -27,13 +27,16 @@ cargo build --release
 # Run the REPL
 cargo run
 
+# Check and run a file
+cargo run -- <filename>
+
 # Run tests
 # Note: cargo test runs tests in parallel by default which breaks module system (I'm too lazy to fix that now)
 cargo test -- --test-threads=1
 ```
 ## Roadmap
 - [ ] Improve error spans
-- [ ] Pattern matching
+- [x] Pattern matching
 - [ ] Generic constraints
 - [ ] Interface system
 - [ ] Type level operations
