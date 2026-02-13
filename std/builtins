@@ -48,7 +48,13 @@ export native fun clock(): Int;
 /// ```
 export native fun len<T>(obj: T): Int;
 
+/// Attempts to read contents of a file into a string.
 export native fun readfile(path: String): Result<String>;
+
+/// Attempts to write content to a file.
+/// On success the file's content will be overwritten with provided content.
+/// If the file does not exist it will get created.
+export native fun writefile(path: String, content: String): Result<Void>;
 
 /// Enum representing optional values.
 /// Used where a value may or may not be present.

@@ -210,6 +210,45 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
  
+    register_fun(BUILTINS_PATH, "writefile", |args| {
+        if args.len() != 2 {
+            return Err(Spanned {
+                inner: format!("Expected 2 arguments, got {}", args.len()),
+                span: Span::from(0..0)
+            })
+        }
+        match (args.first().unwrap(), args.last().unwrap()) {
+            (Value::String(path), Value::String(content)) => {
+                match fs::write(path, content) {
+                    Ok(_) => {
+                        Ok(ControlFlow::Value(Value::EnumVariant{
+                            enum_name: "Result".into(),
+                            variant: "Ok".into(),
+                            value: Box::new(Value::Void)
+                        }))
+                    },
+                    Err(e) => {
+                        let mut map = HashMap::new();
+                        map.insert("message".to_string(), Value::String(e.to_string()));
+                        Ok(ControlFlow::Value(Value::EnumVariant{
+                            enum_name: "Result".into(),
+                            variant: "Err".into(),
+                            value: Box::new(Value::Record(map))
+                        }))
+                    }
+                }
+            },
+            (Value::String(_), v) | (v, Value::String(_)) => Err(Spanned {
+                inner: format!("Expected a string, got {v} instead"),
+                span: Span::from(0..0)
+            }),
+            (v1, v2) => Err(Spanned {
+                inner: format!("Incorrect arguments provided {v1} and {v2}, expected strings"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
     let registry = GlobalRegistry;
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),
