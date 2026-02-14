@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fmt::Display, ops::Range};
 
+use smol_str::SmolStr;
+
 use crate::env::TypeEnv;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -23,7 +25,7 @@ pub struct Spanned<T> {
     pub span: Span
 }
 
-impl Display for Spanned<String> {
+impl Display for Spanned<SmolStr> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }
@@ -34,24 +36,24 @@ pub enum Expr {
     Bool(bool),
     Float(f64),
     Int(i64),
-    String(String),
+    String(SmolStr),
     Char(char),
     Void,
     Null,
-    Var(String),
+    Var(SmolStr),
     Array(Vec<Spanned<Expr>>),
     Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {
-        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
         body: Box<Spanned<Expr>>,
         return_type: Option<Spanned<TypeInfo>>,
-        generic_params: Vec<Spanned<String>>
+        generic_params: Vec<Spanned<SmolStr>>
     },
     Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>, generic_args: Vec<Spanned<TypeInfo>>},
-    Record(Vec<(String, Spanned<Expr>)>),
-    Get(Box<Spanned<Expr>>, String),
+    Record(Vec<(SmolStr, Spanned<Expr>)>),
+    Get(Box<Spanned<Expr>>, SmolStr),
     Assign {target: Box<Spanned<Expr>>, value: Box<Spanned<Expr>>},
     Unary(UnaryOp, Box<Spanned<Expr>>),
     If {condition: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>, else_block: Option<Box<Spanned<Expr>>>},
@@ -64,40 +66,40 @@ pub enum Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchArm {
-    Conditional {alias: String, condition: Spanned<Expr>},
+    Conditional {alias: SmolStr, condition: Spanned<Expr>},
     Value(Spanned<Expr>),
-    Default(String),
-    EnumConstructor {enum_name: String, variant: String, alias: String}
+    Default(SmolStr),
+    EnumConstructor {enum_name: SmolStr, variant: SmolStr, alias: SmolStr}
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    Let {name: String, expr: Spanned<Expr>, type_info: Option<Spanned<TypeInfo>>},
+    Let {name: SmolStr, expr: Spanned<Expr>, type_info: Option<Spanned<TypeInfo>>},
     TypeDef {
-        name: String, 
+        name: SmolStr, 
         type_info: Spanned<TypeInfo>,
-        generic_params: Vec<Spanned<String>>
+        generic_params: Vec<Spanned<SmolStr>>
     },
     Expr(Spanned<Expr>),
     Fun {
-        name: String, 
-        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        name: SmolStr, 
+        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
         body: Spanned<Expr>,
         return_type: Option<Spanned<TypeInfo>>,
-        generic_params: Vec<Spanned<String>>
+        generic_params: Vec<Spanned<SmolStr>>
     },
     NativeFun {
-        name: String, 
-        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        name: SmolStr, 
+        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
         return_type: Option<Spanned<TypeInfo>>,
-        generic_params: Vec<Spanned<String>>
+        generic_params: Vec<Spanned<SmolStr>>
     },
     EnumDef {
-        name: String, 
-        variants: Vec<(String, Option<Spanned<TypeInfo>>)>,
-        generic_params: Vec<Spanned<String>>
+        name: SmolStr, 
+        variants: Vec<(SmolStr, Option<Spanned<TypeInfo>>)>,
+        generic_params: Vec<Spanned<SmolStr>>
     },
-    Import {symbols: Vec<(Spanned<String>, Option<String>, bool)>, path: Spanned<String>},
+    Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>, bool)>, path: Spanned<SmolStr>},
     Export(Box<Spanned<Statement>>)
 }
 
@@ -137,22 +139,22 @@ pub enum TypeInfo {
     Unknown,
     Any,
     Fun {
-        params: Vec<((bool, String), Spanned<TypeInfo>)>,
+        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
         return_type: Box<Spanned<TypeInfo>>,
-        generic_params: Vec<Spanned<String>>
+        generic_params: Vec<Spanned<SmolStr>>
     },
-    Record(Vec<(String, Spanned<TypeInfo>)>),
-    Custom {name: String, generic_args: Vec<Spanned<TypeInfo>>},
-    GenericParam(String),
+    Record(Vec<(SmolStr, Spanned<TypeInfo>)>),
+    Custom {name: SmolStr, generic_args: Vec<Spanned<TypeInfo>>},
+    GenericParam(SmolStr),
     Array(Box<Spanned<TypeInfo>>),
     Enum {
-        name: String,
-        variants: HashMap<String, Spanned<TypeInfo>>,
-        generic_params: Vec<Spanned<String>>
+        name: SmolStr,
+        variants: HashMap<SmolStr, Spanned<TypeInfo>>,
+        generic_params: Vec<Spanned<SmolStr>>
     },
-    EnumInstance {enum_name: String, variants: HashMap<String, Spanned<TypeInfo>>, generic_args: Vec<Spanned<TypeInfo>>},
-    EnumVariant {enum_name: String, variant: String, generic_args: Vec<TypeInfo>},
-    TypeClosure {params: Vec<Spanned<String>>, env: TypeEnv, body: Box<Spanned<TypeInfo>>}
+    EnumInstance {enum_name: SmolStr, variants: HashMap<SmolStr, Spanned<TypeInfo>>, generic_args: Vec<Spanned<TypeInfo>>},
+    EnumVariant {enum_name: SmolStr, variant: SmolStr, generic_args: Vec<TypeInfo>},
+    TypeClosure {params: Vec<Spanned<SmolStr>>, env: TypeEnv, body: Box<Spanned<TypeInfo>>}
 }
 
 impl PartialEq for TypeInfo {

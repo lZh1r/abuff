@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLock}};
 
+use smol_str::SmolStr;
+
 use crate::{ast::{Span, Spanned, TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun, type_checker::{hoist, lower_statement}};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,15 +12,15 @@ pub enum ModuleStatus {
 
 struct TypeModule {
     path: PathBuf,
-    var_exports: HashMap<String, Spanned<TypeInfo>>,
-    type_exports: HashMap<String, Spanned<TypeInfo>>,
+    var_exports: HashMap<SmolStr, Spanned<TypeInfo>>,
+    type_exports: HashMap<SmolStr, Spanned<TypeInfo>>,
     env: TypeEnv,
     status: ModuleStatus,
 }
 
 struct RuntimeModule {
     path: PathBuf,
-    exports: HashMap<String, Value>,
+    exports: HashMap<SmolStr, Value>,
     env: Env,
     status: ModuleStatus,
 }
@@ -34,12 +36,12 @@ pub enum RegistryType {
 
 trait ModuleRegistry {
     fn get_status(&self, registry_type: RegistryType, path: &Path) -> Option<ModuleStatus>;
-    fn mark_loading(&self, registry_type: RegistryType, path: PathBuf) -> Result<(), Spanned<String>>;
+    fn mark_loading(&self, registry_type: RegistryType, path: PathBuf) -> Result<(), Spanned<SmolStr>>;
     fn insert_runtime_module(&self, module: RuntimeModule);
     fn insert_type_module(&self, module: TypeModule);
-    fn get_runtime_exports(&self, path: &Path) -> Option<HashMap<String, Value>>;
-    fn get_type_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>>;
-    fn get_var_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>>;
+    fn get_runtime_exports(&self, path: &Path) -> Option<HashMap<SmolStr, Value>>;
+    fn get_type_exports(&self, path: &Path) -> Option<HashMap<SmolStr, Spanned<TypeInfo>>>;
+    fn get_var_exports(&self, path: &Path) -> Option<HashMap<SmolStr, Spanned<TypeInfo>>>;
 }
 
 pub struct GlobalRegistry;
@@ -57,7 +59,7 @@ impl ModuleRegistry for GlobalRegistry {
         }
     }
     
-    fn mark_loading(&self, registry_type: RegistryType, path: PathBuf) -> Result<(), Spanned<String>> {
+    fn mark_loading(&self, registry_type: RegistryType, path: PathBuf) -> Result<(), Spanned<SmolStr>> {
         match registry_type {
             RegistryType::Type => {
                 let mut map = TYPE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
@@ -107,7 +109,7 @@ impl ModuleRegistry for GlobalRegistry {
         map.insert(module.path.clone(), module);
     }
        
-    fn get_runtime_exports(&self, path: &Path) -> Option<HashMap<String, Value>> {
+    fn get_runtime_exports(&self, path: &Path) -> Option<HashMap<SmolStr, Value>> {
         let map = RUNTIME_REGISTRY.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
         match map.get(path) {
             Some(module) => Some(module.exports.clone()),
@@ -115,7 +117,7 @@ impl ModuleRegistry for GlobalRegistry {
         } 
     }
     
-    fn get_type_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>> {
+    fn get_type_exports(&self, path: &Path) -> Option<HashMap<SmolStr, Spanned<TypeInfo>>> {
         let map = TYPE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
         match map.get(path) {
             Some(module) => Some(module.type_exports.clone()),
@@ -123,7 +125,7 @@ impl ModuleRegistry for GlobalRegistry {
         } 
     }
     
-    fn get_var_exports(&self, path: &Path) -> Option<HashMap<String, Spanned<TypeInfo>>> {
+    fn get_var_exports(&self, path: &Path) -> Option<HashMap<SmolStr, Spanned<TypeInfo>>> {
         let map = TYPE_REGISTRY.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
         match map.get(path) {
             Some(module) => Some(module.var_exports.clone()),
@@ -133,7 +135,7 @@ impl ModuleRegistry for GlobalRegistry {
 }
 
 #[allow(private_bounds)]
-pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<HashMap<String, Value>> {
+pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<HashMap<SmolStr, Value>> {
     let path = Path::new(path);
     if registry.get_status(RegistryType::Runtime, path) == Some(ModuleStatus::Evaluated) {
         registry.get_runtime_exports(path)
@@ -143,8 +145,8 @@ pub fn get_export_values<R: ModuleRegistry>(path: &str, registry: &R) -> Option<
 #[allow(private_bounds)]
 pub fn insert_type_module<R: ModuleRegistry>(
     registry: &R,
-    var_exports: HashMap<String, Spanned<TypeInfo>>,
-    type_exports: HashMap<String, Spanned<TypeInfo>>,
+    var_exports: HashMap<SmolStr, Spanned<TypeInfo>>,
+    type_exports: HashMap<SmolStr, Spanned<TypeInfo>>,
     env: TypeEnv,
     path: &str
 ) {
@@ -159,7 +161,7 @@ pub fn insert_type_module<R: ModuleRegistry>(
 }
 
 #[allow(private_bounds)]
-pub fn get_module_envs<R: ModuleRegistry>(registry: &R, path: &str) -> Result<(Env, TypeEnv), String> {
+pub fn get_module_envs<R: ModuleRegistry>(registry: &R, path: &str) -> Result<(Env, TypeEnv), SmolStr> {
     let path = Path::new(path);
     if registry.get_status(RegistryType::Type, path).unwrap() == ModuleStatus::Loading ||
     registry.get_status(RegistryType::Runtime, path).unwrap() == ModuleStatus::Loading {
@@ -168,14 +170,14 @@ pub fn get_module_envs<R: ModuleRegistry>(registry: &R, path: &str) -> Result<(E
         let map = TYPE_REGISTRY.get().unwrap().lock().unwrap();
         let target_module = match map.get(path) {
             Some(tm) => tm,
-            None => return Err(format!("Module \"{}\"", path.to_str().unwrap().to_string())),
+            None => return Err(SmolStr::new(format!("Module \"{}\"", path.to_str().unwrap().to_string()))),
         };
         let type_env = target_module.env.clone();
         
         let map = RUNTIME_REGISTRY.get().unwrap().lock().unwrap();
         let target_module = match map.get(path) {
             Some(tm) => tm,
-            None => return Err(format!("Module \"{}\"", path.to_str().unwrap().to_string())),
+            None => return Err(SmolStr::new(format!("Module \"{}\"", path.to_str().unwrap().to_string()))),
         };
         let env = target_module.env.clone();
         Ok((env, type_env))
@@ -184,7 +186,7 @@ pub fn get_module_envs<R: ModuleRegistry>(registry: &R, path: &str) -> Result<(E
 
 #[allow(private_bounds)]
 pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
-    (HashMap<String, Spanned<TypeInfo>>, HashMap<String, Spanned<TypeInfo>>), Spanned<String>
+    (HashMap<SmolStr, Spanned<TypeInfo>>, HashMap<SmolStr, Spanned<TypeInfo>>), Spanned<SmolStr>
 > {
     let path = Path::new(path);
     if registry.get_status(RegistryType::Type, path) == Some(ModuleStatus::Loading) ||
@@ -230,7 +232,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
                 span: errors.span
             }, &src);
             return Err(Spanned {
-                inner: format!("Module parsing failed"),
+                inner: SmolStr::new(format!("Module parsing failed")),
                 span: Span::from(0..0)
             })
         },
@@ -256,7 +258,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
 }
 
 #[allow(private_bounds)]
-pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut Env, module_path: PathBuf, registry: &R) -> Result<ControlFlow, Spanned<String>> {
+pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut Env, module_path: PathBuf, registry: &R) -> Result<ControlFlow, Spanned<SmolStr>> {
     let mut result = Ok(ControlFlow::Value(Value::Void));
     let mut value_exports = HashMap::new();
     for statement in statements {
@@ -300,7 +302,7 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                                 env.add_variable(actual_name, map.get(&name.inner).unwrap().clone());
                             } else {
                                 return Err(Spanned {
-                                    inner: format!("Cannot resolve import {} from {}", name.inner, path.to_string()),
+                                    inner: SmolStr::new(format!("Cannot resolve import {} from {}", name.inner, path.to_string())),
                                     span: name.span
                                 })
                             }
@@ -342,7 +344,7 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                         match get_native_fun(str_path, name) {
                             Some(ptr) => {
                                 let fn_val = Value::NativeFun { 
-                                    path: str_path.to_owned(),
+                                    path: SmolStr::new(str_path),
                                     name: name.clone(), 
                                     pointer: ptr
                                 };
@@ -350,7 +352,7 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                                 env.add_variable(name.clone(), fn_val);
                             },
                             None => return Err(Spanned {
-                                inner: format!("Cannot find native function definition for {}", name),
+                                inner: SmolStr::new(format!("Cannot find native function definition for {}", name)),
                                 span: statement.span.clone()
                             })
                         }

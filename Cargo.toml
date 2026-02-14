@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 ariadne = "0.6.0"
 logos = "0.16.0"
+smol_str = "0.3.5"

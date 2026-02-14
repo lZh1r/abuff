@@ -27,7 +27,7 @@
 /// print(print);
 /// // output: native function "print" from "std/builtins"
 /// ```
-export native fun print<T>(...args: T[]);
+export native fun print(...args: Any[]);
 
 /// Returns program's uptime in nanoseconds.
 /// Can be used for benchmarking performance:
@@ -84,9 +84,3 @@ export enum Result<T> {
     Ok: T,
     Err: Error
 }
-
-export enum Either<T, U> {
-    A: T,
-    B: U
-}
-

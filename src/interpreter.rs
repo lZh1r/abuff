@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
+use smol_str::SmolStr;
+
 use crate::{ast::Spanned, ast::Operation, env::Env, ir::{ControlFlow, Expr, MatchArm, Statement, Value}};
 
-pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
+pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<SmolStr>> {
     match &expr.inner {
         Expr::Int(n) => Ok(ControlFlow::Value(Value::Int(*n))),
         Expr::Float(f) => Ok(ControlFlow::Value(Value::Float(*f))),
@@ -11,7 +13,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             match result {
                 Some(value) => Ok(ControlFlow::Value(value)),
                 _ => Err(Spanned {
-                    inner: format!("Runtime error: Cannot resolve {v}"),
+                    inner: format!("Runtime error: Cannot resolve {v}").into(),
                     span: expr.span
                 })
             }
@@ -50,13 +52,13 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                         match field_map.get(field_name) {
                             Some(value) => Ok(ControlFlow::Value(value.clone())),
                             None => Err(Spanned {
-                                inner: format!("Runtime error: Property {field_name} does not exist on {v}"),
+                                inner: format!("Runtime error: Property {field_name} does not exist on {v}").into(),
                                 span: expr.span
                             }),
                         }
                     },
                     _ => Err(Spanned {
-                        inner: "Runtime error: Cannot use an accessor on this".to_string(),
+                        inner: "Runtime error: Cannot use an accessor on this".into(),
                         span: expr.span
                     })
                 },
@@ -85,19 +87,19 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                                     match value {
                                                         Value::Int(i) => i as usize,
                                                         _ => return Err(Spanned {
-                                                            inner: format!("Runtime Error: Cannot index by {value}"),
+                                                            inner: format!("Runtime Error: Cannot index by {value}").into(),
                                                             span: index.span
                                                         })
                                                     }
                                                 },
                                                 _ => return Err(Spanned {
-                                                    inner: format!("Runtime Error: Cannot use a control flow statement as an index"),
+                                                    inner: format!("Runtime Error: Cannot use a control flow statement as an index").into(),
                                                     span: index.span
                                                 })
                                             };
                                             if elements.get(index).is_none() {
                                                 return Err(Spanned {
-                                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", elements.len()),
+                                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", elements.len()).into(),
                                                     span: target.span
                                                 })
                                             }
@@ -110,19 +112,19 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                                     Ok(ControlFlow::Value(Value::Void))
                                                 }
                                                 _ => Err(Spanned {
-                                                    inner: format!("Runtime Error: Cannot assign a control flow statement to a value"),
+                                                    inner: format!("Runtime Error: Cannot assign a control flow statement to a value").into(),
                                                     span: target.span
                                                 })
                                             }
                                         },
                                         _ => Err(Spanned {
-                                            inner: format!("Runtime Error: Cannot index {v}"),
+                                            inner: format!("Runtime Error: Cannot index {v}").into(),
                                             span: target.span
                                         })
                                     }
                                 },
                                 None => Err(Spanned {
-                                    inner: format!("Runtime Error: Cannot resolve {var}"),
+                                    inner: format!("Runtime Error: Cannot resolve {var}").into(),
                                     span: target.span
                                 })
                             }
@@ -133,32 +135,32 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                     match value {
                                         Value::Int(i) => i as usize,
                                         _ => return Err(Spanned {
-                                            inner: format!("Runtime Error: Cannot index by {value}"),
+                                            inner: format!("Runtime Error: Cannot index by {value}").into(),
                                             span: index.span
                                         })
                                     }
                                 },
                                 _ => return Err(Spanned {
-                                    inner: format!("Runtime Error: Cannot use a control flow statement as an index"),
+                                    inner: format!("Runtime Error: Cannot use a control flow statement as an index").into(),
                                     span: index.span
                                 })
                             };
                             if elements.get(index).is_none() {
                                 return Err(Spanned {
-                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", elements.len()),
+                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", elements.len()).into(),
                                     span: target.span
                                 })
                             }
                             Ok(ControlFlow::Value(Value::Void))
                         },
                         _ => Err(Spanned {
-                            inner: format!("Runtime Error: Cannot index {:?}", target.inner),
+                            inner: format!("Runtime Error: Cannot index {:?}", target.inner).into(),
                             span: target.span
                         })
                     }
                 },
                 t => Err(Spanned {
-                    inner: format!("Runtime error: Cannot assign to {t:?}"),
+                    inner: format!("Runtime error: Cannot assign to {t:?}").into(),
                     span: expr.span
                 })
             }
@@ -172,7 +174,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                 Value::Float(f) => Ok(ControlFlow::Value(Value::Float(-f))),
                                 Value::Int(i) => Ok(ControlFlow::Value(Value::Int(-i))),
                                 v => Err(Spanned {
-                                    inner: format!("Runtime error: {v:?} cannot be negated"),
+                                    inner: format!("Runtime error: {v:?} cannot be negated").into(),
                                     span: expr.span
                                 })
                             }
@@ -181,7 +183,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             match v {
                                 Value::Bool(b) => Ok(ControlFlow::Value(Value::Bool(!b))),
                                 v => Err(Spanned {
-                                    inner: format!("Runtime error: {v:?} cannot be inverted"),
+                                    inner: format!("Runtime error: {v:?} cannot be inverted").into(),
                                     span: expr.span
                                 })
                             }
@@ -207,7 +209,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             }
                         },
                         _ => Err(Spanned {
-                            inner: format!("Runtime error: {condition_value:?} is not a valid condition"),
+                            inner: format!("Runtime error: {condition_value:?} is not a valid condition").into(),
                             span: expr.span
                         })
                     }
@@ -220,7 +222,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 let cond = match eval_expr(condition, env)? {
                     ControlFlow::Value(Value::Bool(b)) => b,
                     ControlFlow::Value(v) => return Err(Spanned {
-                        inner: format!("Runtime error: {v:?} is not a valid condition value"),
+                        inner: format!("Runtime error: {v:?} is not a valid condition value").into(),
                         span: expr.span
                     }),
                     cf => return Ok(cf),
@@ -246,11 +248,11 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 ControlFlow::Value(value) => Ok(ControlFlow::Return(value)),
                 ControlFlow::Return(value) => Ok(ControlFlow::Return(value)),
                 ControlFlow::Break => Err(Spanned {
-                    inner: "Runtime error: Expected a value, but found \"break\"".to_string(),
+                    inner: "Runtime error: Expected a value, but found \"break\"".into(),
                     span: expr.span
                 }),
                 ControlFlow::Continue => Err(Spanned {
-                    inner: "Runtime error: Expected a value, but found \"continue\"".to_string(),
+                    inner: "Runtime error: Expected a value, but found \"continue\"".into(),
                     span: expr.span
                 }),
             }
@@ -283,26 +285,26 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                     match v {
                                         Value::Int(i) => i,
                                         _ => return Err(Spanned {
-                                            inner: format!("Runtime Error: Cannot index by {v}"),
+                                            inner: format!("Runtime Error: Cannot index by {v}").into(),
                                             span: index.span
                                         })
                                     }
                                 },
                                 _ => return Err(Spanned {
-                                    inner: format!("Runtime Error: Cannot index by control flow statements"),
+                                    inner: format!("Runtime Error: Cannot index by control flow statements").into(),
                                     span: index.span
                                 })
                             };
                             match entries.get(index.clone() as usize) {
                                 Some(v) => Ok(ControlFlow::Value(v.clone())),
                                 None => Err(Spanned {
-                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", entries.len()),
+                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", entries.len()).into(),
                                     span: expr.span
                                 }),
                             }
                         },
                         v => Err(Spanned {
-                            inner: format!("Runtime Error: Cannot index {v}"),
+                            inner: format!("Runtime Error: Cannot index {v}").into(),
                             span: expr.span
                         })
                     }
@@ -324,24 +326,24 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                 value: Box::new(match eval_expr(value, env)? {
                                     ControlFlow::Value(v) | ControlFlow::Return(v) => v,
                                     _ => return Err(Spanned {
-                                        inner: format!("Runtime Error: cannot use break/continue as a value"),
+                                        inner: format!("Runtime Error: cannot use break/continue as a value").into(),
                                         span: expr.span
                                     }),
                                 })
                             })),
                             None => Err(Spanned {
-                                inner: format!("Runtime Error: Enum {enum_name} does not have a variant {variant}"),
+                                inner: format!("Runtime Error: Enum {enum_name} does not have a variant {variant}").into(),
                                 span: expr.span
                             }),
                         }
                     },
                     _ => Err(Spanned {
-                        inner: format!("Runtime Error: {enum_name} is not an enum"),
+                        inner: format!("Runtime Error: {enum_name} is not an enum").into(),
                         span: expr.span
                     }),
                 },
                 None => Err(Spanned {
-                    inner: format!("Runtime Error: Cannot resolve enum {enum_name}"),
+                    inner: format!("Runtime Error: Cannot resolve enum {enum_name}").into(),
                     span: expr.span
                 }),
             }
@@ -354,7 +356,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 pattern: &Spanned<MatchArm>, 
                 outcome: &Spanned<Expr>,
                 env: &mut Env
-            ) -> Result<Option<ControlFlow>, Spanned<String>> {
+            ) -> Result<Option<ControlFlow>, Spanned<SmolStr>> {
                 match &pattern.inner {
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.clone();
@@ -366,11 +368,11 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             },
                             ControlFlow::Value(Value::Bool(false)) => Ok(None),
                             ControlFlow::Value(v) => Err(Spanned {
-                                inner: format!("Runtime Error: match guard must be a Bool, found {:?}", v),
+                                inner: format!("Runtime Error: match guard must be a Bool, found {:?}", v).into(),
                                 span: condition.span
                             }),
                             cf => Err(Spanned {
-                                inner: format!("Runtime Error: cannot use {:?} as match guard", cf),
+                                inner: format!("Runtime Error: cannot use {:?} as match guard", cf).into(),
                                 span: condition.span
                             })
                         }
@@ -379,7 +381,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                         let pattern_value = match eval_expr(pattern_expr, env)? {
                             ControlFlow::Value(v) => v,
                             cf => return Err(Spanned {
-                                inner: format!("Runtime Error: cannot use {:?} as pattern", cf),
+                                inner: format!("Runtime Error: cannot use {:?} as pattern", cf).into(),
                                 span: pattern_expr.span
                             })
                         };
@@ -433,7 +435,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
     }
 }
 
-fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr>>>, env: &mut Env) -> Result<ControlFlow, Spanned<String>> {
+fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr>>>, env: &mut Env) -> Result<ControlFlow, Spanned<SmolStr>> {
     let mut new_scope = env.enter_scope();
     for statement in stmts {
         match &statement.inner {
@@ -458,7 +460,7 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
                 span: statement.span
             }),
             Statement::NativeFun(_) => return Err(Spanned {
-                inner: "Native functions can only be declared at the top level".to_string(),
+                inner: "Native functions can only be declared at the top level".into(),
                 span: statement.span
             }),
         }
@@ -470,7 +472,7 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
     }
 }
 
-pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) -> Result<ControlFlow, Spanned<String>> {
+pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) -> Result<ControlFlow, Spanned<SmolStr>> {
     match fun {
         ControlFlow::Value(v) => {
             match v {
@@ -508,7 +510,7 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                     Ok(pointer(&args)?)
                 }
                 _ => Err(Spanned {
-                    inner: "Runtime error: This expression is not callable".to_string(),
+                    inner: "Runtime error: This expression is not callable".into(),
                     span
                 })
             }
@@ -523,7 +525,7 @@ fn binary_operation(
     right: &Box<Spanned<Expr>>,
     env: &mut Env,
     span: crate::ast::Span
-) -> Result<ControlFlow, Spanned<String>> {
+) -> Result<ControlFlow, Spanned<SmolStr>> {
     let left_value = match eval_expr(left, env)? {
         ControlFlow::Value(v) => v,
         cf => return Ok(cf),

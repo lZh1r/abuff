@@ -1,6 +1,8 @@
 use core::fmt;
 use std::{collections::HashMap};
 
+use smol_str::SmolStr;
+
 use crate::{ast::{Operation, Spanned, UnaryOp}, env::Env, native::NativeFun};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -8,19 +10,19 @@ pub enum Expr {
     Bool(bool),
     Float(f64),
     Int(i64),
-    String(String),
+    String(SmolStr),
     Char(char),
-    Var(String),
+    Var(SmolStr),
     Null,
     Void,
     Array(Vec<Spanned<Expr>>),
     Index(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
-    Fun {params: Vec<(bool, String)>, body: Box<Spanned<Expr>>},
+    Fun {params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>},
     Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
-    Record(Vec<(String, Spanned<Expr>)>),
-    Get(Box<Spanned<Expr>>, String),
+    Record(Vec<(SmolStr, Spanned<Expr>)>),
+    Get(Box<Spanned<Expr>>, SmolStr),
     Assign {target: Box<Spanned<Expr>>, value: Box<Spanned<Expr>>},
     Unary(UnaryOp, Box<Spanned<Expr>>),
     If {condition: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>, else_block: Option<Box<Spanned<Expr>>>},
@@ -28,24 +30,24 @@ pub enum Expr {
     Break,
     Continue,
     Return(Box<Spanned<Expr>>),
-    EnumConstructor {enum_name: String, variant: String, value: Box<Spanned<Expr>>},
+    EnumConstructor {enum_name: SmolStr, variant: SmolStr, value: Box<Spanned<Expr>>},
     Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>}
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MatchArm {
-    Conditional {alias: String, condition: Spanned<Expr>},
+    Conditional {alias: SmolStr, condition: Spanned<Expr>},
     Value(Spanned<Expr>),
-    Default(String),
-    EnumConstructor {enum_name: String, variant: String, alias: String}
+    Default(SmolStr),
+    EnumConstructor {enum_name: SmolStr, variant: SmolStr, alias: SmolStr}
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    Let{name: String, expr: Spanned<Expr>},
+    Let{name: SmolStr, expr: Spanned<Expr>},
     Expr(Spanned<Expr>),
-    NativeFun(String),
-    Import {symbols: Vec<(Spanned<String>, Option<String>)>, path: Spanned<String>},
+    NativeFun(SmolStr),
+    Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>)>, path: Spanned<SmolStr>},
     Export(Box<Spanned<Statement>>)
 }
 
@@ -63,15 +65,15 @@ pub enum Value {
     Float(f64),
     U128(u128),
     Bool(bool),
-    String(String),
+    String(SmolStr),
     Char(char),
     Array(Vec<Value>),
-    Record(HashMap<String, Value>), 
-    Closure { params: Vec<(bool, String)>, body: Box<Spanned<Expr>>, env: Env },
-    NativeFun {path: String, name: String, pointer: NativeFun},
+    Record(HashMap<SmolStr, Value>), 
+    Closure { params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>, env: Env },
+    NativeFun {path: SmolStr, name: SmolStr, pointer: NativeFun},
     Null,
     Void,
-    EnumVariant {enum_name: String, variant: String, value: Box<Value>}
+    EnumVariant {enum_name: SmolStr, variant: SmolStr, value: Box<Value>}
 }
 
 impl fmt::Display for Value {
@@ -139,101 +141,101 @@ impl PartialEq for Value {
 }
 
 impl Value {
-    pub fn add(self, other: Value) -> Result<Value, String> {
+    pub fn add(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
             (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a + b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-            (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b))),
-            (Value::Char(a), Value::Char(b)) => Ok(Value::String(format!("{}{}", a, b))),
-            (a,b) => Err(format!("Cannot add {a:?} and {b:?}"))
+            (Value::String(a), Value::String(b)) => Ok(Value::String(format!("{}{}", a, b).into())),
+            (Value::Char(a), Value::Char(b)) => Ok(Value::String(format!("{}{}", a, b).into())),
+            (a,b) => Err(format!("Cannot add {a:?} and {b:?}").into())
         }
     }
-    pub fn subtract(self, other: Value) -> Result<Value, String> {
+    pub fn subtract(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
             (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a - b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
-            (a,b) => Err(format!("Cannot subtract {a:?} from {b:?}"))
+            (a,b) => Err(format!("Cannot subtract {a:?} from {b:?}").into())
         }
     }
-    pub fn multiply(self, other: Value) -> Result<Value, String> {
+    pub fn multiply(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b)),
             (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a * b)),
-            (Value::String(a), Value::Int(b)) => Ok(Value::String(a.repeat(b as usize))),
-            (Value::Int(a), Value::String(b)) => Ok(Value::String(b.repeat(a as usize))),
-            (Value::Char(a), Value::Int(b)) => Ok(Value::String(a.to_string().repeat(b as usize))),
-            (Value::Int(a), Value::Char(b)) => Ok(Value::String(b.to_string().repeat(a as usize))),
+            (Value::String(a), Value::Int(b)) => Ok(Value::String(a.repeat(b as usize).into())),
+            (Value::Int(a), Value::String(b)) => Ok(Value::String(b.repeat(a as usize).into())),
+            (Value::Char(a), Value::Int(b)) => Ok(Value::String(a.to_string().repeat(b as usize).into())),
+            (Value::Int(a), Value::Char(b)) => Ok(Value::String(b.to_string().repeat(a as usize).into())),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
-            (a,b) => Err(format!("Cannot multiply {a:?} by {b:?}"))
+            (a,b) => Err(format!("Cannot multiply {a:?} by {b:?}").into())
         }
     }
-    pub fn divide(self, other: Value) -> Result<Value, String> {
+    pub fn divide(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => {
-                if b == 0 {return Err("Cannot devide by 0".to_string());}
+                if b == 0 {return Err("Cannot devide by 0".into());}
                 Ok(Value::Int(a / b))
             },
             (Value::U128(a), Value::U128(b)) => {
-                if b == 0 {return Err("Cannot devide by 0".to_string());}
+                if b == 0 {return Err("Cannot devide by 0".into());}
                 Ok(Value::U128(a / b))
             },
             (Value::Float(a), Value::Float(b)) => {
-                if b == 0.0 {return Err("Cannot devide by 0".to_string());}
+                if b == 0.0 {return Err("Cannot devide by 0".into());}
                 Ok(Value::Float(a / b))
             },
-            (a,b) => Err(format!("Cannot devide {a:?} by {b:?}"))
+            (a,b) => Err(format!("Cannot devide {a:?} by {b:?}").into())
         }
     }
-    pub fn modulo(self, other: Value) -> Result<Value, String> {
+    pub fn modulo(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a % b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-            (a,b) => Err(format!("Cannot perform {a:?} mod {b:?}"))
+            (a,b) => Err(format!("Cannot perform {a:?} mod {b:?}").into())
         }
     }
-    pub fn greater_than(self, other: Value) -> Result<Value, String> {
+    pub fn greater_than(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a > b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a > b)),
-            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}"))
+            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}").into())
         }
     }
-    pub fn less_than(self, other: Value) -> Result<Value, String> {
+    pub fn less_than(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a < b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a < b)),
-            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}"))
+            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}").into())
         }
     }
-    pub fn greater_than_eq(self, other: Value) -> Result<Value, String> {
+    pub fn greater_than_eq(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a >= b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a >= b)),
-            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}"))
+            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}").into())
         }
     }
-    pub fn less_than_eq(self, other: Value) -> Result<Value, String> {
+    pub fn less_than_eq(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a <= b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a <= b)),
-            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}"))
+            (a,b) => Err(format!("Cannot compare {a:?} to {b:?}").into())
         }
     }
-    pub fn logic_and(self, other: Value) -> Result<Value, String> {
+    pub fn logic_and(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a && b)),
-            (a, b) => Err(format!("Cannot perform {a:?} AND {b:?}"))
+            (a, b) => Err(format!("Cannot perform {a:?} AND {b:?}").into())
         }
     }
-    pub fn logic_or(self, other: Value) -> Result<Value, String> {
+    pub fn logic_or(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Bool(a), Value::Bool(b)) => Ok(Value::Bool(a || b)),
-            (a, b) => Err(format!("Cannot perform {a:?} OR {b:?}"))
+            (a, b) => Err(format!("Cannot perform {a:?} OR {b:?}").into())
         }
     }
-    pub fn nullish_coalescing(self, other: Value) -> Result<Value, String> {
+    pub fn nullish_coalescing(self, other: Value) -> Result<Value, SmolStr> {
         match (self, other) {
             (Value::Null, o) => Ok(o),
             (v, _) => Ok(v)

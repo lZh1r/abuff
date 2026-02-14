@@ -1,10 +1,12 @@
 use std::{collections::HashMap, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
 
+use smol_str::{SmolStr, ToSmolStr};
+
 use crate::{ast::{Span, Spanned, TypeInfo}, error::build_report, ir::{ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::register_fun};
 
 #[derive(Debug, Clone)]
 pub struct Scope {
-    values: HashMap<String, Value>,
+    values: HashMap<SmolStr, Value>,
     parent: Option<Env>,
 }
 
@@ -41,11 +43,11 @@ impl Env {
         )
     }
     
-    pub fn add_variable(&mut self, name: String, value: Value) -> () {
+    pub fn add_variable(&mut self, name: SmolStr, value: Value) -> () {
         self.0.write().unwrap().values.insert(name, value);
     }
     
-    pub fn set_variable(&mut self, name: String, value: Value) -> Option<()> {
+    pub fn set_variable(&mut self, name: SmolStr, value: Value) -> Option<()> {
         let mut scope = self.0.write().unwrap();
         
         if let Some(_) = scope.values.get(&name) {
@@ -66,8 +68,8 @@ impl Env {
 
 #[derive(Debug, Clone)]
 pub struct TypeScope {
-    variable_types: HashMap<String, Spanned<TypeInfo>>,
-    custom_types: HashMap<String, Spanned<TypeInfo>>,
+    variable_types: HashMap<SmolStr, Spanned<TypeInfo>>,
+    custom_types: HashMap<SmolStr, Spanned<TypeInfo>>,
     parent: Option<TypeEnv>,
 }
 
@@ -122,11 +124,11 @@ impl TypeEnv {
         )
     }
     
-    pub fn add_var_type(&mut self, name: String, type_info: Spanned<TypeInfo>) -> () {
+    pub fn add_var_type(&mut self, name: SmolStr, type_info: Spanned<TypeInfo>) -> () {
         self.0.write().unwrap().variable_types.insert(name, type_info);
     }
     
-    pub fn add_custom_type(&mut self, name: String, type_info: Spanned<TypeInfo>) -> () {
+    pub fn add_custom_type(&mut self, name: SmolStr, type_info: Spanned<TypeInfo>) -> () {
         self.0.write().unwrap().custom_types.insert(name, type_info);
     }
     
@@ -160,7 +162,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
     register_fun(BUILTINS_PATH, "len", |obj| {
         if obj.len() != 1 {
             return Err(Spanned {
-                inner: format!("Expected 1 argument, but got {}", obj.len()),
+                inner: format!("Expected 1 argument, but got {}", obj.len()).into(),
                 span: Span::from(0..0)
             })
         }
@@ -168,7 +170,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             Value::Array(a) => Ok(ControlFlow::Value(Value::Int(a.len() as i64))),
             Value::String(s) => Ok(ControlFlow::Value(Value::Int(s.len() as i64))),
             v => Err(Spanned {
-                inner: format!("Cannot measure length of {v}"),
+                inner: format!("Cannot measure length of {v}").into(),
                 span: Span::from(0..0)
             })
         }
@@ -177,7 +179,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
     register_fun(BUILTINS_PATH, "readfile", |obj| {
         if obj.len() != 1 {
             return Err(Spanned {
-                inner: format!("Expected 1 argument, but got {}", obj.len()),
+                inner: format!("Expected 1 argument, but got {}", obj.len()).into(),
                 span: Span::from(0..0)
             })
         }
@@ -189,12 +191,12 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                         Ok(ControlFlow::Value(Value::EnumVariant{
                             enum_name: "Result".into(),
                             variant: "Ok".into(),
-                            value: Box::new(Value::String(content))
+                            value: Box::new(Value::String(content.into()))
                         }))
                     },
                     Err(e) => {
                         let mut map = HashMap::new();
-                        map.insert("message".to_string(), Value::String(e.to_string()));
+                        map.insert("message".into(), Value::String(e.to_smolstr()));
                         Ok(ControlFlow::Value(Value::EnumVariant{
                             enum_name: "Result".into(),
                             variant: "Err".into(),
@@ -204,7 +206,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             },
             v => Err(Spanned {
-                inner: format!("{v} is not a valid path"),
+                inner: format!("{v} is not a valid path").into(),
                 span: Span::from(0..0)
             })
         }
@@ -213,7 +215,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
     register_fun(BUILTINS_PATH, "writefile", |args| {
         if args.len() != 2 {
             return Err(Spanned {
-                inner: format!("Expected 2 arguments, got {}", args.len()),
+                inner: format!("Expected 2 arguments, got {}", args.len()).into(),
                 span: Span::from(0..0)
             })
         }
@@ -229,7 +231,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                     },
                     Err(e) => {
                         let mut map = HashMap::new();
-                        map.insert("message".to_string(), Value::String(e.to_string()));
+                        map.insert("message".into(), Value::String(e.to_smolstr()));
                         Ok(ControlFlow::Value(Value::EnumVariant{
                             enum_name: "Result".into(),
                             variant: "Err".into(),
@@ -239,11 +241,11 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             },
             (Value::String(_), v) | (v, Value::String(_)) => Err(Spanned {
-                inner: format!("Expected a string, got {v} instead"),
+                inner: format!("Expected a string, got {v} instead").into(),
                 span: Span::from(0..0)
             }),
             (v1, v2) => Err(Spanned {
-                inner: format!("Incorrect arguments provided {v1} and {v2}, expected strings"),
+                inner: format!("Incorrect arguments provided {v1} and {v2}, expected strings").into(),
                 span: Span::from(0..0)
             })
         }

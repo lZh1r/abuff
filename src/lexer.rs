@@ -1,4 +1,5 @@
 use logos::Logos;
+use smol_str::SmolStr;
 
 use crate::ast::{Span, Spanned};
 
@@ -65,8 +66,8 @@ pub enum Token {
     #[token("null")]
     Null,
     
-    #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
-    Ident(String),
+    #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| SmolStr::new(lex.slice()))]
+    Ident(SmolStr),
     
     #[regex(r"[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
     Int(i64),
@@ -75,7 +76,7 @@ pub enum Token {
     Float(f64),
     
     #[regex(r#""([^"\\]|\\["\\nrt])*""#, parse_string)]
-    String(String),
+    String(SmolStr),
     
     #[regex("'.'", |lex| lex.slice().to_string().as_bytes()[1] as char)]
     Char(char),
@@ -180,17 +181,17 @@ pub enum Token {
     DotDotDot,
 }
 
-fn parse_string(lex: &mut logos::Lexer<Token>) -> String {
+fn parse_string(lex: &mut logos::Lexer<Token>) -> SmolStr {
     let s = lex.slice();
-    s[1..s.len()-1]
+    SmolStr::new(s[1..s.len()-1]
         .replace(r"\\", "\\")
         .replace(r#"\""#, "\"")
         .replace(r"\n", "\n")
         .replace(r"\r", "\r")
-        .replace(r"\t", "\t")
+        .replace(r"\t", "\t"))
 }
 
-pub fn lex(src: &str) -> Result<Vec<Spanned<Token>>, Spanned<String>> {
+pub fn lex(src: &str) -> Result<Vec<Spanned<Token>>, Spanned<SmolStr>> {
     let mut tokens = Vec::new();
     let mut lexer = Token::lexer(src);
     
