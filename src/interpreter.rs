@@ -551,5 +551,10 @@ fn binary_operation(
         Operation::Or => Ok(ControlFlow::Value(left_value.logic_or(right_value).map_err(|e| Spanned { inner: e, span })?)),
         Operation::Modulo => Ok(ControlFlow::Value(left_value.modulo(right_value).map_err(|e| Spanned { inner: e, span })?)),
         Operation::NullCoal => Ok(ControlFlow::Value(left_value.nullish_coalescing(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::BitwiseAnd => Ok(ControlFlow::Value(left_value.bitwise_and(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::BitwiseOr => Ok(ControlFlow::Value(left_value.bitwise_or(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::BitwiseXor => Ok(ControlFlow::Value(left_value.bitwise_xor(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::BitwiseLeftShift => Ok(ControlFlow::Value(left_value.bitwise_left_shift(right_value).map_err(|e| Spanned { inner: e, span })?)),
+        Operation::BitwiseRightShift => Ok(ControlFlow::Value(left_value.bitwise_right_shift(right_value).map_err(|e| Spanned { inner: e, span })?)),
     }
 }

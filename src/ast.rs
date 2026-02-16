@@ -118,7 +118,12 @@ pub enum Operation {
     GreaterThanEq,
     And,
     Or,
-    NullCoal
+    NullCoal,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    BitwiseLeftShift,
+    BitwiseRightShift
 }
 
 #[derive(Debug, Clone, PartialEq)]

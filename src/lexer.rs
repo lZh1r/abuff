@@ -126,6 +126,21 @@ pub enum Token {
     #[token("||")]
     OrOr,
     
+    #[token("&")]
+    Ampersand,
+    
+    #[token("|")]
+    Pipe,
+    
+    #[token("^")]
+    Caret,
+    
+    #[token("<<")]
+    LeftShift,
+    
+    #[token(">>")]
+    RightShift,
+    
     #[token("!")]
     Bang,
     

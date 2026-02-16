@@ -70,10 +70,14 @@ impl<'a> Parser<'a> {
 
     fn get_precedence(token: &Token) -> u8 {
         match token {
-            Token::LParen | Token::LBracket | Token::Dot => 10,
-            Token::Bang => 9,
-            Token::Star | Token::Slash | Token::Percent => 8,
-            Token::Plus | Token::Minus => 7,
+            Token::LParen | Token::LBracket | Token::Dot => 20,
+            Token::Bang => 19,
+            Token::Star | Token::Slash | Token::Percent => 18,
+            Token::Plus | Token::Minus => 17,
+            Token::LeftShift | Token::RightShift => 10,
+            Token::Ampersand => 9,
+            Token::Caret => 8,
+            Token::Pipe => 7,
             Token::Gt | Token::GtEq | Token::Lt | Token::LtEq => 6,
             Token::EqEq | Token::NotEq => 5,
             Token::AndAnd => 4,
@@ -88,6 +92,8 @@ impl<'a> Parser<'a> {
             _ => 0,
         }
     }
+
+
 
     // helpers for operations
     fn token_to_operation(token: &Token) -> Option<crate::ast::Operation> {
@@ -107,6 +113,11 @@ impl<'a> Parser<'a> {
             Token::AndAnd => Some(And),
             Token::OrOr => Some(Or),
             Token::NullCoal => Some(NullCoal),
+            Token::Ampersand => Some(BitwiseAnd),
+            Token::Pipe => Some(BitwiseOr),
+            Token::Caret => Some(BitwiseXor),
+            Token::LeftShift => Some(BitwiseLeftShift),
+            Token::RightShift => Some(BitwiseRightShift),
             _ => None,
         }
     }

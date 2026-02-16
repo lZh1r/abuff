@@ -241,4 +241,39 @@ impl Value {
             (v, _) => Ok(v)
         }
     }
+    pub fn bitwise_and(self, other: Value) -> Result<Value, SmolStr> {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b)),
+            (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a & b)),
+            (a, b) => Err(format!("Cannot perform {a:?} & {b:?}").into())
+        }
+    }
+    pub fn bitwise_or(self, other: Value) -> Result<Value, SmolStr> {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b)),
+            (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a | b)),
+            (a, b) => Err(format!("Cannot perform {a:?} | {b:?}").into())
+        }
+    }
+    pub fn bitwise_xor(self, other: Value) -> Result<Value, SmolStr> {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b)),
+            (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a ^ b)),
+            (a, b) => Err(format!("Cannot perform {a:?} ^ {b:?}").into())
+        }
+    }
+    pub fn bitwise_left_shift(self, other: Value) -> Result<Value, SmolStr> {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a << b)),
+            (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a << b)),
+            (a, b) => Err(format!("Cannot perform {a:?} << {b:?}").into())
+        }
+    }
+    pub fn bitwise_right_shift(self, other: Value) -> Result<Value, SmolStr> {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a >> b)),
+            (Value::U128(a), Value::U128(b)) => Ok(Value::U128(a >> b)),
+            (a, b) => Err(format!("Cannot perform {a:?} >> {b:?}").into())
+        }
+    }
 }

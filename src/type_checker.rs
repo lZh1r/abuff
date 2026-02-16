@@ -705,6 +705,30 @@ fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>
                         _ => Ok(left_type)
                     }
                 },
+                Operation::BitwiseAnd 
+                | Operation::BitwiseOr 
+                | Operation::BitwiseXor 
+                | Operation::BitwiseLeftShift 
+                | Operation::BitwiseRightShift => {
+                    match &left_type.inner {
+                        TypeInfo::Any | TypeInfo::Int => {
+                            if left_type.inner != right_type.inner {
+                                return Err(spanned(
+                                    format!("Type Mismatch: Expected {:?}, got {:?}", left_type.inner, right_type.inner).into(), 
+                                    left.span
+                                ))
+                            }
+                            Ok(spanned(
+                                left_type.inner,
+                                Span::from(left_type.span.start..right_type.span.end)
+                            ))
+                        },
+                        _ => return Err(spanned(
+                            format!("Cannot apply {:?} to {:?}", operation, left_type).into(), 
+                            left.span
+                        ))
+                    }
+                },
             }
         },
         Expr::Block(statements, final_expr) => {

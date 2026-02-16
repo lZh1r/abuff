@@ -313,3 +313,24 @@ fn builtin_enum_match() {
         _ => panic!()
     };
 }
+
+#[test]
+fn bitwise_ops() {
+    let src = r#"
+        (12 & 10) // 8
+        + (12 | 10) // 14
+        + (12 ^ 10) // 6
+        - (5 << 2) // 20
+        - (20 >> 2) // 5
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 3),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
