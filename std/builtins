@@ -56,6 +56,19 @@ export native fun readfile(path: String): Result<String>;
 /// If the file does not exist it will get created.
 export native fun writefile(path: String, content: String): Result<Void>;
 
+/// Finishes execution as a failure with some message
+export native fun panic(reason: String);
+
+/// Asserts that an expression is true, otherwise panics
+/// ```
+/// let a = 9;
+/// let b = 2;
+/// assert(a % b == 0) // panics
+/// ```
+export fun assert(expression: Bool) {
+    if (!expression) panic()
+}
+
 /// Enum representing optional values.
 /// Used where a value may or may not be present.
 /// Can be unwrapped via pattern matching or methods (wip).

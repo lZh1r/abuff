@@ -14,7 +14,6 @@ fn main() {
                     return;
                 },
             };
-            
             let (mut stack, mut type_env) = DEFAULT_ENVS.get_or_init(|| create_default_env()).clone();
             let parse_result = Parser::new(&lex(src.as_str()).unwrap()).parse();
             let parsed = match parse_result {
