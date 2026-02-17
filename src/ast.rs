@@ -4,6 +4,14 @@ use smol_str::SmolStr;
 
 use crate::env::TypeEnv;
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static TYPE_ID_COUNTER: AtomicU32 = AtomicU32::new(10);
+
+pub fn next_type_id() -> u32 {
+    TYPE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Span {
     pub start: usize,
@@ -73,6 +81,15 @@ pub enum MatchArm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Method {
+    pub name: SmolStr, 
+    pub params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+    pub body: Spanned<Expr>,
+    pub return_type: Option<Spanned<TypeInfo>>,
+    pub generic_params: Vec<Spanned<SmolStr>>
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let {name: SmolStr, expr: Spanned<Expr>, type_info: Option<Spanned<TypeInfo>>},
     TypeDef {
@@ -133,7 +150,55 @@ pub enum UnaryOp {
 }
 
 #[derive(Debug, Clone)]
-pub enum TypeInfo {
+pub struct TypeInfo {
+    kind: TypeKind,
+    id: u32
+}
+
+impl TypeInfo {
+    pub fn int() -> Self {
+        Self { kind: TypeKind::Int, id: 0 }
+    }
+    pub fn float() -> Self {
+        Self { kind: TypeKind::Float, id: 1 }
+    }
+    pub fn string() -> Self {
+        Self { kind: TypeKind::String, id: 2 }
+    }
+    pub fn char() -> Self {
+        Self { kind: TypeKind::Char, id: 3 }
+    }
+    pub fn bool() -> Self {
+        Self { kind: TypeKind::Bool, id: 4 }
+    }
+    pub fn void() -> Self {
+        Self { kind: TypeKind::Void, id: 5 }
+    }
+    pub fn null() -> Self {
+        Self { kind: TypeKind::Null, id: 6 }
+    }
+    pub fn unknown() -> Self {
+        Self { kind: TypeKind::Unknown, id: 7 }
+    }
+    pub fn any() -> Self {
+        Self { kind: TypeKind::Any, id: 8 }
+    }
+    pub fn new(kind: TypeKind) -> Self {
+        Self { kind, id: next_type_id() }
+    }
+    pub fn kind(&self) -> &TypeKind {
+        &self.kind
+    }
+}
+
+impl PartialEq for TypeInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id || self.kind == other.kind
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TypeKind {
     Int,
     Float,
     String,
@@ -162,19 +227,19 @@ pub enum TypeInfo {
     TypeClosure {params: Vec<Spanned<SmolStr>>, env: TypeEnv, body: Box<Spanned<TypeInfo>>}
 }
 
-impl PartialEq for TypeInfo {
+impl PartialEq for TypeKind {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (TypeInfo::Int, TypeInfo::Int) => true,
-            (TypeInfo::Float, TypeInfo::Float) => true,
-            (TypeInfo::String, TypeInfo::String) => true,
-            (TypeInfo::Char, TypeInfo::Char) => true,
-            (TypeInfo::Bool, TypeInfo::Bool) => true,
-            (TypeInfo::Void, TypeInfo::Void) => true,
-            (TypeInfo::Null, TypeInfo::Null) => true,
-            (TypeInfo::Unknown, TypeInfo::Unknown) => false,
-            (TypeInfo::Array(a1), TypeInfo::Array(a2)) => a1.inner == a2.inner,
-            (TypeInfo::Custom {name: name1, generic_args: args1}, TypeInfo::Custom {name: name2, generic_args: args2}) => {
+            (TypeKind::Int, TypeKind::Int) => true,
+            (TypeKind::Float, TypeKind::Float) => true,
+            (TypeKind::String, TypeKind::String) => true,
+            (TypeKind::Char, TypeKind::Char) => true,
+            (TypeKind::Bool, TypeKind::Bool) => true,
+            (TypeKind::Void, TypeKind::Void) => true,
+            (TypeKind::Null, TypeKind::Null) => true,
+            (TypeKind::Unknown, TypeKind::Unknown) => false,
+            (TypeKind::Array(a1), TypeKind::Array(a2)) => a1.inner == a2.inner,
+            (TypeKind::Custom {name: name1, generic_args: args1}, TypeKind::Custom {name: name2, generic_args: args2}) => {
                 match name1 == name2 {
                     true => {
                         for (t1,t2) in args1.iter().zip(args2.iter()) {
@@ -188,8 +253,8 @@ impl PartialEq for TypeInfo {
                 }
             },
             (
-                TypeInfo::Fun { params: args_a, return_type: ret_a, generic_params: g_a },
-                TypeInfo::Fun { params: args_b, return_type: ret_b, generic_params: g_b }
+                TypeKind::Fun { params: args_a, return_type: ret_a, generic_params: g_a },
+                TypeKind::Fun { params: args_b, return_type: ret_b, generic_params: g_b }
             ) => {
                 if ret_a.inner != ret_b.inner {
                     return false;
@@ -212,7 +277,7 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
-            (TypeInfo::Record(fields_a), TypeInfo::Record(fields_b)) => {
+            (TypeKind::Record(fields_a), TypeKind::Record(fields_b)) => {
                 if fields_a.len() != fields_b.len() {
                     return false;
                 }
@@ -224,13 +289,13 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
-            (TypeInfo::Enum { name, variants, generic_params: _ }, TypeInfo::EnumVariant { enum_name, variant, generic_args: _ }) 
-            | (TypeInfo::EnumVariant { enum_name, variant, generic_args: _ }, TypeInfo::Enum { name, variants, generic_params: _ }) => {
+            (TypeKind::Enum { name, variants, generic_params: _ }, TypeKind::EnumVariant { enum_name, variant, generic_args: _ }) 
+            | (TypeKind::EnumVariant { enum_name, variant, generic_args: _ }, TypeKind::Enum { name, variants, generic_params: _ }) => {
                 name == enum_name && variants.get(variant).is_some()
             },
             (
-                TypeInfo::Enum { name: name1, variants: variants1, generic_params: g_a },
-                TypeInfo::Enum { name: name2, variants: variants2, generic_params: g_b }
+                TypeKind::Enum { name: name1, variants: variants1, generic_params: g_a },
+                TypeKind::Enum { name: name2, variants: variants2, generic_params: g_b }
             ) => {
                 match name1 == name2 {
                     true => {
@@ -250,8 +315,8 @@ impl PartialEq for TypeInfo {
                 }
             },
             (
-                TypeInfo::EnumVariant { enum_name: name1, variant: v1, generic_args: g_a }, 
-                TypeInfo::EnumVariant { enum_name: name2, variant: v2, generic_args: g_b }
+                TypeKind::EnumVariant { enum_name: name1, variant: v1, generic_args: g_a }, 
+                TypeKind::EnumVariant { enum_name: name2, variant: v2, generic_args: g_b }
             ) => {
                 name1 == name2 && v1 == v2 && {
                     for (a,b) in g_a.iter().zip(g_b.iter()) {
@@ -262,8 +327,8 @@ impl PartialEq for TypeInfo {
                     true
                 }
             },
-            (TypeInfo::Enum { name, variants, generic_params }, TypeInfo::EnumInstance { enum_name, variants: enum_variants, generic_args }) 
-            | (TypeInfo::EnumInstance { enum_name, variants: enum_variants, generic_args }, TypeInfo::Enum { name, variants, generic_params }) => {
+            (TypeKind::Enum { name, variants, generic_params }, TypeKind::EnumInstance { enum_name, variants: enum_variants, generic_args }) 
+            | (TypeKind::EnumInstance { enum_name, variants: enum_variants, generic_args }, TypeKind::Enum { name, variants, generic_params }) => {
                 if generic_args.len() != generic_params.len() || variants.len() != enum_variants.len() {
                     false
                 } else {
@@ -281,8 +346,8 @@ impl PartialEq for TypeInfo {
                 }
             },
             (
-                TypeInfo::EnumInstance { enum_name: name1, variants: variants1, generic_args: args1 },
-                TypeInfo::EnumInstance { enum_name: name2, variants: variants2, generic_args: args2 }
+                TypeKind::EnumInstance { enum_name: name1, variants: variants1, generic_args: args1 },
+                TypeKind::EnumInstance { enum_name: name2, variants: variants2, generic_args: args2 }
             ) => {
                 if name1 != name2 || variants1.len() != variants2.len() || args1.len() != args2.len() {
                     return false
@@ -299,8 +364,8 @@ impl PartialEq for TypeInfo {
                 }
                 true
             },
-            (TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: args1 }, TypeInfo::EnumVariant { enum_name: name2, variant, generic_args: args2 }) 
-            | (TypeInfo::EnumVariant { enum_name: name2, variant, generic_args: args2 }, TypeInfo::EnumInstance { enum_name: name1, variants, generic_args: args1 }) => {
+            (TypeKind::EnumInstance { enum_name: name1, variants, generic_args: args1 }, TypeKind::EnumVariant { enum_name: name2, variant, generic_args: args2 }) 
+            | (TypeKind::EnumVariant { enum_name: name2, variant, generic_args: args2 }, TypeKind::EnumInstance { enum_name: name1, variants, generic_args: args1 }) => {
                 name1 == name2 && variants.get(variant).is_some() && {
                     {
                         if args1.len() != args2.len() {
@@ -311,9 +376,9 @@ impl PartialEq for TypeInfo {
                     }
                 }
             },
-            (TypeInfo::GenericParam(a), TypeInfo::GenericParam(b)) => a == b,
-            (TypeInfo::GenericParam(a), TypeInfo::Custom { name, generic_args })
-            | (TypeInfo::Custom { name, generic_args }, TypeInfo::GenericParam(a)) => a == name && generic_args.len() == 0,
+            (TypeKind::GenericParam(a), TypeKind::GenericParam(b)) => a == b,
+            (TypeKind::GenericParam(a), TypeKind::Custom { name, generic_args })
+            | (TypeKind::Custom { name, generic_args }, TypeKind::GenericParam(a)) => a == name && generic_args.len() == 0,
             // (TypeInfo::EnumInstance{ enum_name, variants: _, generic_args }, TypeInfo::Custom { name, generic_args: g1 })
             // | (TypeInfo::Custom { name, generic_args: g1 }, TypeInfo::EnumInstance{ enum_name, variants: _, generic_args }) => {
             //     enum_name == name && {
@@ -336,7 +401,7 @@ impl PartialEq for TypeInfo {
             //         true
             //     }
             // },
-            (TypeInfo::Any, _) | (_, TypeInfo::Any) => true,
+            (TypeKind::Any, _) | (_, TypeKind::Any) => true,
             _ => false,
         }
     }

@@ -1,7 +1,7 @@
 use smol_str::SmolStr;
 
 use crate::{
-    ast::{Expr, MatchArm, Span, Spanned, Statement, TypeInfo, UnaryOp},
+    ast::{Expr, MatchArm, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp},
     lexer::Token,
 };
 
@@ -1372,7 +1372,7 @@ impl<'a> Parser<'a> {
                 let _l = self.advance().unwrap().clone();
                 let r = self.advance().unwrap().clone(); // RBracket
                 let combined = Span { start: ty.span.start, end: r.span.end };
-                ty = spanned(TypeInfo::Array(Box::new(ty)), combined);
+                ty = spanned(TypeInfo::new(TypeKind::Array(Box::new(ty))), combined);
             } else {
                 break;
             }
@@ -1416,21 +1416,21 @@ impl<'a> Parser<'a> {
             }
             let gt = self.advance().unwrap().clone();
             let span = Span { start: ident_sp.span.start, end: gt.span.end };
-            return Ok(spanned(TypeInfo::Custom { name, generic_args }, span));
+            return Ok(spanned(TypeInfo::new(TypeKind::Custom { name, generic_args }), span));
         }
 
         // primitives mapping (must start with capital letter)
         let ty = match name.as_str() {
-            "Int" => TypeInfo::Int,
-            "Float" => TypeInfo::Float,
-            "String" => TypeInfo::String,
-            "Char" => TypeInfo::Char,
-            "Bool" => TypeInfo::Bool,
-            "Void" => TypeInfo::Void,
-            "Null" => TypeInfo::Null,
-            "Any" => TypeInfo::Any,
-            "Unknown" => TypeInfo::Unknown,
-            _ => TypeInfo::Custom { name: name.clone(), generic_args: vec![] },
+            "Int" => TypeInfo::int(),
+            "Float" => TypeInfo::float(),
+            "String" => TypeInfo::string(),
+            "Char" => TypeInfo::char(),
+            "Bool" => TypeInfo::bool(),
+            "Void" => TypeInfo::void(),
+            "Null" => TypeInfo::null(),
+            "Any" => TypeInfo::any(),
+            "Unknown" => TypeInfo::unknown(),
+            _ => TypeInfo::new(TypeKind::Custom { name: name.clone(), generic_args: vec![] }),
         };
         Ok(spanned(ty, ident_sp.span))
     }
@@ -1471,7 +1471,7 @@ impl<'a> Parser<'a> {
                     self.advance(); // consume arrow
                     let ret = self.parse_type()?;
                     let span = Span { start: t_peek.span.start, end: ret.span.end };
-                    Ok(spanned(TypeInfo::Fun { params, return_type: Box::new(ret), generic_params: vec![] }, span))
+                    Ok(spanned(TypeInfo::new(TypeKind::Fun { params, return_type: Box::new(ret), generic_params: vec![] }), span))
                 } else {
                     Err(spanned("Parenthesized types are only allowed for function types".into(), rpar.span))
                 }
@@ -1534,11 +1534,11 @@ impl<'a> Parser<'a> {
                     let ret = self.parse_type()?;
                     let span = Span { start: lt.span.start, end: ret.span.end };
                     Ok(spanned(
-                        TypeInfo::Fun {
+                        TypeInfo::new(TypeKind::Fun {
                             params,
                             return_type: Box::new(ret),
                             generic_params,
-                        },
+                        }),
                         span,
                     ))
                 } else {
@@ -1566,7 +1566,7 @@ impl<'a> Parser<'a> {
                 }
                 let r = self.advance().ok_or(spanned("Unexpected EOF in record type".into(), Span::from(0..0)))?.clone();
                 let span = Span { start: t_peek.span.start, end: r.span.end };
-                Ok(spanned(TypeInfo::Record(fields), span))
+                Ok(spanned(TypeInfo::new(TypeKind::Record(fields)), span))
             }
             Token::Ident(_) => {
                 self.parse_type_ident_or_enumvariant()
