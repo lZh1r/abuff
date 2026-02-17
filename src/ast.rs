@@ -95,7 +95,8 @@ pub enum Statement {
     TypeDef {
         name: SmolStr, 
         type_info: Spanned<TypeInfo>,
-        generic_params: Vec<Spanned<SmolStr>>
+        generic_params: Vec<Spanned<SmolStr>>,
+        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>
     },
     Expr(Spanned<Expr>),
     Fun {
@@ -188,6 +189,9 @@ impl TypeInfo {
     }
     pub fn kind(&self) -> &TypeKind {
         &self.kind
+    }
+    pub fn id(&self) -> u32 {
+        self.id
     }
 }
 

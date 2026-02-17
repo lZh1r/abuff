@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use smol_str::SmolStr;
+use smol_str::{SmolStr, ToSmolStr};
 
 use crate::{ast::Spanned, ast::Operation, env::Env, ir::{ControlFlow, Expr, MatchArm, Statement, Value}};
 
@@ -361,7 +361,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.clone();
                         inner_env.add_variable(alias.clone(), target.inner.clone());
-                        
+                
                         match eval_expr(condition, &mut inner_env)? {
                             ControlFlow::Value(Value::Bool(true)) => {
                                 Ok(Some(eval_expr(outcome, &mut inner_env)?))
@@ -385,7 +385,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                 span: pattern_expr.span
                             })
                         };
-                        
+                
                         if *target.inner == pattern_value {
                             Ok(Some(eval_expr(outcome, env)?))
                         } else {
@@ -427,11 +427,23 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     })
                 },
                 ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => Err(Spanned { 
-                    inner: "Cannot match control flow statements".into(),
+                    inner: "Runtime Error: Cannot match control flow statements".into(),
                     span: target.span
                 }),
             }
         }
+        Expr::Method { this, fun } => {
+            let mut method_scope = env.enter_scope();
+            let value = match eval_expr(this, env)? {
+                ControlFlow::Value(value) => value,
+                _ => return Err(Spanned {
+                    inner: "Runtime Error: cannot call methods of a control flow expression".into(),
+                    span: this.span
+                })
+            };
+            method_scope.add_variable("self".to_smolstr(), value);
+            eval_expr(fun, &mut method_scope)
+        },
     }
 }
 

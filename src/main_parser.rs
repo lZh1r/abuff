@@ -382,7 +382,7 @@ impl<'a> Parser<'a> {
         };
         
         Ok(spanned(
-            Statement::TypeDef { name: type_name, type_info: type_expr, generic_params: type_generics },
+            Statement::TypeDef { name: type_name, type_info: type_expr, generic_params: type_generics, implementation: vec![] },
             Span::from(start_span.start..end_span.end)
         ))
     }

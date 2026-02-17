@@ -20,6 +20,7 @@ pub enum Expr {
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>},
+    Method {this: Box<Spanned<Expr>>, fun: Box<Spanned<Expr>>},
     Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
     Record(Vec<(SmolStr, Spanned<Expr>)>),
     Get(Box<Spanned<Expr>>, SmolStr),
