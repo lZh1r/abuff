@@ -63,10 +63,10 @@ export native fun panic(reason: String);
 /// ```
 /// let a = 9;
 /// let b = 2;
-/// assert(a % b == 0) // panics
+/// assert(a % b == 0, "Oopsie!") // panics and prints "Oopsie"
 /// ```
-export fun assert(expression: Bool) {
-    if (!expression) panic()
+export fun assert(expression: Bool, reason: String) {
+    if (!expression) panic(reason)
 }
 
 /// Enum representing optional values.

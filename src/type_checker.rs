@@ -47,7 +47,8 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
             },
             Statement::TypeDef { name: _, type_info: _, generic_params: _, implementation: _ }
             | Statement::EnumDef { name: _, variants: _, generic_params: _ } => types.push(st),
-            Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ } => functions.push(st),
+            Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ } 
+            | Statement::NativeFun { name: _, params: _, return_type: _, generic_params: _ } => functions.push(st),
             Statement::Export(statement) => {
                 if !is_top_level {
                     return Err(spanned(
@@ -58,7 +59,8 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                 match &statement.inner {
                     Statement::TypeDef { name: _, type_info: _, generic_params: _, implementation: _ } 
                     | Statement::EnumDef { name: _, variants: _, generic_params: _ } => types.push(st),
-                    Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ } => functions.push(st),
+                    Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ }
+                   | Statement::NativeFun { name: _, params: _, return_type: _, generic_params: _ } => functions.push(st),
                     _ => rest.push(st)
                 }
             }
