@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, sync::{Arc, OnceLock, RwLock}, time::Instant
 
 use smol_str::{SmolStr, ToSmolStr};
 
-use crate::{ast::{Expr, Span, Spanned, TypeInfo}, error::build_report, ir::{ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::register_fun};
+use crate::{ast::{Expr, Span, Spanned, TypeInfo}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::register_fun};
 
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -72,8 +72,7 @@ pub struct TypeScope {
     custom_types: HashMap<SmolStr, Spanned<TypeInfo>>,
     parent: Option<TypeEnv>,
     interface_implementations: HashMap<SmolStr, Vec<Spanned<TypeInfo>>>, //which types implement what
-    method_map: HashMap<u32, HashMap<SmolStr, Spanned<TypeInfo>>>, //for getting type signatures of specific method implementations
-    method_function_map: HashMap<u32, HashMap<SmolStr, Arc<Spanned<Expr>>>> //stores concrete method implementations
+    method_map: HashMap<u32, HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>>, //for getting type signatures of specific method implementations
 }
 
 #[derive(Debug, Clone)]
@@ -86,8 +85,7 @@ impl TypeEnv {
             custom_types: HashMap::new(),
             parent: None,
             interface_implementations: HashMap::new(),
-            method_map: HashMap::new(),
-            method_function_map: HashMap::new()
+            method_map: HashMap::new()
         })))
     }
     
@@ -127,7 +125,6 @@ impl TypeEnv {
                 custom_types: HashMap::new(),
                 interface_implementations: HashMap::new(), 
                 method_map: HashMap::new(),
-                method_function_map: HashMap::new(),
                 parent: Some(self.clone())
             }))
         )
@@ -174,12 +171,12 @@ impl TypeEnv {
         false
     }
     
-    pub fn insert_methods(&mut self, type_id: u32, methods: HashMap<SmolStr, Spanned<TypeInfo>>) {
+    pub fn insert_methods(&mut self, type_id: u32, methods: HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>) {
         let mut scope = self.0.write().unwrap();
         scope.method_map.insert(type_id, methods);
     }
 
-    pub fn get_method(&self, id: u32, name: &str) -> Option<Spanned<TypeInfo>> {
+    pub fn get_method(&self, id: u32, name: &str) -> Option<(Spanned<TypeInfo>, Spanned<ir::Expr>)> {
         let mut current = Some(self.clone());
 
         while let Some(env) = current {
@@ -191,30 +188,6 @@ impl TypeEnv {
                     None => (),
                 },
                 None => (),
-            }
-
-            current = scope.parent.clone();
-        }
-
-        None
-    }
-    
-    pub fn add_method_function(&self, id: u32, name: &str, method: Spanned<Expr>) {
-        let mut scope = self.0.write().unwrap();
-        let entry = scope.method_function_map.entry(id).or_insert_with(HashMap::new);
-        entry.insert(name.to_smolstr(), Arc::new(method));
-    }
-
-    pub fn get_method_function(&self, id: u32, name: &str) -> Option<Arc<Spanned<Expr>>> {
-        let mut current = Some(self.clone());
-
-        while let Some(env) = current {
-            let scope = env.0.read().unwrap();
-
-            if let Some(map) = scope.method_function_map.get(&id) {
-                if let Some(func) = map.get(name) {
-                    return Some(func.clone());
-                }
             }
 
             current = scope.parent.clone();

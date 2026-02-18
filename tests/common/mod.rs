@@ -1,6 +1,6 @@
 use std::env::current_dir;
 
-use abuff::{ast::{Span, Spanned}, env::{create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist, lower_statement}};
+use abuff::{ast::{Span, Spanned}, env::{create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist}};
 use smol_str::SmolStr;
 
 pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<SmolStr>> {
@@ -33,16 +33,9 @@ pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<SmolStr>> {
     let res = hoist(&parsed, &mut type_env, current_dir().unwrap().to_str().unwrap());
     match res {
         Err(e) => Err(e),
-        Ok(statements) => {
-            let mut result = Vec::new();
-            for s in statements.0 {
-                match lower_statement(&s, &mut type_env)? {
-                    None => (),
-                    Some(st) => result.push(st)
-                }
-            }
+        Ok((statements, _, _)) => {
             let reg = GlobalRegistry;
-            match run(&result, &mut env, current_dir().unwrap(), &reg) {
+            match run(&statements, &mut env, current_dir().unwrap(), &reg) {
                 Err(e) => Err(e),
                 Ok(result) => Ok(result)
             }

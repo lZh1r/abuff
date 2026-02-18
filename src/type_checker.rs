@@ -1,8 +1,16 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use smol_str::SmolStr;
+use smol_str::{SmolStr, format_smolstr};
 
 use crate::{ast::{Expr, MatchArm, Operation, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
+
+struct LoweringResult {
+    name: Option<SmolStr>,
+    var_type: Option<Spanned<TypeInfo>>,
+    custom_type: Option<Spanned<TypeInfo>>,
+    export: bool,
+    lowered_statement: Option<Spanned<ir::Statement>>
+}
 
 fn spanned<T>(inner: T, span: Span) -> Spanned<T> {
     Spanned { inner, span }
@@ -10,14 +18,14 @@ fn spanned<T>(inner: T, span: Span) -> Spanned<T> {
 
 pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str) -> Result<
     (
-        Vec<Spanned<Statement>>, //ordered statements
+        Vec<Spanned<ir::Statement>>, //ordered statements
         HashMap<SmolStr, Spanned<TypeInfo>>, // var_exports
-        HashMap<SmolStr, Spanned<TypeInfo>> // type_exports
+        HashMap<SmolStr, Spanned<TypeInfo>>, // type_exports
     ), Spanned<SmolStr>
 > {
     let mut statements = statements.clone();
     
-    let mut new_statements = Vec::new();
+    let mut lowered_statements = Vec::new();
     let is_top_level = env.is_top_level();
     let mut var_exports = HashMap::new();
     let mut type_exports = HashMap::new();
@@ -31,39 +39,11 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
         if statements.is_empty() {break}
         let st = statements.pop().unwrap();
         match &st.inner {
-            Statement::Import { symbols, path } => {
-                if !is_top_level {
-                    return Err(spanned(
-                        "Imports should be made at the top level".into(),
-                        st.span
-                    ))
+            Statement::Import { symbols: _, path: _ } => {
+                let result = process_statement(&st, env, path)?;
+                if let Some(statement) = result.lowered_statement {
+                    lowered_statements.push(statement);
                 }
-                let (var_exports, type_exports) = eval_import(path.inner.as_str(), &GlobalRegistry)?;
-                for (symbol, alias, is_type) in symbols {
-                    match is_type {
-                        false => {
-                            let var_type = var_exports.get(&symbol.inner);
-                            if var_type.is_none() {
-                                return Err(spanned(
-                                    format!("Cannot resolve import {symbol} from {path}").into(), 
-                                    symbol.span
-                                ))
-                            }
-                            env.add_var_type(alias.clone().unwrap_or(symbol.inner.clone()), var_type.unwrap().clone());
-                        },
-                        true => {
-                            let import_type = type_exports.get(&symbol.inner);
-                            if import_type.is_none() {
-                                return Err(spanned(
-                                    format!("Cannot resolve import type {symbol} from {path}").into(), 
-                                    symbol.span
-                                ))
-                            }
-                            env.add_custom_type(alias.clone().unwrap_or(symbol.inner.clone()), import_type.unwrap().clone());
-                        },
-                    }
-                }
-                new_statements.push(st);
             },
             Statement::TypeDef { name: _, type_info: _, generic_params: _, implementation: _ }
             | Statement::EnumDef { name: _, variants: _, generic_params: _ } => types.push(st),
@@ -90,75 +70,92 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
     loop {
         if types.is_empty() {break}
         let st = types.pop().unwrap();
-        let (name, var_export, type_export, is_exported) = process_statement(&st, env, path)?;
-        if is_exported && let Some(name) = name {
-            if let Some(ti) = var_export {
+        let result = process_statement(&st, env, path)?;
+        if result.export && let Some(name) = result.name {
+            if let Some(ti) = result.var_type {
                 var_exports.insert(name.clone(), ti);
             }
-            if let Some(ti) = type_export {
+            if let Some(ti) = result.custom_type {
                 type_exports.insert(name, ti);
             }
         }
-        new_statements.push(st);
+        if let Some(statement) = result.lowered_statement {
+            lowered_statements.push(statement);
+        }
     }
     
     //processing functions
     loop {
         if functions.is_empty() {break}
         let st = functions.pop().unwrap();
-        let (name, var_export, type_export, is_exported) = process_statement(&st, env, path)?;
-        if is_exported && let Some(name) = name {
-            if let Some(ti) = var_export {
+        let result = process_statement(&st, env, path)?;
+        if result.export && let Some(name) = result.name {
+            if let Some(ti) = result.var_type {
                 var_exports.insert(name.clone(), ti);
             }
-            if let Some(ti) = type_export {
+            if let Some(ti) = result.custom_type {
                 type_exports.insert(name, ti);
             }
         }
-        new_statements.push(st);
+        lowered_statements.push(result.lowered_statement.unwrap());
     }
     
     //processing the rest
     loop {
         if rest.is_empty() {break}
         let st = rest.pop().unwrap();
-        let (name, var_export, type_export, is_exported) = process_statement(&st, env, path)?;
-        if is_exported && let Some(name) = name {
-            if let Some(ti) = var_export {
+        let result = process_statement(&st, env, path)?;
+        if result.export && let Some(name) = result.name {
+            if let Some(ti) = result.var_type {
                 var_exports.insert(name.clone(), ti);
             }
-            if let Some(ti) = type_export {
+            if let Some(ti) = result.custom_type {
                 type_exports.insert(name, ti);
             }
         }
-        new_statements.push(st);
+        lowered_statements.push(result.lowered_statement.unwrap());
     }
     
     let reg = GlobalRegistry;
     insert_type_module(&reg, var_exports.clone(), type_exports.clone(), env.clone(), path);
     
-    Ok((new_statements, var_exports, type_exports))
+    Ok((lowered_statements, var_exports, type_exports))
 }
 
-//adds statement's type to the type env and returns (name, var_type, type_type, is_exported) tuple where type_type is for type_exports in the module
 fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &str) -> Result<
-    (Option<SmolStr>, Option<Spanned<TypeInfo>>, Option<Spanned<TypeInfo>>, bool),
+    LoweringResult,
     Spanned<SmolStr>
 > {
     match &statement.inner {
         Statement::Let { name, expr, type_info } => {
-            let expr_type = get_type(expr, env)?;
+            let expr_result = lower_expr(expr, env)?;
             if let Some(ti) = type_info {
                 let expected_type = flatten_type(ti, env)?;
-                if expected_type.inner != expr_type.inner {
+                if expected_type.inner != expr_result.1.inner {
                     return Err(spanned(
-                        format!("Type mismatch in let declaration: expected {:?}, got {:?}", expected_type.inner, expr_type.inner).into(),
+                        format_smolstr!(
+                            "Type mismatch in let declaration: expected {:?}, got {:?}",
+                            expected_type.inner,
+                            expr_result.1.inner
+                        ),
                         statement.span
                     ))
                 }
             }
-            env.add_var_type(name.clone(), expr_type.clone());
-            Ok((Some(name.clone()), Some(expr_type), None, false))
+            env.add_var_type(name.clone(), expr_result.1.clone());
+            Ok(LoweringResult { 
+                name: Some(name.clone()),
+                var_type: Some(expr_result.1), 
+                custom_type: None,
+                export: false,
+                lowered_statement: Some(spanned(
+                    ir::Statement::Let { 
+                        name: name.clone(),
+                        expr: expr_result.0
+                    },
+                    statement.span
+                ))
+            })
         },
         Statement::TypeDef { name, type_info, generic_params, implementation } => {
             if generic_params.len() != 0 {
@@ -168,11 +165,18 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     statement.span
                 );
                 env.add_custom_type(name.clone(), closure_type.clone());
-                Ok((Some(name.clone()), None, Some(closure_type), false))
+                Ok(LoweringResult { 
+                    name: Some(name.clone()),
+                    var_type: None, 
+                    custom_type: Some(closure_type),
+                    export: false,
+                    lowered_statement: None
+                })
+                //Ok((Some(name.clone()), None, Some(closure_type), false))
             } else {
                 let flat_type = flatten_type(type_info, env)?.into_owned();
                 env.add_custom_type(name.clone(), flat_type.clone());
-                let mut method_types = HashMap::new();
+                let mut method_map = HashMap::new();
                 
                 for (interface_name, methods) in implementation {
                     let mut inner_scope = env.enter_scope();
@@ -199,15 +203,25 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                     statement.span
                                 )
                             );
-                            let actual_type = get_type(&m.inner.body, &mut inner_scope)?;
-                            if actual_type.inner != expected_type.inner {
+                            let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                            if method_result.1.inner != expected_type.inner {
                                 return Err(spanned(
-                                    format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner).into(),
+                                    format_smolstr!(
+                                        "Function return type mismatch: expected {:?}, got {:?}",
+                                        expected_type.inner,
+                                        method_result.1.inner
+                                    ),
                                     expected_type.span
                                 ))
                             }
                             let fun_type = spanned(
-                                TypeInfo::new(TypeKind::Fun { params: flat_params, return_type: Box::new(actual_type), generic_params: Vec::new() }),
+                                TypeInfo::new(
+                                    TypeKind::Fun {
+                                        params: flat_params, 
+                                        return_type: Box::new(method_result.1),
+                                        generic_params: Vec::new()
+                                    }
+                                ),
                                 statement.span
                             );
                             
@@ -247,41 +261,54 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 )
                             );
             
-                            let actual_type = get_type(&m.inner.body, &mut inner_scope)?;
-                            if actual_type.inner != expected_flat.inner {
+                            let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                            if method_result.1.inner != expected_flat.inner {
                                 return Err(spanned(
-                                    format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner).into(),
+                                    format_smolstr!(
+                                        "Function return type mismatch: expected {:?}, got {:?}", 
+                                        expected_flat.inner, 
+                                        method_result.1.inner
+                                    ),
                                     expected_flat.span
                                 ))
                             }
                             let fun_type = spanned(
                                 TypeInfo::new(TypeKind::Fun {
                                     params: flat_params.clone(),
-                                    return_type: Box::new(actual_type.clone()),
+                                    return_type: Box::new(method_result.1.clone()),
                                     generic_params: generic_params.clone()
                                 }),
                                 statement.span
                             );
-                            method_types.insert(m.inner.name.clone(), fun_type.clone());
+                            method_map.insert(m.inner.name.clone(), (fun_type.clone(), method_result.0));
                             env.add_var_type(name.clone(), fun_type);
-                            env.add_method_function(flat_type.inner.id(), name, spanned(
-                                Expr::Fun { 
-                                    params: m.inner.params.clone(), 
-                                    body: Box::new(m.inner.body.clone()),
-                                    return_type: m.inner.return_type.clone(),
-                                    generic_params: m.inner.generic_params.clone()
-                                },
-                                m.span
-                            ));
                         }
                     }
                 }
-                env.insert_methods(flat_type.inner.id(), method_types);
-                Ok((Some(name.clone()), None, Some(flat_type), false))
+                env.insert_methods(flat_type.inner.id(), method_map);
+                Ok(LoweringResult { 
+                    name: Some(name.clone()),
+                    var_type: None, 
+                    custom_type: Some(flat_type),
+                    export: false,
+                    lowered_statement: None
+                })
+                // Ok((Some(name.clone()), None, Some(flat_type), false))
             }
         },
         Statement::Expr(expr) => {
-            Ok((None, Some(get_type(expr, env)?), None, false))
+            let expr_result = lower_expr(expr, env)?;
+            Ok(LoweringResult { 
+                name: None,
+                var_type: Some(expr_result.1), 
+                custom_type: None,
+                export: false,
+                lowered_statement: Some(spanned(
+                    ir::Statement::Expr(expr_result.0),
+                    statement.span
+                ))
+            })
+            // Ok((None, Some(get_type(expr, env)?), None, false))
         },
         Statement::Fun { name, params, body, return_type, generic_params } => {
             let mut inner_scope = env.enter_scope();
@@ -307,24 +334,53 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         statement.span
                     )
                 );
-                let actual_type = get_type(body, &mut inner_scope)?;
-                if actual_type.inner != expected_type.inner {
+                let body_result = lower_expr(body, &mut inner_scope)?;
+                if body_result.1.inner != expected_type.inner {
                     return Err(spanned(
-                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner).into(),
+                        format_smolstr!(
+                            "Function return type mismatch: expected {:?}, got {:?}",
+                            expected_type.inner,
+                            body_result.1.inner
+                        ),
                         expected_type.span
                     ))
                 }
                 let fun_type = spanned(
-                    TypeInfo::new(TypeKind::Fun { params: flat_params, return_type: Box::new(actual_type), generic_params: Vec::new() }),
+                    TypeInfo::new(
+                        TypeKind::Fun {
+                            params: flat_params, 
+                            return_type: Box::new(body_result.1),
+                            generic_params: Vec::new()
+                        }
+                    ),
                     statement.span
                 );
                 env.add_var_type(name.clone(), fun_type.clone());
-                Ok((
-                    Some(name.clone()),
-                    Some(fun_type),
-                    None,
-                    false
-                ))
+                Ok(LoweringResult { 
+                    name: Some(name.clone()),
+                    var_type: Some(fun_type), 
+                    custom_type: None,
+                    export: false,
+                    lowered_statement: Some(spanned(
+                        ir::Statement::Let { 
+                            name: name.clone(),
+                            expr: spanned(
+                                ir::Expr::Fun { 
+                                    params: params.iter().map(|(need, _)| need.clone()).collect(),
+                                    body: Box::new(body_result.0)
+                                },
+                                body.span
+                            )
+                        }, 
+                        statement.span
+                    ))
+                })
+                // Ok((
+                //     Some(name.clone()),
+                //     Some(fun_type),
+                //     None,
+                //     false
+                // ))
             } else {
                 // Register generic params in the inner scope so they can be referenced
                 for generic in generic_params {
@@ -348,40 +404,67 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                 inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
 
-                inner_scope.add_var_type(
-                    name.clone(),
-                    spanned(
-                        TypeInfo::new(TypeKind::Fun {
-                            params: flat_params.clone(),
-                            return_type: Box::new(expected_flat.clone()),
-                            generic_params: generic_params.clone()
-                        }),
-                        statement.span
-                    )
-                );
-
-                let actual_type = get_type(body, &mut inner_scope)?;
-                if actual_type.inner != expected_flat.inner {
-                    return Err(spanned(
-                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner).into(),
-                        expected_flat.span
-                    ))
-                }
                 let fun_type = spanned(
                     TypeInfo::new(TypeKind::Fun {
                         params: flat_params.clone(),
-                        return_type: Box::new(actual_type.clone()),
+                        return_type: Box::new(expected_flat.clone()),
                         generic_params: generic_params.clone()
                     }),
                     statement.span
                 );
+                
+                inner_scope.add_var_type(
+                    name.clone(),
+                    fun_type.clone()
+                );
+
+                let body_result = lower_expr(body, &mut inner_scope)?;
+                if body_result.1.inner != expected_flat.inner {
+                    return Err(spanned(
+                        format_smolstr!(
+                            "Function return type mismatch: expected {:?}, got {:?}",
+                            expected_flat.inner,
+                            body_result.1.inner
+                        ),
+                        expected_flat.span
+                    ))
+                }
+                // let fun_type = spanned(
+                //     TypeInfo::new(
+                //         TypeKind::Fun {
+                //             params: flat_params, 
+                //             return_type: Box::new(body_result.1),
+                //             generic_params: Vec::new()
+                //         }
+                //     ),
+                //     statement.span
+                // );
                 env.add_var_type(name.clone(), fun_type.clone());
-                Ok((
-                    Some(name.clone()),
-                    Some(fun_type),
-                    None,
-                    false
-                ))
+                Ok(LoweringResult { 
+                    name: Some(name.clone()),
+                    var_type: Some(fun_type), 
+                    custom_type: None,
+                    export: false,
+                    lowered_statement: Some(spanned(
+                        ir::Statement::Let { 
+                            name: name.clone(),
+                            expr: spanned(
+                                ir::Expr::Fun { 
+                                    params: params.iter().map(|(need, _)| need.clone()).collect(),
+                                    body: Box::new(body_result.0)
+                                },
+                                body.span
+                            )
+                        }, 
+                        statement.span
+                    ))
+                })
+                // Ok((
+                //     Some(name.clone()),
+                //     Some(fun_type),
+                //     None,
+                //     false
+                // ))
             }
         },
         Statement::NativeFun { name, params, return_type, generic_params } => {
@@ -411,12 +494,22 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     statement.span
                 );
                 env.add_var_type(name.clone(), fun_type.clone());
-                Ok((
-                    Some(name.clone()),
-                    Some(fun_type),
-                    None,
-                    false
-                ))
+                Ok(LoweringResult { 
+                    name: Some(name.clone()),
+                    var_type: Some(fun_type), 
+                    custom_type: None,
+                    export: false,
+                    lowered_statement: Some(spanned(
+                        ir::Statement::NativeFun(name.clone()),
+                        statement.span
+                    ))
+                })
+                // Ok((
+                //     Some(name.clone()),
+                //     Some(fun_type),
+                //     None,
+                //     false
+                // ))
             } else {
                 // Register generic params in the inner scope so they can be referenced
                 for generic in generic_params {
@@ -448,12 +541,22 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     statement.span
                 );
                 env.add_var_type(name.clone(), fun_type.clone());
-                Ok((
-                    Some(name.clone()),
-                    Some(fun_type),
-                    None,
-                    false
-                ))
+                Ok(LoweringResult { 
+                    name: Some(name.clone()),
+                    var_type: Some(fun_type), 
+                    custom_type: None,
+                    export: false,
+                    lowered_statement: Some(spanned(
+                        ir::Statement::NativeFun(name.clone()),
+                        statement.span
+                    ))
+                })
+                // Ok((
+                //     Some(name.clone()),
+                //     Some(fun_type),
+                //     None,
+                //     false
+                // ))
             }
         },
         Statement::EnumDef { name, variants, generic_params } => {
@@ -467,17 +570,38 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             
             let mut variant_funs = Vec::new();
             let mut variant_hashmap = HashMap::new();
+            // since enums are just fancy records, we need to store their lowered fields somewhere
+            let mut record_exprs = Vec::new();
             
-            for (n, maybe_ti) in variants {
+            for (v_name, maybe_ti) in variants {
                 if let Some(ti) = maybe_ti {
                     let ti = flatten_type(ti, &mut inner_scope)?.into_owned();
-                    variant_funs.push((n.clone(), spanned(
+                    record_exprs.push(
+                        (v_name.clone(), Spanned {
+                            inner: ir::Expr::Fun { 
+                                params: vec![(false, SmolStr::new("+arg"))], 
+                                body: Box::new(Spanned {
+                                    inner: ir::Expr::EnumConstructor { 
+                                        enum_name: name.clone(),
+                                        variant: v_name.clone(),
+                                        value: Box::new(Spanned {
+                                            inner: ir::Expr::Var(SmolStr::new("+arg")),
+                                            span: ti.span
+                                        })
+                                    },
+                                    span: ti.span
+                                })
+                            },
+                            span: ti.span
+                        })
+                    );
+                    variant_funs.push((v_name.clone(), spanned(
                         TypeInfo::new(TypeKind::Fun { 
                             params: vec![((false, "+arg".into()), ti.clone())],
                             return_type: Box::new(spanned(
                                 TypeInfo::new(TypeKind::EnumVariant { 
                                     enum_name: name.clone(),
-                                    variant: n.clone(),
+                                    variant: v_name.clone(),
                                     generic_args: generic_params
                                         .clone()
                                         .into_iter()
@@ -490,15 +614,15 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         }),
                         statement.span
                     )));
-                    variant_hashmap.insert(n.clone(), ti.clone());
+                    variant_hashmap.insert(v_name.clone(), ti.clone());
                 } else {
-                    variant_funs.push((n.clone(), spanned(
+                    variant_funs.push((v_name.clone(), spanned(
                         TypeInfo::new(TypeKind::Fun { 
                             params: Vec::new(),
                             return_type: Box::new(spanned(
                                 TypeInfo::new(TypeKind::EnumVariant { 
                                     enum_name: name.clone(),
-                                    variant: n.clone(),
+                                    variant: v_name.clone(),
                                     generic_args: vec![TypeInfo::any(); generic_params.len()]
                                 }),
                                 statement.span
@@ -507,7 +631,26 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         }),
                         statement.span
                     )));
-                    variant_hashmap.insert(n.clone(), spanned(TypeInfo::void(), statement.span));
+                    record_exprs.push(
+                        (v_name.clone(), Spanned {
+                            inner: ir::Expr::Fun { 
+                                params: vec![], 
+                                body: Box::new(Spanned {
+                                    inner: ir::Expr::EnumConstructor { 
+                                        enum_name: name.clone(),
+                                        variant: v_name.clone(),
+                                        value: Box::new(Spanned {
+                                            inner: ir::Expr::Void,
+                                            span: Span::from(0..0)
+                                        })
+                                    },
+                                    span: Span::from(0..0)
+                                })
+                            },
+                            span: Span::from(0..0)
+                        })
+                    );
+                    variant_hashmap.insert(v_name.clone(), spanned(TypeInfo::void(), statement.span));
                 }
             }
             
@@ -523,17 +666,104 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             env.add_custom_type(name.clone(), enum_type.clone());
             env.add_var_type(name.clone(), enum_var.clone());
             
-            Ok((
-                Some(name.clone()),
-                Some(enum_var),
-                Some(enum_type),
-                false
-            ))
+            Ok(LoweringResult { 
+                name: Some(name.clone()),
+                var_type: Some(enum_var), 
+                custom_type: Some(enum_type),
+                export: false,
+                lowered_statement: Some(spanned(
+                    ir::Statement::Let { 
+                        name: name.clone(),
+                        expr: Spanned {
+                            inner: ir::Expr::Record(record_exprs),
+                            span: statement.span
+                        }
+                    },
+                    statement.span
+                ))
+            })
+
+            // Ok(Some(Spanned {
+            //     inner: ir::Statement::Let { 
+            //         name: name.clone(),
+            //         expr: Spanned {
+            //             inner: ir::Expr::Record(record_exprs),
+            //             span: statement.span
+            //         }
+            //     },
+            //     span: statement.span
+            // }))
+            
+            // Ok((
+            //     Some(name.clone()),
+            //     Some(enum_var),
+            //     Some(enum_type),
+            //     false
+            // ))
         },
-        Statement::Import { symbols: _, path: _ } => Err(spanned(
-            "Imports should be made at the top level".into(),
-            statement.span
-        )),
+        Statement::Import { symbols, path } => {
+            if !env.is_top_level() {
+                return Err(spanned(
+                    "Imports should be made at the top level".into(),
+                    statement.span
+                ))
+            }
+            let (var_exports, type_exports) = eval_import(path.inner.as_str(), &GlobalRegistry)?;
+            for (symbol, alias, is_type) in symbols {
+                match is_type {
+                    false => {
+                        let var_type = var_exports.get(&symbol.inner);
+                        if var_type.is_none() {
+                            return Err(spanned(
+                                format_smolstr!("Cannot resolve import {symbol} from {path}"), 
+                                symbol.span
+                            ))
+                        }
+                        env.add_var_type(
+                            alias.clone().unwrap_or(symbol.inner.clone()),
+                            var_type.unwrap().clone()
+                        );
+                    },
+                    true => {
+                        let import_type = type_exports.get(&symbol.inner);
+                        if import_type.is_none() {
+                            return Err(spanned(
+                                format_smolstr!("Cannot resolve import type {symbol} from {path}"), 
+                                symbol.span
+                            ))
+                        }
+                        env.add_custom_type(
+                            alias.clone().unwrap_or(symbol.inner.clone()),
+                            import_type.unwrap().clone()
+                        );
+                    },
+                }
+            }
+            Ok(LoweringResult { 
+                name: None,
+                var_type: None, 
+                custom_type: None,
+                export: false,
+                lowered_statement: {
+                    let mut new_symbols = Vec::new();
+                    for (name, alias, is_type) in symbols {
+                        if !is_type.clone() {
+                            new_symbols.push((name.clone(), alias.clone()))
+                        }
+                    }
+                    
+                    if new_symbols.len() != 0 {
+                        Some(spanned(
+                            ir::Statement::Import { 
+                                symbols: new_symbols, 
+                                path: path.clone()
+                            },
+                            statement.span
+                        ))
+                    } else { None }
+                }
+            })
+        },
         Statement::Export(st) => {
             if !env.is_top_level() {
                 return Err(spanned(
@@ -541,20 +771,34 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     statement.span
                 ))
             }
-            let (name, var_export, type_export, is_exported) = process_statement(st, env, path)?;
-            if is_exported {
+            let result = process_statement(st, env, path)?;
+            if result.export {
                 return Err(spanned(
                     "Cannot export an export statement".into(),
                     st.span
                 ))
             }
-            if name.is_none() {
+            if result.name.is_none() {
                 return Err(spanned(
                     "Cannot export this".into(),
                     st.span
                 ))
             }
-            Ok((name, var_export, type_export, true))
+            Ok(LoweringResult { 
+                name: Some(result.name.unwrap().clone()),
+                var_type: result.var_type.clone(), 
+                custom_type: result.custom_type,
+                export: true,
+                lowered_statement: {
+                    if result.var_type.is_some() {
+                        Some(spanned(
+                            ir::Statement::Export(Box::new(result.lowered_statement.unwrap())),
+                            statement.span
+                        ))
+                    } else { None }
+                }
+            })
+            // Ok((name, var_export, type_export, true))
         },
     }
 }
@@ -675,821 +919,821 @@ fn collect_generic_params(
 }
 
 //returrs the type of an expression while also checking for type errors
-fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
-    match &expr.inner {
-        Expr::Bool(_) => Ok(spanned(TypeInfo::bool(), expr.span)),
-        Expr::Float(_) => Ok(spanned(TypeInfo::float(), expr.span)),
-        Expr::Int(_) => Ok(spanned(TypeInfo::int(), expr.span)),
-        Expr::String(_) => Ok(spanned(TypeInfo::string(), expr.span)),
-        Expr::Char(_) => Ok(spanned(TypeInfo::char(), expr.span)),
-        Expr::Void => Ok(spanned(TypeInfo::void(), expr.span)),
-        Expr::Null => Ok(spanned(TypeInfo::null(), expr.span)),
-        Expr::Var(name) => {
-            Ok(env.get_var_type(name).ok_or(spanned(format!("Cannot resolve variable {name}").into(), expr.span))?)
-        },
-        Expr::Array(spanneds) => {
-            if spanneds.len() == 0 {
-                return Ok(spanned(
-                    TypeInfo::new(TypeKind::Array(Box::new(spanned(TypeInfo::any(), Span::from(0..0))))),
-                    expr.span
-                ))
-            }
-            let first_type = get_type(spanneds.first().unwrap(), env)?;
-            for ti in spanneds {
-                let element_type = get_type(ti, env)?.inner;
-                if element_type != first_type.inner {
-                    return Err(spanned(
-                        format!("Array Element Type Mismatch: Expected {:?}, got {:?}", element_type, first_type.inner).into(),
-                        ti.span
-                    ))
-                }
-            }
-            Ok(spanned(TypeInfo::new(TypeKind::Array(Box::new(first_type))), expr.span))
-        },
-        Expr::Index(target, index) => {
-            let index_type = get_type(index, env)?;
-            if *index_type.inner.kind() != TypeKind::Int {
-                return Err(spanned(
-                    format!("Cannot use {:?} to index arrays", index_type.inner).into(),
-                    index.span
-                ))
-            }
-            let target_type = get_type(target, env)?;
-            match target_type.inner.kind() {
-                TypeKind::Array(element_type) => Ok(*element_type.clone()),
-                _ => Err(spanned(
-                    format!("Cannot index {:?}", target_type.inner).into(),
-                    target.span
-                ))
-            }
-        },
-        Expr::Binary { left, operation, right } => {
-            let left_type = get_type(left, env)?;
-            let right_type = get_type(right, env)?;
-            match operation {
-                Operation::Add
-                | Operation::Subtract 
-                | Operation::Multiply
-                | Operation::Divide
-                | Operation::Modulo  => {
-                    match left_type.inner.kind() {
-                        TypeKind::Any 
-                        | TypeKind::Float 
-                        | TypeKind::Int => {
-                            if left_type.inner != right_type.inner {
-                                return Err(spanned(
-                                    format!("Type Mismatch: Expeccted {:?}, got {:?}", left_type.inner, right_type.inner).into(), 
-                                    left.span
-                                ))
-                            }
-                            Ok(spanned(
-                                left_type.inner.clone(),
-                                Span::from(left_type.span.start..right_type.span.end)
-                            ))
-                        },
-                        _ => return Err(spanned(
-                            format!("Cannot apply {:?} to {:?}", operation, left_type).into(), 
-                            left.span
-                        ))
-                    }
-                },
-                Operation::LessThan 
-                | Operation::LessThanEq 
-                | Operation::GreaterThan 
-                | Operation::GreaterThanEq => {
-                    match left_type.inner.kind() {
-                        TypeKind::Any 
-                        | TypeKind::Float 
-                        | TypeKind::Int => {
-                            if left_type.inner != right_type.inner {
-                                return Err(spanned(
-                                    format!("Type Mismatch: Expeccted {:?}, got {:?}", left_type.inner, right_type.inner).into(), 
-                                    left.span
-                                ))
-                            }
-                            Ok(spanned(
-                                TypeInfo::bool(), 
-                                Span::from(left_type.span.start..right_type.span.end)
-                            ))
-                        },
-                        _ => return Err(spanned(
-                            format!("Cannot apply {:?} to {:?}", operation, left_type).into(), 
-                            left.span
-                        ))
-                    }
-                },
-                Operation::Eq | Operation::NotEq => {
-                    if left_type.inner != right_type.inner {
-                        return Err(spanned(
-                            format!("Cannot compare {:?} to {:?}", left_type.inner, right_type.inner).into(),
-                            Span::from(left_type.span.start..right_type.span.end)
-                        ))
-                    }
-                    Ok(spanned(
-                        TypeInfo::bool(),
-                        Span::from(left_type.span.start..right_type.span.end)
-                    ))
-                },
-                Operation::And | Operation::Or => {
-                    match (left_type.inner.kind(), right_type.inner.kind()) {
-                        (TypeKind::Bool, TypeKind::Bool) => Ok(spanned(
-                            TypeInfo::bool(),
-                            Span::from(left_type.span.start..right_type.span.end)
-                        )),
-                        (a, b) => Err(spanned(
-                            format!("{:?} requires both sides to be Bool, got: {:?}, {:?}", operation, a, b).into(),
-                            Span::from(left_type.span.start..right_type.span.end)
-                        ))
-                    }
-                },
-                Operation::NullCoal => {
-                    match (left_type.inner.kind(), right_type.inner.kind()) {
-                        (TypeKind::Null, _) => {
-                            Ok(right_type)
-                        },
-                        _ => Ok(left_type)
-                    }
-                },
-                Operation::BitwiseAnd 
-                | Operation::BitwiseOr 
-                | Operation::BitwiseXor 
-                | Operation::BitwiseLeftShift 
-                | Operation::BitwiseRightShift => {
-                    match left_type.inner.kind() {
-                        TypeKind::Any | TypeKind::Int => {
-                            if left_type.inner != right_type.inner {
-                                return Err(spanned(
-                                    format!("Type Mismatch: Expected {:?}, got {:?}", left_type.inner, right_type.inner).into(), 
-                                    left.span
-                                ))
-                            }
-                            Ok(spanned(
-                                left_type.inner,
-                                Span::from(left_type.span.start..right_type.span.end)
-                            ))
-                        },
-                        _ => return Err(spanned(
-                            format!("Cannot apply {:?} to {:?}", operation, left_type).into(), 
-                            left.span
-                        ))
-                    }
-                },
-            }
-        },
-        Expr::Block(statements, final_expr) => {
-            let mut inner_scope = env.enter_scope();
-            let mut r_span = if let Some(st) = statements.last() {
-                st.span
-            } else {
-                expr.span
-            };
-            let mut r_type = TypeInfo::void();
-            let _ = hoist(statements, &mut inner_scope, "")?;
+// fn get_type(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
+//     match &expr.inner {
+//         Expr::Bool(_) => Ok(spanned(TypeInfo::bool(), expr.span)),
+//         Expr::Float(_) => Ok(spanned(TypeInfo::float(), expr.span)),
+//         Expr::Int(_) => Ok(spanned(TypeInfo::int(), expr.span)),
+//         Expr::String(_) => Ok(spanned(TypeInfo::string(), expr.span)),
+//         Expr::Char(_) => Ok(spanned(TypeInfo::char(), expr.span)),
+//         Expr::Void => Ok(spanned(TypeInfo::void(), expr.span)),
+//         Expr::Null => Ok(spanned(TypeInfo::null(), expr.span)),
+//         Expr::Var(name) => {
+//             Ok(env.get_var_type(name).ok_or(spanned(format!("Cannot resolve variable {name}").into(), expr.span))?)
+//         },
+//         Expr::Array(spanneds) => {
+//             if spanneds.len() == 0 {
+//                 return Ok(spanned(
+//                     TypeInfo::new(TypeKind::Array(Box::new(spanned(TypeInfo::any(), Span::from(0..0))))),
+//                     expr.span
+//                 ))
+//             }
+//             let first_type = get_type(spanneds.first().unwrap(), env)?;
+//             for ti in spanneds {
+//                 let element_type = get_type(ti, env)?.inner;
+//                 if element_type != first_type.inner {
+//                     return Err(spanned(
+//                         format!("Array Element Type Mismatch: Expected {:?}, got {:?}", element_type, first_type.inner).into(),
+//                         ti.span
+//                     ))
+//                 }
+//             }
+//             Ok(spanned(TypeInfo::new(TypeKind::Array(Box::new(first_type))), expr.span))
+//         },
+//         Expr::Index(target, index) => {
+//             let index_type = get_type(index, env)?;
+//             if *index_type.inner.kind() != TypeKind::Int {
+//                 return Err(spanned(
+//                     format!("Cannot use {:?} to index arrays", index_type.inner).into(),
+//                     index.span
+//                 ))
+//             }
+//             let target_type = get_type(target, env)?;
+//             match target_type.inner.kind() {
+//                 TypeKind::Array(element_type) => Ok(*element_type.clone()),
+//                 _ => Err(spanned(
+//                     format!("Cannot index {:?}", target_type.inner).into(),
+//                     target.span
+//                 ))
+//             }
+//         },
+//         Expr::Binary { left, operation, right } => {
+//             let left_type = get_type(left, env)?;
+//             let right_type = get_type(right, env)?;
+//             match operation {
+//                 Operation::Add
+//                 | Operation::Subtract 
+//                 | Operation::Multiply
+//                 | Operation::Divide
+//                 | Operation::Modulo  => {
+//                     match left_type.inner.kind() {
+//                         TypeKind::Any 
+//                         | TypeKind::Float 
+//                         | TypeKind::Int => {
+//                             if left_type.inner != right_type.inner {
+//                                 return Err(spanned(
+//                                     format!("Type Mismatch: Expeccted {:?}, got {:?}", left_type.inner, right_type.inner).into(), 
+//                                     left.span
+//                                 ))
+//                             }
+//                             Ok(spanned(
+//                                 left_type.inner.clone(),
+//                                 Span::from(left_type.span.start..right_type.span.end)
+//                             ))
+//                         },
+//                         _ => return Err(spanned(
+//                             format!("Cannot apply {:?} to {:?}", operation, left_type).into(), 
+//                             left.span
+//                         ))
+//                     }
+//                 },
+//                 Operation::LessThan 
+//                 | Operation::LessThanEq 
+//                 | Operation::GreaterThan 
+//                 | Operation::GreaterThanEq => {
+//                     match left_type.inner.kind() {
+//                         TypeKind::Any 
+//                         | TypeKind::Float 
+//                         | TypeKind::Int => {
+//                             if left_type.inner != right_type.inner {
+//                                 return Err(spanned(
+//                                     format!("Type Mismatch: Expeccted {:?}, got {:?}", left_type.inner, right_type.inner).into(), 
+//                                     left.span
+//                                 ))
+//                             }
+//                             Ok(spanned(
+//                                 TypeInfo::bool(), 
+//                                 Span::from(left_type.span.start..right_type.span.end)
+//                             ))
+//                         },
+//                         _ => return Err(spanned(
+//                             format!("Cannot apply {:?} to {:?}", operation, left_type).into(), 
+//                             left.span
+//                         ))
+//                     }
+//                 },
+//                 Operation::Eq | Operation::NotEq => {
+//                     if left_type.inner != right_type.inner {
+//                         return Err(spanned(
+//                             format!("Cannot compare {:?} to {:?}", left_type.inner, right_type.inner).into(),
+//                             Span::from(left_type.span.start..right_type.span.end)
+//                         ))
+//                     }
+//                     Ok(spanned(
+//                         TypeInfo::bool(),
+//                         Span::from(left_type.span.start..right_type.span.end)
+//                     ))
+//                 },
+//                 Operation::And | Operation::Or => {
+//                     match (left_type.inner.kind(), right_type.inner.kind()) {
+//                         (TypeKind::Bool, TypeKind::Bool) => Ok(spanned(
+//                             TypeInfo::bool(),
+//                             Span::from(left_type.span.start..right_type.span.end)
+//                         )),
+//                         (a, b) => Err(spanned(
+//                             format!("{:?} requires both sides to be Bool, got: {:?}, {:?}", operation, a, b).into(),
+//                             Span::from(left_type.span.start..right_type.span.end)
+//                         ))
+//                     }
+//                 },
+//                 Operation::NullCoal => {
+//                     match (left_type.inner.kind(), right_type.inner.kind()) {
+//                         (TypeKind::Null, _) => {
+//                             Ok(right_type)
+//                         },
+//                         _ => Ok(left_type)
+//                     }
+//                 },
+//                 Operation::BitwiseAnd 
+//                 | Operation::BitwiseOr 
+//                 | Operation::BitwiseXor 
+//                 | Operation::BitwiseLeftShift 
+//                 | Operation::BitwiseRightShift => {
+//                     match left_type.inner.kind() {
+//                         TypeKind::Any | TypeKind::Int => {
+//                             if left_type.inner != right_type.inner {
+//                                 return Err(spanned(
+//                                     format!("Type Mismatch: Expected {:?}, got {:?}", left_type.inner, right_type.inner).into(), 
+//                                     left.span
+//                                 ))
+//                             }
+//                             Ok(spanned(
+//                                 left_type.inner,
+//                                 Span::from(left_type.span.start..right_type.span.end)
+//                             ))
+//                         },
+//                         _ => return Err(spanned(
+//                             format!("Cannot apply {:?} to {:?}", operation, left_type).into(), 
+//                             left.span
+//                         ))
+//                     }
+//                 },
+//             }
+//         },
+//         Expr::Block(statements, final_expr) => {
+//             let mut inner_scope = env.enter_scope();
+//             let mut r_span = if let Some(st) = statements.last() {
+//                 st.span
+//             } else {
+//                 expr.span
+//             };
+//             let mut r_type = TypeInfo::void();
+//             let _ = hoist(statements, &mut inner_scope, "")?;
      
-            if let Some(e) = final_expr {
-                r_type = get_type(e, &mut inner_scope)?.inner;
-                r_span = e.span;
-            }
-            Ok(spanned(
-                r_type,
-                r_span
-            ))
-        },
-        Expr::Fun { params, body, return_type, generic_params } => {
-            let mut inner_scope = env.enter_scope();
-            let expected_type = return_type.clone().unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+//             if let Some(e) = final_expr {
+//                 r_type = get_type(e, &mut inner_scope)?.inner;
+//                 r_span = e.span;
+//             }
+//             Ok(spanned(
+//                 r_type,
+//                 r_span
+//             ))
+//         },
+//         Expr::Fun { params, body, return_type, generic_params } => {
+//             let mut inner_scope = env.enter_scope();
+//             let expected_type = return_type.clone().unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
     
-            if generic_params.len() == 0 {
-                let mut flat_params = Vec::new();
-                for (n, p_type) in params {
-                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                    flat_params.push((n.clone(), flattened))
-                }
-                let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
-                let non_flat = get_type(body, &mut inner_scope)?;
-                let actual_type = flatten_type(&non_flat, env)?;
-                if actual_type.inner != expected_type.inner {
-                    return Err(spanned(
-                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner).into(),
-                        expected_type.span
-                    ))
-                }
-                Ok(spanned(
-                    TypeInfo::new(TypeKind::Fun { params: flat_params, return_type: Box::new(actual_type.into_owned()), generic_params: Vec::new() }),
-                    expr.span
-                ))
-            } else {
-                for generic in generic_params {
-                    inner_scope.add_custom_type(generic.inner.clone(), spanned(
-                        TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
-                        generic.span
-                    ));
-                }
+//             if generic_params.len() == 0 {
+//                 let mut flat_params = Vec::new();
+//                 for (n, p_type) in params {
+//                     let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+//                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
+//                     flat_params.push((n.clone(), flattened))
+//                 }
+//                 let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+//                 inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+//                 let non_flat = get_type(body, &mut inner_scope)?;
+//                 let actual_type = flatten_type(&non_flat, env)?;
+//                 if actual_type.inner != expected_type.inner {
+//                     return Err(spanned(
+//                         format!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner).into(),
+//                         expected_type.span
+//                     ))
+//                 }
+//                 Ok(spanned(
+//                     TypeInfo::new(TypeKind::Fun { params: flat_params, return_type: Box::new(actual_type.into_owned()), generic_params: Vec::new() }),
+//                     expr.span
+//                 ))
+//             } else {
+//                 for generic in generic_params {
+//                     inner_scope.add_custom_type(generic.inner.clone(), spanned(
+//                         TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
+//                         generic.span
+//                     ));
+//                 }
 
-                let mut flat_params = Vec::new();
-                for (n, p_type) in params {
-                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                    flat_params.push((n.clone(), flattened));
-                }
+//                 let mut flat_params = Vec::new();
+//                 for (n, p_type) in params {
+//                     let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+//                     inner_scope.add_var_type(n.1.clone(), flattened.clone());
+//                     flat_params.push((n.clone(), flattened));
+//                 }
 
-                let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
-                let actual_type = get_type(body, &mut inner_scope)?;
-                if actual_type.inner != expected_flat.inner {
-                    return Err(spanned(
-                        format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner).into(),
-                        expected_flat.span
-                    ))
-                }
+//                 let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+//                 inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+//                 let actual_type = get_type(body, &mut inner_scope)?;
+//                 if actual_type.inner != expected_flat.inner {
+//                     return Err(spanned(
+//                         format!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, actual_type.inner).into(),
+//                         expected_flat.span
+//                     ))
+//                 }
 
-                Ok(spanned(
-                    TypeInfo::new(TypeKind::Fun { 
-                        params: flat_params, 
-                        return_type: Box::new(actual_type),
-                        generic_params: generic_params.clone()
-                    }),
-                    expr.span
-                ))
-            }
-        },
-        Expr::Call { fun, args, generic_args } => {
-            let fun_expr_type = get_type(fun, env)?;
-            match fun_expr_type.inner.kind() {
-                TypeKind::Fun { params, return_type: _, generic_params } => {
-                    let mut generic_arg_map = HashMap::new();
-                    if generic_params.len() > 0 && generic_args.len() == 0 && args.len() >= generic_params.len() {
-                        for (param, arg) in params.iter().zip(args.iter()) {
-                            for (p_name, ti) in collect_generic_params(
-                                (&param.1, param.0.0),
-                                &get_type(arg, env)?
-                            ) {
-                                generic_arg_map.insert(p_name, ti);
-                            }
-                        }
-                    } else {
-                        if generic_params.len() != generic_args.len() {
-                            return Err(spanned(
-                                format!(
-                                    "Insufficient generic arguments provided: expected {}, got {}",
-                                    generic_params.len(),
-                                    generic_args.len()
-                                ).into(),
-                                expr.span
-                            ))
-                        }
-                        for (param, arg) in generic_params.iter().zip(generic_args.iter()) {
-                            generic_arg_map.insert(param.inner.clone(), arg.clone());
-                        }
-                    }
+//                 Ok(spanned(
+//                     TypeInfo::new(TypeKind::Fun { 
+//                         params: flat_params, 
+//                         return_type: Box::new(actual_type),
+//                         generic_params: generic_params.clone()
+//                     }),
+//                     expr.span
+//                 ))
+//             }
+//         },
+//         Expr::Call { fun, args, generic_args } => {
+//             let fun_expr_type = get_type(fun, env)?;
+//             match fun_expr_type.inner.kind() {
+//                 TypeKind::Fun { params, return_type: _, generic_params } => {
+//                     let mut generic_arg_map = HashMap::new();
+//                     if generic_params.len() > 0 && generic_args.len() == 0 && args.len() >= generic_params.len() {
+//                         for (param, arg) in params.iter().zip(args.iter()) {
+//                             for (p_name, ti) in collect_generic_params(
+//                                 (&param.1, param.0.0),
+//                                 &get_type(arg, env)?
+//                             ) {
+//                                 generic_arg_map.insert(p_name, ti);
+//                             }
+//                         }
+//                     } else {
+//                         if generic_params.len() != generic_args.len() {
+//                             return Err(spanned(
+//                                 format!(
+//                                     "Insufficient generic arguments provided: expected {}, got {}",
+//                                     generic_params.len(),
+//                                     generic_args.len()
+//                                 ).into(),
+//                                 expr.span
+//                             ))
+//                         }
+//                         for (param, arg) in generic_params.iter().zip(generic_args.iter()) {
+//                             generic_arg_map.insert(param.inner.clone(), arg.clone());
+//                         }
+//                     }
             
-                    let substituted_fun = substitute_generic_params(&fun_expr_type, &generic_arg_map);
-                    let substituted_params = match substituted_fun.inner.kind() {
-                        TypeKind::Fun { params, .. } => params.clone(),
-                        _ => return Err(spanned(
-                            format!("Substitution failed for function type").into(),
-                            expr.span
-                        ))
-                    };
+//                     let substituted_fun = substitute_generic_params(&fun_expr_type, &generic_arg_map);
+//                     let substituted_params = match substituted_fun.inner.kind() {
+//                         TypeKind::Fun { params, .. } => params.clone(),
+//                         _ => return Err(spanned(
+//                             format!("Substitution failed for function type").into(),
+//                             expr.span
+//                         ))
+//                     };
             
-                    let substituted_return_type = match substituted_fun.inner.kind() {
-                        TypeKind::Fun { return_type, .. } => return_type,
-                        _ => return Err(spanned(
-                            format!("Substitution failed for function type").into(),
-                            expr.span
-                        ))
-                    };
+//                     let substituted_return_type = match substituted_fun.inner.kind() {
+//                         TypeKind::Fun { return_type, .. } => return_type,
+//                         _ => return Err(spanned(
+//                             format!("Substitution failed for function type").into(),
+//                             expr.span
+//                         ))
+//                     };
             
-                    let is_variadic = if let Some (last) = substituted_params.last() {
-                        last.0.0
-                    } else {false};
+//                     let is_variadic = if let Some (last) = substituted_params.last() {
+//                         last.0.0
+//                     } else {false};
             
-                    if is_variadic {
-                        if substituted_params.len() > args.len() {
-                            return Err(spanned(
-                                format!("Insufficient amount of arguments: expected at least {}, got {}", substituted_params.len(), args.len()).into(),
-                                expr.span
-                            ))
-                        }
-                        for (i, (((v, _), p_type), arg_expr)) in substituted_params.iter().zip(args.iter()).enumerate() {
-                            match v {
-                                true => {
-                                    if i != substituted_params.len() - 1 {
-                                        return Err(spanned(
-                                            format!("Cannot have multiple spread params in a function").into(),
-                                            p_type.span
-                                        ))
-                                    } else {break}
-                                },
-                                false => (),
-                            }
-                            let arg_type = get_type(arg_expr, env)?;
-                            if arg_type.inner != p_type.inner {
-                                return Err(spanned(
-                                    format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner).into(),
-                                    arg_expr.span
-                                ))
-                            }
-                        }
-                        let spread_args = args[substituted_params.len()-1..].into_iter();
-                        let temp = substituted_params.last().unwrap().1.clone();
-                        let spread_type = match temp.inner.kind() {
-                            TypeKind::Array(inner_type) => inner_type.clone(),
-                            o => return Err(spanned(
-                                format!("Spread parameter should be an array: found {:?} instead", o).into(),
-                                temp.span
-                            ))
-                        };
-                        for arg in spread_args {
-                            let arg_type = get_type(arg, env)?;
-                            if arg_type.inner != spread_type.inner {
-                                return Err(spanned(
-                                    format!("Argument type mismatch: expected {:?}, got {:?}", spread_type.inner, arg_type.inner).into(),
-                                    arg.span
-                                ))
-                            }
-                        }
-                    } else {
-                        if substituted_params.len() != args.len() {
-                            return Err(spanned(
-                                format!("Argument type mismatch: expected {} args, got {}", substituted_params.len(), args.len()).into(),
-                                expr.span
-                            ))
-                        }
-                        for ((_, p_type), arg_expr) in substituted_params.iter().zip(args.iter()) {
-                            let arg_type = get_type(arg_expr, env)?;
-                            if arg_type.inner != p_type.inner {
-                                return Err(spanned(
-                                    format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner).into(),
-                                    arg_expr.span
-                                ))
-                            }
-                        }
-                    }
+//                     if is_variadic {
+//                         if substituted_params.len() > args.len() {
+//                             return Err(spanned(
+//                                 format!("Insufficient amount of arguments: expected at least {}, got {}", substituted_params.len(), args.len()).into(),
+//                                 expr.span
+//                             ))
+//                         }
+//                         for (i, (((v, _), p_type), arg_expr)) in substituted_params.iter().zip(args.iter()).enumerate() {
+//                             match v {
+//                                 true => {
+//                                     if i != substituted_params.len() - 1 {
+//                                         return Err(spanned(
+//                                             format!("Cannot have multiple spread params in a function").into(),
+//                                             p_type.span
+//                                         ))
+//                                     } else {break}
+//                                 },
+//                                 false => (),
+//                             }
+//                             let arg_type = get_type(arg_expr, env)?;
+//                             if arg_type.inner != p_type.inner {
+//                                 return Err(spanned(
+//                                     format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner).into(),
+//                                     arg_expr.span
+//                                 ))
+//                             }
+//                         }
+//                         let spread_args = args[substituted_params.len()-1..].into_iter();
+//                         let temp = substituted_params.last().unwrap().1.clone();
+//                         let spread_type = match temp.inner.kind() {
+//                             TypeKind::Array(inner_type) => inner_type.clone(),
+//                             o => return Err(spanned(
+//                                 format!("Spread parameter should be an array: found {:?} instead", o).into(),
+//                                 temp.span
+//                             ))
+//                         };
+//                         for arg in spread_args {
+//                             let arg_type = get_type(arg, env)?;
+//                             if arg_type.inner != spread_type.inner {
+//                                 return Err(spanned(
+//                                     format!("Argument type mismatch: expected {:?}, got {:?}", spread_type.inner, arg_type.inner).into(),
+//                                     arg.span
+//                                 ))
+//                             }
+//                         }
+//                     } else {
+//                         if substituted_params.len() != args.len() {
+//                             return Err(spanned(
+//                                 format!("Argument type mismatch: expected {} args, got {}", substituted_params.len(), args.len()).into(),
+//                                 expr.span
+//                             ))
+//                         }
+//                         for ((_, p_type), arg_expr) in substituted_params.iter().zip(args.iter()) {
+//                             let arg_type = get_type(arg_expr, env)?;
+//                             if arg_type.inner != p_type.inner {
+//                                 return Err(spanned(
+//                                     format!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner).into(),
+//                                     arg_expr.span
+//                                 ))
+//                             }
+//                         }
+//                     }
             
-                    Ok(substituted_return_type.as_ref().clone())
-                },
-                ti => Err(spanned(
-                    format!("Type {:?} is not callable", ti).into(),
-                    expr.span
-                ))
-            }
-        },
-        Expr::Record(items) => {
-            let mut record_entries = Vec::new();
-            for (name, e) in items {
-                record_entries.push((name.clone(), get_type(e, env)?));
-            }
-            Ok(spanned(
-                TypeInfo::new(TypeKind::Record(record_entries)),
-                expr.span
-            ))
-        },
-        Expr::Get(target, field) => {
-            let ti = get_type(target, env)?;
-            let target_type = flatten_type(&ti, env)?;
-            if let Some(method) = env.get_method(target_type.inner.id(), field) {
-                return Ok(method)
-            }
-            match target_type.inner.kind() {
-                TypeKind::Record(fields) => {
-                    for (name, e) in fields {
-                        if name == field {
-                            return Ok(e.clone())
-                        }
-                    }
-                    Err(spanned(
-                        format!("Type {:?} does not have property {field}", target_type.inner).into(),
-                        target.span
-                    ))
-                },
-                _ => Err(spanned(
-                    format!("Type {:?} does not have property {field}", target_type.inner).into(),
-                    target.span
-                ))
-            }
-        },
-        Expr::Assign { target, value } => {
-            let target_type = get_type(target, env)?.inner;
-            let value_type = get_type(value, env)?.inner;
-            if target_type != value_type {
-                return Err(spanned(
-                    format!("Cannot assign {:?} to {:?}", value_type, target_type).into(),
-                    value.span
-                ))
-            }
-            Ok(spanned(
-                TypeInfo::void(),
-                expr.span
-            ))
-        },
-        Expr::Unary(unary_op, e) => {
-            let expr_type = get_type(e, env)?;
-            match (unary_op, expr_type.inner.kind()) {
-                (UnaryOp::Negate, TypeKind::Any) 
-                | (UnaryOp::Negate, TypeKind::Float)
-                | (UnaryOp::Negate, TypeKind::Int) => Ok(expr_type),
-                (UnaryOp::Not, TypeKind::Bool) => Ok(expr_type),
-                _ => Err(spanned(
-                    format!("Cannot apply {:?} to {:?}", unary_op, expr_type.inner).into(),
-                    e.span
-                ))
-            }
-        },
-        Expr::If { condition, body, else_block } => {
-            if *get_type(condition, env)?.inner.kind() != TypeKind::Bool {
-                return Err(spanned(
-                    format!("Loop condition should return Bool").into(),
-                    condition.span
-                ))
-            }
-            let body_type = get_type(body, env)?;
-            if let Some(else_expr) = else_block {
-                let else_type = get_type(else_expr, env)?;
-                if else_type.inner != body_type.inner {
-                    return Err(spanned(
-                        format!(
-                            "If condition branches have incompatible types: expected {:?}, got {:?}",
-                            body_type.inner,
-                            else_type.inner
-                        ).into(),
-                        else_expr.span
-                    ))
-                }
-            }
-            Ok(spanned(
-                body_type.inner,
-                expr.span
-            ))
-        },
-        Expr::While { condition, body } => {
-            //we *have* to check the body even though we are not using it
-            let _ = get_type(body, env)?;
-            if *get_type(condition, env)?.inner.kind() != TypeKind::Bool {
-                return Err(spanned(
-                    format!("Loop condition should return Bool").into(),
-                    condition.span
-                ))
-            }
-            Ok(spanned(
-                TypeInfo::void(),
-                expr.span
-            ))
-        },
-        Expr::Break | Expr::Continue => Ok(spanned(TypeInfo::void(), expr.span)),
-        Expr::Return(e) => {
-            let ti = get_type(e, env)?;
-            let expected = env.get_var_type("+return");
-            if let Some(r_type) = expected {
-                if r_type.inner == ti.inner {
-                    Ok(ti)
-                } else {
-                    Err(spanned(
-                        format!("Return type mismatch: expected {:?}, got {:?}", r_type.inner, ti.inner).into(),
-                        ti.span
-                    ))
-                }
-            } else {
-                Err(spanned(
-                    SmolStr::new("Cannot return outside of the function"),
-                    expr.span
-                ))
-            }
-        },
-        Expr::Match { target, branches } => {
-            let target_type = get_type(target, env)?;
-            fn match_branch(
-                target: &TypeInfo, 
-                pattern: &Spanned<MatchArm>,
-                branch: &Spanned<Expr>,
-                env: &mut TypeEnv
-            ) -> Result<(Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
-                match &pattern.inner {
-                    MatchArm::Conditional { alias, condition } => {
-                        let mut inner_env = env.enter_scope();
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            target.clone(),
-                            Span::from(0..0)
-                        ));
-                        let cond_type = get_type(condition, &mut inner_env)?;
-                        match cond_type.inner.kind() {
-                            TypeKind::Bool => (),
-                            _ => return Err(spanned(
-                                format!("Match guard condition should return a Bool, found {:?} instead", cond_type.inner).into(),
-                                condition.span
-                            ))
-                        }
-                        Ok((get_type(branch, &mut inner_env)?, false))
-                    },
-                    MatchArm::Value(expr) => {
-                        let pattern_type = get_type(expr, env)?;
-                        if &pattern_type.inner != target {
-                            return Err(spanned(
-                                format!("Type mismatch in match branch: expected {:?}, got {:?}", target, pattern_type.inner).into(),
-                                expr.span
-                            ))
-                        }
-                        Ok((get_type(branch, env)?, false))
-                    },
-                    MatchArm::Default(alias) => {
-                        let mut inner_env = env.enter_scope();
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            target.clone(),
-                            Span::from(0..0)
-                        ));
-                        Ok((get_type(branch, &mut inner_env)?, true))
-                    },
-                    MatchArm::EnumConstructor {..} => Err(spanned(
-                        "Cannot have enum variants as patterns for non enum values".into(),
-                        branch.span
-                    ))
-                }
-            }
+//                     Ok(substituted_return_type.as_ref().clone())
+//                 },
+//                 ti => Err(spanned(
+//                     format!("Type {:?} is not callable", ti).into(),
+//                     expr.span
+//                 ))
+//             }
+//         },
+//         Expr::Record(items) => {
+//             let mut record_entries = Vec::new();
+//             for (name, e) in items {
+//                 record_entries.push((name.clone(), get_type(e, env)?));
+//             }
+//             Ok(spanned(
+//                 TypeInfo::new(TypeKind::Record(record_entries)),
+//                 expr.span
+//             ))
+//         },
+//         Expr::Get(target, field) => {
+//             let ti = get_type(target, env)?;
+//             let target_type = flatten_type(&ti, env)?;
+//             if let Some(method) = env.get_method(target_type.inner.id(), field) {
+//                 return Ok(method)
+//             }
+//             match target_type.inner.kind() {
+//                 TypeKind::Record(fields) => {
+//                     for (name, e) in fields {
+//                         if name == field {
+//                             return Ok(e.clone())
+//                         }
+//                     }
+//                     Err(spanned(
+//                         format!("Type {:?} does not have property {field}", target_type.inner).into(),
+//                         target.span
+//                     ))
+//                 },
+//                 _ => Err(spanned(
+//                     format!("Type {:?} does not have property {field}", target_type.inner).into(),
+//                     target.span
+//                 ))
+//             }
+//         },
+//         Expr::Assign { target, value } => {
+//             let target_type = get_type(target, env)?.inner;
+//             let value_type = get_type(value, env)?.inner;
+//             if target_type != value_type {
+//                 return Err(spanned(
+//                     format!("Cannot assign {:?} to {:?}", value_type, target_type).into(),
+//                     value.span
+//                 ))
+//             }
+//             Ok(spanned(
+//                 TypeInfo::void(),
+//                 expr.span
+//             ))
+//         },
+//         Expr::Unary(unary_op, e) => {
+//             let expr_type = get_type(e, env)?;
+//             match (unary_op, expr_type.inner.kind()) {
+//                 (UnaryOp::Negate, TypeKind::Any) 
+//                 | (UnaryOp::Negate, TypeKind::Float)
+//                 | (UnaryOp::Negate, TypeKind::Int) => Ok(expr_type),
+//                 (UnaryOp::Not, TypeKind::Bool) => Ok(expr_type),
+//                 _ => Err(spanned(
+//                     format!("Cannot apply {:?} to {:?}", unary_op, expr_type.inner).into(),
+//                     e.span
+//                 ))
+//             }
+//         },
+//         Expr::If { condition, body, else_block } => {
+//             if *get_type(condition, env)?.inner.kind() != TypeKind::Bool {
+//                 return Err(spanned(
+//                     format!("Loop condition should return Bool").into(),
+//                     condition.span
+//                 ))
+//             }
+//             let body_type = get_type(body, env)?;
+//             if let Some(else_expr) = else_block {
+//                 let else_type = get_type(else_expr, env)?;
+//                 if else_type.inner != body_type.inner {
+//                     return Err(spanned(
+//                         format!(
+//                             "If condition branches have incompatible types: expected {:?}, got {:?}",
+//                             body_type.inner,
+//                             else_type.inner
+//                         ).into(),
+//                         else_expr.span
+//                     ))
+//                 }
+//             }
+//             Ok(spanned(
+//                 body_type.inner,
+//                 expr.span
+//             ))
+//         },
+//         Expr::While { condition, body } => {
+//             //we *have* to check the body even though we are not using it
+//             let _ = get_type(body, env)?;
+//             if *get_type(condition, env)?.inner.kind() != TypeKind::Bool {
+//                 return Err(spanned(
+//                     format!("Loop condition should return Bool").into(),
+//                     condition.span
+//                 ))
+//             }
+//             Ok(spanned(
+//                 TypeInfo::void(),
+//                 expr.span
+//             ))
+//         },
+//         Expr::Break | Expr::Continue => Ok(spanned(TypeInfo::void(), expr.span)),
+//         Expr::Return(e) => {
+//             let ti = get_type(e, env)?;
+//             let expected = env.get_var_type("+return");
+//             if let Some(r_type) = expected {
+//                 if r_type.inner == ti.inner {
+//                     Ok(ti)
+//                 } else {
+//                     Err(spanned(
+//                         format!("Return type mismatch: expected {:?}, got {:?}", r_type.inner, ti.inner).into(),
+//                         ti.span
+//                     ))
+//                 }
+//             } else {
+//                 Err(spanned(
+//                     SmolStr::new("Cannot return outside of the function"),
+//                     expr.span
+//                 ))
+//             }
+//         },
+//         Expr::Match { target, branches } => {
+//             let target_type = get_type(target, env)?;
+//             fn match_branch(
+//                 target: &TypeInfo, 
+//                 pattern: &Spanned<MatchArm>,
+//                 branch: &Spanned<Expr>,
+//                 env: &mut TypeEnv
+//             ) -> Result<(Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+//                 match &pattern.inner {
+//                     MatchArm::Conditional { alias, condition } => {
+//                         let mut inner_env = env.enter_scope();
+//                         inner_env.add_var_type(alias.clone(), spanned(
+//                             target.clone(),
+//                             Span::from(0..0)
+//                         ));
+//                         let cond_type = get_type(condition, &mut inner_env)?;
+//                         match cond_type.inner.kind() {
+//                             TypeKind::Bool => (),
+//                             _ => return Err(spanned(
+//                                 format!("Match guard condition should return a Bool, found {:?} instead", cond_type.inner).into(),
+//                                 condition.span
+//                             ))
+//                         }
+//                         Ok((get_type(branch, &mut inner_env)?, false))
+//                     },
+//                     MatchArm::Value(expr) => {
+//                         let pattern_type = get_type(expr, env)?;
+//                         if &pattern_type.inner != target {
+//                             return Err(spanned(
+//                                 format!("Type mismatch in match branch: expected {:?}, got {:?}", target, pattern_type.inner).into(),
+//                                 expr.span
+//                             ))
+//                         }
+//                         Ok((get_type(branch, env)?, false))
+//                     },
+//                     MatchArm::Default(alias) => {
+//                         let mut inner_env = env.enter_scope();
+//                         inner_env.add_var_type(alias.clone(), spanned(
+//                             target.clone(),
+//                             Span::from(0..0)
+//                         ));
+//                         Ok((get_type(branch, &mut inner_env)?, true))
+//                     },
+//                     MatchArm::EnumConstructor {..} => Err(spanned(
+//                         "Cannot have enum variants as patterns for non enum values".into(),
+//                         branch.span
+//                     ))
+//                 }
+//             }
             
-            fn match_enum_variant_branch(
-                enum_name: &SmolStr,
-                variant: &SmolStr,
-                generic_args: &Vec<TypeInfo>,
-                pattern: &Spanned<MatchArm>,
-                branch: &Spanned<Expr>,
-                env: &mut TypeEnv
-            ) -> Result<(Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
-                match &pattern.inner {
-                    MatchArm::Default(alias) => {
-                        let mut inner_env = env.enter_scope();
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            TypeInfo::new(TypeKind::EnumVariant { 
-                                enum_name: enum_name.clone(),
-                                variant: variant.clone(), 
-                                generic_args: generic_args.clone()
-                            }),
-                            Span::from(0..0)
-                        ));
-                        Ok((get_type(branch, &mut inner_env)?, true))
-                    },
-                    MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
-                        if let Some(ti) = env.resolve_type(c_name) {
-                            if c_name != enum_name {
-                                return Err(spanned(
-                                    format!("Enum mismatch: expected {enum_name}, got {c_name}").into(),
-                                    ti.span
-                                ))
-                            }
-                            match ti.inner.kind() {
-                                TypeKind::Enum { name: _, variants, generic_params } => {
-                                    if generic_params.len() != generic_args.len() {
-                                        return Err(spanned(
-                                            format!(
-                                                "Incorrect amount of generic arguments provided: expected {}, got {}",
-                                                generic_params.len(),
-                                                generic_args.len()
-                                            ).into(),
-                                            ti.span
-                                        ))
-                                    }
-                                    let inner_type = if let Some(ti) = variants.get(variant) {
-                                        ti
-                                    } else {
-                                        return Err(spanned(
-                                            format!("Enum {enum_name} does not have a variant {variant}").into(),
-                                            ti.span
-                                        ))
-                                    };
+//             fn match_enum_variant_branch(
+//                 enum_name: &SmolStr,
+//                 variant: &SmolStr,
+//                 generic_args: &Vec<TypeInfo>,
+//                 pattern: &Spanned<MatchArm>,
+//                 branch: &Spanned<Expr>,
+//                 env: &mut TypeEnv
+//             ) -> Result<(Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+//                 match &pattern.inner {
+//                     MatchArm::Default(alias) => {
+//                         let mut inner_env = env.enter_scope();
+//                         inner_env.add_var_type(alias.clone(), spanned(
+//                             TypeInfo::new(TypeKind::EnumVariant { 
+//                                 enum_name: enum_name.clone(),
+//                                 variant: variant.clone(), 
+//                                 generic_args: generic_args.clone()
+//                             }),
+//                             Span::from(0..0)
+//                         ));
+//                         Ok((get_type(branch, &mut inner_env)?, true))
+//                     },
+//                     MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+//                         if let Some(ti) = env.resolve_type(c_name) {
+//                             if c_name != enum_name {
+//                                 return Err(spanned(
+//                                     format!("Enum mismatch: expected {enum_name}, got {c_name}").into(),
+//                                     ti.span
+//                                 ))
+//                             }
+//                             match ti.inner.kind() {
+//                                 TypeKind::Enum { name: _, variants, generic_params } => {
+//                                     if generic_params.len() != generic_args.len() {
+//                                         return Err(spanned(
+//                                             format!(
+//                                                 "Incorrect amount of generic arguments provided: expected {}, got {}",
+//                                                 generic_params.len(),
+//                                                 generic_args.len()
+//                                             ).into(),
+//                                             ti.span
+//                                         ))
+//                                     }
+//                                     let inner_type = if let Some(ti) = variants.get(variant) {
+//                                         ti
+//                                     } else {
+//                                         return Err(spanned(
+//                                             format!("Enum {enum_name} does not have a variant {variant}").into(),
+//                                             ti.span
+//                                         ))
+//                                     };
                                     
-                                    let mut inner_scope = env.enter_scope();
-                                    let mut generic_map = HashMap::new();
-                                    for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
-                                        generic_map.insert(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
-                                        inner_scope.add_custom_type(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
-                                    }
-                                    let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
-                                    Ok((get_type(branch, &mut inner_scope)?, false))
-                                },
-                                _ => Err(spanned(
-                                    format!("Type {c_name} is not an enum").into(),
-                                    ti.span
-                                ))
-                            }
-                        } else {
-                            Err(spanned(
-                                format!("Cannot resolve enum {c_name}").into(),
-                                pattern.span
-                            ))
-                        }
-                    },
-                    _ => Err(spanned(
-                        "This branch is not compatible with enums".into(),
-                        pattern.span
-                    ))
-                }
-            }
+//                                     let mut inner_scope = env.enter_scope();
+//                                     let mut generic_map = HashMap::new();
+//                                     for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
+//                                         generic_map.insert(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
+//                                         inner_scope.add_custom_type(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
+//                                     }
+//                                     let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
+//                                     inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
+//                                     Ok((get_type(branch, &mut inner_scope)?, false))
+//                                 },
+//                                 _ => Err(spanned(
+//                                     format!("Type {c_name} is not an enum").into(),
+//                                     ti.span
+//                                 ))
+//                             }
+//                         } else {
+//                             Err(spanned(
+//                                 format!("Cannot resolve enum {c_name}").into(),
+//                                 pattern.span
+//                             ))
+//                         }
+//                     },
+//                     _ => Err(spanned(
+//                         "This branch is not compatible with enums".into(),
+//                         pattern.span
+//                     ))
+//                 }
+//             }
             
-            fn match_enum_instance_branch(
-                enum_name: &SmolStr,
-                variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
-                generic_args: &Vec<Spanned<TypeInfo>>,
-                pattern: &Spanned<MatchArm>,
-                branch: &Spanned<Expr>,
-                env: &mut TypeEnv
-            ) -> Result<(Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
-                match &pattern.inner {
-                    MatchArm::Default(alias) => {
-                        let mut inner_env = env.enter_scope();
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            TypeInfo::new(TypeKind::EnumInstance { 
-                                enum_name: enum_name.clone(),
-                                variants: variants.clone(), 
-                                generic_args: generic_args.clone()
-                            }),
-                            Span::from(0..0)
-                        ));
-                        Ok((get_type(branch, &mut inner_env)?, true))
-                    },
-                    MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
-                        if let Some(ti) = env.resolve_type(c_name) {
-                            if c_name != enum_name {
-                                return Err(spanned(
-                                    format!("Enum mismatch: expected {enum_name}, got {c_name}").into(),
-                                    ti.span
-                                ))
-                            }
-                            match ti.inner.kind() {
-                                TypeKind::Enum { name: _, variants, generic_params } => {
-                                    if generic_params.len() != generic_args.len() {
-                                        return Err(spanned(
-                                            format!(
-                                                "Incorrect amount of generic arguments provided: expected {}, got {}",
-                                                generic_params.len(),
-                                                generic_args.len()
-                                            ).into(),
-                                            ti.span
-                                        ))
-                                    }
-                                    let inner_type = if let Some(ti) = variants.get(variant) {
-                                        ti
-                                    } else {
-                                        return Err(spanned(
-                                            format!("Enum {enum_name} does not have a variant {variant}").into(),
-                                            ti.span
-                                        ))
-                                    };
+//             fn match_enum_instance_branch(
+//                 enum_name: &SmolStr,
+//                 variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
+//                 generic_args: &Vec<Spanned<TypeInfo>>,
+//                 pattern: &Spanned<MatchArm>,
+//                 branch: &Spanned<Expr>,
+//                 env: &mut TypeEnv
+//             ) -> Result<(Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+//                 match &pattern.inner {
+//                     MatchArm::Default(alias) => {
+//                         let mut inner_env = env.enter_scope();
+//                         inner_env.add_var_type(alias.clone(), spanned(
+//                             TypeInfo::new(TypeKind::EnumInstance { 
+//                                 enum_name: enum_name.clone(),
+//                                 variants: variants.clone(), 
+//                                 generic_args: generic_args.clone()
+//                             }),
+//                             Span::from(0..0)
+//                         ));
+//                         Ok((get_type(branch, &mut inner_env)?, true))
+//                     },
+//                     MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+//                         if let Some(ti) = env.resolve_type(c_name) {
+//                             if c_name != enum_name {
+//                                 return Err(spanned(
+//                                     format!("Enum mismatch: expected {enum_name}, got {c_name}").into(),
+//                                     ti.span
+//                                 ))
+//                             }
+//                             match ti.inner.kind() {
+//                                 TypeKind::Enum { name: _, variants, generic_params } => {
+//                                     if generic_params.len() != generic_args.len() {
+//                                         return Err(spanned(
+//                                             format!(
+//                                                 "Incorrect amount of generic arguments provided: expected {}, got {}",
+//                                                 generic_params.len(),
+//                                                 generic_args.len()
+//                                             ).into(),
+//                                             ti.span
+//                                         ))
+//                                     }
+//                                     let inner_type = if let Some(ti) = variants.get(variant) {
+//                                         ti
+//                                     } else {
+//                                         return Err(spanned(
+//                                             format!("Enum {enum_name} does not have a variant {variant}").into(),
+//                                             ti.span
+//                                         ))
+//                                     };
                                     
-                                    let mut inner_scope = env.enter_scope();
-                                    let mut generic_map = HashMap::new();
-                                    for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
-                                        generic_map.insert(g_name.inner.clone(), g_type.clone());
-                                        inner_scope.add_custom_type(g_name.inner.clone(), g_type.clone());
-                                    }
-                                    let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
-                                    Ok((get_type(branch, &mut inner_scope)?, false))
-                                },
-                                _ => Err(spanned(
-                                    format!("Type {c_name} is not an enum").into(),
-                                    ti.span
-                                ))
-                            }
-                        } else {
-                            Err(spanned(
-                                format!("Cannot resolve enum {c_name}").into(),
-                                pattern.span
-                            ))
-                        }
-                    },
-                    _ => Err(spanned(
-                        "This branch is not compatible with enums".into(),
-                        pattern.span
-                    ))
-                }
-            }
+//                                     let mut inner_scope = env.enter_scope();
+//                                     let mut generic_map = HashMap::new();
+//                                     for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
+//                                         generic_map.insert(g_name.inner.clone(), g_type.clone());
+//                                         inner_scope.add_custom_type(g_name.inner.clone(), g_type.clone());
+//                                     }
+//                                     let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
+//                                     inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
+//                                     Ok((get_type(branch, &mut inner_scope)?, false))
+//                                 },
+//                                 _ => Err(spanned(
+//                                     format!("Type {c_name} is not an enum").into(),
+//                                     ti.span
+//                                 ))
+//                             }
+//                         } else {
+//                             Err(spanned(
+//                                 format!("Cannot resolve enum {c_name}").into(),
+//                                 pattern.span
+//                             ))
+//                         }
+//                     },
+//                     _ => Err(spanned(
+//                         "This branch is not compatible with enums".into(),
+//                         pattern.span
+//                     ))
+//                 }
+//             }
             
-            let mut expected_type = TypeInfo::void();
-            let mut has_default = false;
+//             let mut expected_type = TypeInfo::void();
+//             let mut has_default = false;
             
-            match target_type.inner.kind() {
-                TypeKind::Fun { params: _, return_type: _, generic_params: _ } => return Err(spanned(
-                    "Cannot apply match to a function".into(), 
-                    target.span
-                )),
-                TypeKind::EnumInstance { enum_name, variants, generic_args } => {
-                    for (pattern, branch) in branches {
-                        let (branch_type, is_default) = match_enum_instance_branch(
-                            enum_name, 
-                            variants, 
-                            generic_args, 
-                            pattern, 
-                            branch, 
-                            env
-                        )?;
-                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
-                            return Err(spanned(
-                                "Match branches cannot have different return types".into(),
-                                branch_type.span
-                            ))
-                        } else {
-                            expected_type = branch_type.inner.clone()
-                        }
-                        if is_default {
-                            if has_default {
-                                return Err(spanned(
-                                    "Cannot have multiple default branches in a match expression".into(),
-                                    branch.span
-                                ))
-                            } else {
-                                has_default = true
-                            }
-                        }
-                    }
-                    let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
-                        TypeKind::Enum { name: _, variants, generic_params: _ } => {
-                            variants.len()
-                        },
-                        _ => panic!()
-                    };
-                    if branches.len() == variant_count {
-                        has_default = true;
-                    }
-                }
-                TypeKind::EnumVariant { enum_name, variant, generic_args } => {
-                    for (pattern, branch) in branches {
-                        let (branch_type, is_default) = match_enum_variant_branch(
-                            enum_name, 
-                            variant, 
-                            generic_args, 
-                            pattern, 
-                            branch, 
-                            env
-                        )?;
-                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
-                            return Err(spanned(
-                                "Match branches cannot have different return types".into(),
-                                branch_type.span
-                            ))
-                        } else {
-                            expected_type = branch_type.inner.clone()
-                        }
-                        if is_default {
-                            if has_default {
-                                return Err(spanned(
-                                    "Cannot have multiple default branches in a match expression".into(),
-                                    branch.span
-                                ))
-                            } else {
-                                has_default = true
-                            }
-                        }
-                    }
-                    let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
-                        TypeKind::Enum { name: _, variants, generic_params: _ } => {
-                            variants.len()
-                        },
-                        _ => panic!()
-                    };
-                    if branches.len() == variant_count {
-                        has_default = true;
-                    }
-                },
-                _ti => {
-                    for (pattern, branch) in branches {
-                        let (branch_type, is_default) = match_branch(&target_type.inner, pattern, branch, env)?;
-                        if expected_type.kind() != &TypeKind::Any && expected_type.kind() != branch_type.inner.kind(){
-                            return Err(spanned(
-                                "Match branches cannot have different return types".into(),
-                                branch_type.span
-                            ))
-                        } else {
-                            expected_type = branch_type.inner
-                        }
-                        if is_default {
-                            if has_default {
-                                return Err(spanned(
-                                    "Cannot have multiple default branches in a match expression".into(),
-                                    branch.span
-                                ))
-                            } else {
-                                has_default = true
-                            }
-                        }
-                    }
-                }
-            }
-            if has_default {
-                Ok(spanned(
-                    expected_type,
-                    expr.span
-                ))
-            } else {
-                Err(spanned(
-                    "Expected a default case for matching arbitrary values".into(),
-                    expr.span
-                ))
-            }
-        }
-    }
-}
+//             match target_type.inner.kind() {
+//                 TypeKind::Fun { params: _, return_type: _, generic_params: _ } => return Err(spanned(
+//                     "Cannot apply match to a function".into(), 
+//                     target.span
+//                 )),
+//                 TypeKind::EnumInstance { enum_name, variants, generic_args } => {
+//                     for (pattern, branch) in branches {
+//                         let (branch_type, is_default) = match_enum_instance_branch(
+//                             enum_name, 
+//                             variants, 
+//                             generic_args, 
+//                             pattern, 
+//                             branch, 
+//                             env
+//                         )?;
+//                         if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
+//                             return Err(spanned(
+//                                 "Match branches cannot have different return types".into(),
+//                                 branch_type.span
+//                             ))
+//                         } else {
+//                             expected_type = branch_type.inner.clone()
+//                         }
+//                         if is_default {
+//                             if has_default {
+//                                 return Err(spanned(
+//                                     "Cannot have multiple default branches in a match expression".into(),
+//                                     branch.span
+//                                 ))
+//                             } else {
+//                                 has_default = true
+//                             }
+//                         }
+//                     }
+//                     let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
+//                         TypeKind::Enum { name: _, variants, generic_params: _ } => {
+//                             variants.len()
+//                         },
+//                         _ => panic!()
+//                     };
+//                     if branches.len() == variant_count {
+//                         has_default = true;
+//                     }
+//                 }
+//                 TypeKind::EnumVariant { enum_name, variant, generic_args } => {
+//                     for (pattern, branch) in branches {
+//                         let (branch_type, is_default) = match_enum_variant_branch(
+//                             enum_name, 
+//                             variant, 
+//                             generic_args, 
+//                             pattern, 
+//                             branch, 
+//                             env
+//                         )?;
+//                         if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
+//                             return Err(spanned(
+//                                 "Match branches cannot have different return types".into(),
+//                                 branch_type.span
+//                             ))
+//                         } else {
+//                             expected_type = branch_type.inner.clone()
+//                         }
+//                         if is_default {
+//                             if has_default {
+//                                 return Err(spanned(
+//                                     "Cannot have multiple default branches in a match expression".into(),
+//                                     branch.span
+//                                 ))
+//                             } else {
+//                                 has_default = true
+//                             }
+//                         }
+//                     }
+//                     let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
+//                         TypeKind::Enum { name: _, variants, generic_params: _ } => {
+//                             variants.len()
+//                         },
+//                         _ => panic!()
+//                     };
+//                     if branches.len() == variant_count {
+//                         has_default = true;
+//                     }
+//                 },
+//                 _ti => {
+//                     for (pattern, branch) in branches {
+//                         let (branch_type, is_default) = match_branch(&target_type.inner, pattern, branch, env)?;
+//                         if expected_type.kind() != &TypeKind::Any && expected_type.kind() != branch_type.inner.kind(){
+//                             return Err(spanned(
+//                                 "Match branches cannot have different return types".into(),
+//                                 branch_type.span
+//                             ))
+//                         } else {
+//                             expected_type = branch_type.inner
+//                         }
+//                         if is_default {
+//                             if has_default {
+//                                 return Err(spanned(
+//                                     "Cannot have multiple default branches in a match expression".into(),
+//                                     branch.span
+//                                 ))
+//                             } else {
+//                                 has_default = true
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//             if has_default {
+//                 Ok(spanned(
+//                     expected_type,
+//                     expr.span
+//                 ))
+//             } else {
+//                 Err(spanned(
+//                     "Expected a default case for matching arbitrary values".into(),
+//                     expr.span
+//                 ))
+//             }
+//         }
+//     }
+// }
 
 //replaces type aliases with their underlying type, processes type closures
 fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Result<Cow<'a, Spanned<TypeInfo>>, Spanned<SmolStr>> {
@@ -1688,314 +1932,1301 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
 }
 
 // blindly converts statements to lower version without types. all the type checking should be done prior to that
-pub fn lower_statement(statement: &Spanned<Statement>, env: &mut TypeEnv) -> Result<Option<Spanned<ir::Statement>>, Spanned<SmolStr>> {
-    match &statement.inner {
-        Statement::Let { name, expr, type_info: _ } => Ok(Some(spanned(
-            ir::Statement::Let { name: name.clone(), expr: lower_expr(expr, env)? },
-            statement.span
-        ))),
-        Statement::TypeDef { name: _, type_info: _, generic_params: _, implementation: _ } => Ok(None),
-        Statement::Expr(expr) => Ok(Some(spanned(
-            ir::Statement::Expr(lower_expr(expr, env)?),
-            statement.span
-        ))),
-        Statement::Fun { name, params, body, return_type: _, generic_params: _ } => {
-            let mut lower_params = Vec::new();
-            for (a, _) in params {
-                lower_params.push(a.clone());
-            }
-            Ok(Some(spanned(
-                ir::Statement::Let { 
-                    name: name.clone(),
-                    expr: spanned(
-                        ir::Expr::Fun {
-                            params: lower_params, 
-                            body: Box::new(lower_expr(body, env)?)
-                        },
-                        statement.span
-                    )
-                },
-                statement.span
-            )))
-        },
-        Statement::NativeFun { name, params: _, return_type: _, generic_params: _ } => {
-            Ok(Some(spanned(
-                ir::Statement::NativeFun(name.clone()),
-                statement.span
-            )))
-        },
-        Statement::EnumDef { name, variants, generic_params: _ } => {
-            let mut record_exprs = Vec::new();
-            for (v_name, v_type) in variants{
-                match v_type {
-                    Some(ti) => {
-                        record_exprs.push(
-                            (v_name.clone(), Spanned {
-                                inner: ir::Expr::Fun { 
-                                    params: vec![(false, SmolStr::new("+arg"))], 
-                                    body: Box::new(Spanned {
-                                        inner: ir::Expr::EnumConstructor { 
-                                            enum_name: name.clone(),
-                                            variant: v_name.clone(),
-                                            value: Box::new(Spanned {
-                                                inner: ir::Expr::Var(SmolStr::new("+arg")),
-                                                span: ti.span
-                                            })
-                                        },
-                                        span: ti.span
-                                    })
-                                },
-                                span: ti.span
-                            })
-                        )
-                    },
-                    None => record_exprs.push(
-                        (v_name.clone(), Spanned {
-                            inner: ir::Expr::Fun { 
-                                params: vec![], 
-                                body: Box::new(Spanned {
-                                    inner: ir::Expr::EnumConstructor { 
-                                        enum_name: name.clone(),
-                                        variant: v_name.clone(),
-                                        value: Box::new(Spanned {
-                                            inner: ir::Expr::Void,
-                                            span: Span::from(0..0)
-                                        })
-                                    },
-                                    span: Span::from(0..0)
-                                })
-                            },
-                            span: Span::from(0..0)
-                        })
-                    )
-                }
+// pub fn lower_statement(statement: &Spanned<Statement>, env: &mut TypeEnv) -> Result<Option<Spanned<ir::Statement>>, Spanned<SmolStr>> {
+//     match &statement.inner {
+//         Statement::Let { name, expr, type_info: _ } => Ok(Some(spanned(
+//             ir::Statement::Let { name: name.clone(), expr: lower_expr(expr, env)? },
+//             statement.span
+//         ))),
+//         Statement::TypeDef { name: _, type_info: _, generic_params: _, implementation: _ } => Ok(None),
+//         Statement::Expr(expr) => Ok(Some(spanned(
+//             ir::Statement::Expr(lower_expr(expr, env)?),
+//             statement.span
+//         ))),
+//         Statement::Fun { name, params, body, return_type: _, generic_params: _ } => {
+//             let mut lower_params = Vec::new();
+//             for (a, _) in params {
+//                 lower_params.push(a.clone());
+//             }
+//             Ok(Some(spanned(
+//                 ir::Statement::Let { 
+//                     name: name.clone(),
+//                     expr: spanned(
+//                         ir::Expr::Fun {
+//                             params: lower_params, 
+//                             body: Box::new(lower_expr(body, env)?)
+//                         },
+//                         statement.span
+//                     )
+//                 },
+//                 statement.span
+//             )))
+//         },
+//         Statement::NativeFun { name, params: _, return_type: _, generic_params: _ } => {
+//             Ok(Some(spanned(
+//                 ir::Statement::NativeFun(name.clone()),
+//                 statement.span
+//             )))
+//         },
+//         Statement::EnumDef { name, variants, generic_params: _ } => {
+//             let mut record_exprs = Vec::new();
+//             for (v_name, v_type) in variants{
+//                 match v_type {
+//                     Some(ti) => {
+//                         record_exprs.push(
+//                             (v_name.clone(), Spanned {
+//                                 inner: ir::Expr::Fun { 
+//                                     params: vec![(false, SmolStr::new("+arg"))], 
+//                                     body: Box::new(Spanned {
+//                                         inner: ir::Expr::EnumConstructor { 
+//                                             enum_name: name.clone(),
+//                                             variant: v_name.clone(),
+//                                             value: Box::new(Spanned {
+//                                                 inner: ir::Expr::Var(SmolStr::new("+arg")),
+//                                                 span: ti.span
+//                                             })
+//                                         },
+//                                         span: ti.span
+//                                     })
+//                                 },
+//                                 span: ti.span
+//                             })
+//                         )
+//                     },
+//                     None => record_exprs.push(
+//                         (v_name.clone(), Spanned {
+//                             inner: ir::Expr::Fun { 
+//                                 params: vec![], 
+//                                 body: Box::new(Spanned {
+//                                     inner: ir::Expr::EnumConstructor { 
+//                                         enum_name: name.clone(),
+//                                         variant: v_name.clone(),
+//                                         value: Box::new(Spanned {
+//                                             inner: ir::Expr::Void,
+//                                             span: Span::from(0..0)
+//                                         })
+//                                     },
+//                                     span: Span::from(0..0)
+//                                 })
+//                             },
+//                             span: Span::from(0..0)
+//                         })
+//                     )
+//                 }
                 
-            }
-            Ok(Some(Spanned {
-                inner: ir::Statement::Let { 
-                    name: name.clone(),
-                    expr: Spanned {
-                        inner: ir::Expr::Record(record_exprs),
-                        span: statement.span
-                    }
-                },
-                span: statement.span
-            }))
-        },
-        Statement::Import { symbols, path } => {
-            let mut new_symbols = Vec::new();
-            for (name, alias, is_type) in symbols {
-                match is_type {
-                    true => continue,
-                    false => {
-                        new_symbols.push((name.clone(), alias.clone()));
-                    },
-                }
-            }
-            Ok(Some(spanned(
-                ir::Statement::Import { symbols: new_symbols, path: path.clone() }, 
-                statement.span
-            )))
-        },
-        Statement::Export(st) => {
-            if let Some(lower_st) = lower_statement(st, env)? {
-                Ok(Some(spanned(
-                    ir::Statement::Export(Box::new(lower_st)),
-                    statement.span
-                )))
-            } else {
-                Ok(None)
-            }
-        },
-    }
-}
+//             }
+//             Ok(Some(Spanned {
+//                 inner: ir::Statement::Let { 
+//                     name: name.clone(),
+//                     expr: Spanned {
+//                         inner: ir::Expr::Record(record_exprs),
+//                         span: statement.span
+//                     }
+//                 },
+//                 span: statement.span
+//             }))
+//         },
+//         Statement::Import { symbols, path } => {
+//             let mut new_symbols = Vec::new();
+//             for (name, alias, is_type) in symbols {
+//                 match is_type {
+//                     true => continue,
+//                     false => {
+//                         new_symbols.push((name.clone(), alias.clone()));
+//                     },
+//                 }
+//             }
+//             Ok(Some(spanned(
+//                 ir::Statement::Import { symbols: new_symbols, path: path.clone() }, 
+//                 statement.span
+//             )))
+//         },
+//         Statement::Export(st) => {
+//             if let Some(lower_st) = lower_statement(st, env)? {
+//                 Ok(Some(spanned(
+//                     ir::Statement::Export(Box::new(lower_st)),
+//                     statement.span
+//                 )))
+//             } else {
+//                 Ok(None)
+//             }
+//         },
+//     }
+// }
 
-fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<Spanned<ir::Expr>, Spanned<SmolStr>> {
+fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
+    (Spanned<ir::Expr>, Spanned<TypeInfo>),
+    Spanned<SmolStr>
+> {
     match &expr.inner {
-        Expr::Bool(b) => Ok(spanned(ir::Expr::Bool(*b), expr.span)),
-        Expr::Float(f) => Ok(spanned(ir::Expr::Float(*f), expr.span)),
-        Expr::Int(i) => Ok(spanned(ir::Expr::Int(*i), expr.span)),
-        Expr::String(s) => Ok(spanned(ir::Expr::String(s.clone()), expr.span)),
-        Expr::Char(c) => Ok(spanned(ir::Expr::Char(c.clone()), expr.span)),
-        Expr::Void => Ok(spanned(ir::Expr::Void, expr.span)),
-        Expr::Null => Ok(spanned(ir::Expr::Null, expr.span)),
-        Expr::Var(name) => Ok(spanned(ir::Expr::Var(name.clone()), expr.span)),
+        Expr::Bool(b) => Ok((
+            spanned(ir::Expr::Bool(*b), expr.span),
+            spanned(TypeInfo::bool(), expr.span)
+        )),
+        Expr::Float(f) => Ok((
+            spanned(ir::Expr::Float(*f), expr.span),
+            spanned(TypeInfo::float(), expr.span)
+        )),
+        Expr::Int(i) => Ok((
+            spanned(ir::Expr::Int(*i), expr.span),
+            spanned(TypeInfo::int(), expr.span)
+        )),
+        Expr::String(s) => Ok((
+            spanned(ir::Expr::String(s.clone()), expr.span),
+            spanned(TypeInfo::string(), expr.span)
+        )),
+        Expr::Char(c) => Ok((
+            spanned(ir::Expr::Char(c.clone()), expr.span),
+            spanned(TypeInfo::char(), expr.span)
+        )),
+        Expr::Void => Ok((
+            spanned(ir::Expr::Void, expr.span),
+            spanned(TypeInfo::void(), expr.span)
+        )),
+        Expr::Null => Ok((
+            spanned(ir::Expr::Null, expr.span),
+            spanned(TypeInfo::null(), expr.span)
+        )),
+        Expr::Var(name) => {
+            let var_type = if let Some(ti) = env.get_var_type(name) {
+                ti
+            } else {
+                return Err(spanned(
+                    format_smolstr!("Cannot resolve variable {name}"),
+                    expr.span
+                ))
+            };
+            Ok((
+                spanned(ir::Expr::Var(name.clone()), expr.span),
+                var_type
+            ))
+        },
         Expr::Array(spanneds) => {
             let mut lowered = Vec::new();
+            let mut expected_type = spanned(TypeInfo::unknown(), Span::from(0..0));
             for e in spanneds {
-                lowered.push(lower_expr(e, env)?);
+                let result = lower_expr(e, env)?;
+                if result.1.inner != expected_type.inner {
+                    if expected_type.inner == TypeInfo::unknown() {
+                        expected_type = result.1
+                    } else {
+                        return Err(spanned(
+                            format_smolstr!(
+                                "Array Element Type Mismatch: Expected {:?}, got {:?}",
+                                expected_type.inner, 
+                                result.1.inner
+                            ),
+                            e.span
+                        ))
+                    }
+                }
+                lowered.push(result.0);
             }
-            Ok(spanned(ir::Expr::Array(lowered), expr.span))
+            Ok((
+                spanned(ir::Expr::Array(lowered), expr.span.clone()),
+                spanned(
+                    TypeInfo::new(TypeKind::Array(Box::new(expected_type))),
+                    expr.span
+                )
+            ))
         },
         Expr::Index(target, index) => {
-            Ok(spanned(
-                ir::Expr::Index(
-                    Box::new(lower_expr(target, env)?),
-                    Box::new(lower_expr(index, env)?)
-                ),
-                expr.span
-            ))
+            let target_result = lower_expr(target, env)?;
+            let index_result = lower_expr(index, env)?;
+            if index_result.1.inner != TypeInfo::int() {
+                return Err(spanned(
+                    format_smolstr!("Cannot use {:?} to index arrays", index_result.1.inner),
+                    index.span
+                ))
+            }
+            match target_result.1.inner.kind() {
+                TypeKind::Array(element_type) => Ok((
+                    spanned(
+                        ir::Expr::Index(
+                            Box::new(target_result.0),
+                            Box::new(index_result.0)
+                        ),
+                        expr.span
+                    ),
+                    *element_type.clone()
+                )),
+                _ => Err(spanned(
+                    format_smolstr!("Cannot index {:?}", target_result.1.inner),
+                    target.span
+                ))
+            }
         },
         Expr::Binary { left, operation, right } => {
-            Ok(spanned(
-                ir::Expr::Binary {
-                    left: Box::new(lower_expr(left, env)?),
-                    operation: operation.clone(),
-                    right: Box::new(lower_expr(right, env)?)
+            let left_result = lower_expr(left, env)?;
+            let right_result = lower_expr(right, env)?;
+            match operation {
+                Operation::Add
+                | Operation::Subtract 
+                | Operation::Multiply
+                | Operation::Divide
+                | Operation::Modulo  => {
+                    match left_result.1.inner.kind() {
+                        TypeKind::Any 
+                        | TypeKind::Float 
+                        | TypeKind::Int => {
+                            if left_result.1.inner != right_result.1.inner {
+                                return Err(spanned(
+                                    format_smolstr!(
+                                        "Type Mismatch: Expeccted {:?}, got {:?}",
+                                        left_result.1.inner, 
+                                        right_result.1.inner
+                                    ), 
+                                    left.span
+                                ))
+                            }
+                            Ok((
+                                spanned(
+                                    ir::Expr::Binary { 
+                                        left: Box::new(left_result.0),
+                                        operation: operation.clone(),
+                                        right: Box::new(right_result.0)
+                                    },
+                                    expr.span
+                                ),
+                                spanned(
+                                    left_result.1.inner,
+                                    expr.span
+                                )
+                            ))
+                        },
+                        _ => return Err(spanned(
+                            format!("Cannot apply {:?} to {:?}", operation, left_result.1.inner).into(), 
+                            left.span
+                        ))
+                    }
                 },
-                expr.span
-            ))
+                Operation::LessThan 
+                | Operation::LessThanEq 
+                | Operation::GreaterThan 
+                | Operation::GreaterThanEq => {
+                    match left_result.1.inner.kind() {
+                        TypeKind::Any 
+                        | TypeKind::Float 
+                        | TypeKind::Int => {
+                            if left_result.1.inner != right_result.1.inner {
+                                return Err(spanned(
+                                    format_smolstr!(
+                                        "Type Mismatch: Expeccted {:?}, got {:?}",
+                                        left_result.1.inner, 
+                                        right_result.1.inner
+                                    ), 
+                                    right.span
+                                ))
+                            }
+                            Ok((
+                                spanned(
+                                    ir::Expr::Binary { 
+                                        left: Box::new(left_result.0),
+                                        operation: operation.clone(),
+                                        right: Box::new(right_result.0)
+                                    }, 
+                                    expr.span.clone()
+                                ),
+                                spanned(
+                                    TypeInfo::bool(),
+                                    expr.span
+                                )
+                            ))
+                        },
+                        _ => return Err(spanned(
+                            format_smolstr!("Cannot apply {:?} to {:?}", operation, left_result.1.inner), 
+                            left.span
+                        ))
+                    }
+                },
+                Operation::Eq | Operation::NotEq => {
+                    if left_result.1.inner != right_result.1.inner {
+                        return Err(spanned(
+                            format_smolstr!(
+                                "Cannot compare {:?} to {:?}", 
+                                left_result.1.inner, 
+                                right_result.1.inner
+                            ),
+                            expr.span
+                        ))
+                    }
+                    Ok((
+                        spanned(
+                            ir::Expr::Binary { 
+                                left: Box::new(left_result.0),
+                                operation: operation.clone(),
+                                right: Box::new(right_result.0)
+                            },
+                            expr.span.clone()
+                        ),
+                        spanned(
+                            TypeInfo::bool(),
+                            expr.span
+                        )
+                    ))
+                },
+                Operation::And | Operation::Or => {
+                    match (left_result.1.inner.kind(), right_result.1.inner.kind()) {
+                        (TypeKind::Bool, TypeKind::Bool) => Ok((
+                            spanned(
+                                ir::Expr::Binary { 
+                                    left: Box::new(left_result.0),
+                                    operation: operation.clone(),
+                                    right: Box::new(right_result.0)
+                                },
+                                expr.span.clone()
+                            ),
+                            spanned(
+                                TypeInfo::bool(),
+                                expr.span
+                            )
+                        )),
+                        (a, b) => Err(spanned(
+                            format_smolstr!(
+                                "{:?} requires both sides to be Bool, got: {:?}, {:?}", 
+                                operation, 
+                                a, 
+                                b
+                            ),
+                            expr.span
+                        ))
+                    }
+                },
+                Operation::NullCoal => {
+                    match (left_result.1.inner.kind(), right_result.1.inner.kind()) {
+                        (TypeKind::Null, _) => {
+                            Ok((
+                                spanned(
+                                    ir::Expr::Binary { 
+                                        left: Box::new(left_result.0),
+                                        operation: operation.clone(),
+                                        right: Box::new(right_result.0)
+                                    },
+                                    expr.span
+                                ),
+                                right_result.1
+                            ))
+                        },
+                        _ => Ok((
+                            spanned(
+                                ir::Expr::Binary { 
+                                    left: Box::new(left_result.0),
+                                    operation: operation.clone(),
+                                    right: Box::new(right_result.0)
+                                },
+                                expr.span
+                            ),
+                            left_result.1
+                        ))
+                    }
+                },
+                Operation::BitwiseAnd 
+                | Operation::BitwiseOr 
+                | Operation::BitwiseXor 
+                | Operation::BitwiseLeftShift 
+                | Operation::BitwiseRightShift => {
+                    match left_result.1.inner.kind() {
+                        TypeKind::Any | TypeKind::Int => {
+                            if left_result.1.inner != right_result.1.inner {
+                                return Err(spanned(
+                                    format_smolstr!(
+                                        "Type Mismatch: Expected {:?}, got {:?}",
+                                        left_result.1.inner,
+                                        right_result.1.inner
+                                    ), 
+                                    expr.span
+                                ))
+                            }
+                            Ok((
+                                spanned(
+                                    ir::Expr::Binary { 
+                                        left: Box::new(left_result.0),
+                                        operation: operation.clone(),
+                                        right: Box::new(right_result.0)
+                                    },
+                                    expr.span.clone()
+                                ),
+                                spanned(
+                                    TypeInfo::int(),
+                                    expr.span
+                                )
+                            ))
+                        },
+                        _ => return Err(spanned(
+                            format_smolstr!(
+                                "Cannot apply {:?} to {:?}", 
+                                operation, 
+                                left_result.1.inner
+                            ), 
+                            left.span
+                        ))
+                    }
+                },
+            }
         },
         Expr::Block(statements, final_expr) => {
-            let mut lowered_statements = Vec::new();
-            for st in statements {
-                if let Some(lower_st) = lower_statement(st, env)? {
-                    lowered_statements.push(lower_st);
-                }
-            }
-            let lowered_final = if let Some(e) = final_expr {
-                Some(Box::new(lower_expr(e, env)?))
+            let mut inner_scope = env.enter_scope();
+            let (lowered_statements, _, _) = hoist(statements, &mut inner_scope, "")?;
+            if let Some(e) = final_expr {
+                let final_result = lower_expr(e, &mut inner_scope)?;
+                Ok((
+                    spanned(
+                        ir::Expr::Block(lowered_statements, Some(Box::new(final_result.0))),
+                        expr.span.clone()
+                    ),
+                    final_result.1
+                ))
             } else {
-                None
-            };
-            Ok(spanned(ir::Expr::Block(lowered_statements, lowered_final), expr.span))
-        },
-        Expr::Fun { params, body, return_type: _, generic_params: _ } => {
-            let mut lower_params = Vec::new();
-            for (n, _) in params {
-                lower_params.push(n.clone());
+                Ok((
+                    spanned(
+                        ir::Expr::Block(lowered_statements, None),
+                        expr.span.clone()
+                    ),
+                    spanned(
+                        TypeInfo::void(),
+                        expr.span
+                    )
+                ))
             }
-            Ok(spanned(
-                ir::Expr::Fun {
-                    params: lower_params,
-                    body: Box::new(lower_expr(body, env)?)
-                },
-                expr.span
-            ))
+            
         },
-        Expr::Call { fun, args, generic_args: _ } => {
-            let mut lowered_args = Vec::new();
-            for arg in args {
-                lowered_args.push(lower_expr(arg, env)?);
+        Expr::Fun { params, body, return_type, generic_params } => {
+            let mut inner_scope = env.enter_scope();
+            let expected_type = return_type.clone().unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+    
+            if generic_params.len() == 0 {
+                let mut flat_params = Vec::new();
+                let mut lower_params = Vec::new();
+                for (n, p_type) in params {
+                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    flat_params.push((n.clone(), flattened));
+                    lower_params.push(n.clone());
+                }
+                let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                let body_result = lower_expr(body, &mut inner_scope)?;
+                let actual_type = flatten_type(&body_result.1, env)?;
+                if actual_type.inner != expected_type.inner {
+                    return Err(spanned(
+                        format_smolstr!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner),
+                        expected_type.span
+                    ))
+                }
+                Ok((
+                    spanned(
+                        ir::Expr::Fun {
+                            params: lower_params,
+                            body: Box::new(body_result.0)
+                        },
+                        expr.span.clone()
+                    ),
+                    spanned(
+                        TypeInfo::new(TypeKind::Fun { params: flat_params, return_type: Box::new(actual_type.into_owned()), generic_params: Vec::new() }),
+                        expr.span
+                    )
+                ))
+            } else {
+                for generic in generic_params {
+                    inner_scope.add_custom_type(generic.inner.clone(), spanned(
+                        TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
+                        generic.span
+                    ));
+                }
+
+                let mut flat_params = Vec::new();
+                let mut lower_params = Vec::new();
+                for (n, p_type) in params {
+                    let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    flat_params.push((n.clone(), flattened));
+                    lower_params.push(n.clone());
+                }
+
+                let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+                let body_result = lower_expr(body, &mut inner_scope)?;
+                if body_result.1.inner != expected_flat.inner {
+                    return Err(spanned(
+                        format_smolstr!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, body_result.1.inner),
+                        expected_flat.span
+                    ))
+                }
+
+                Ok((
+                    spanned(
+                        ir::Expr::Fun { 
+                            params: lower_params,
+                            body: Box::new(body_result.0)
+                        },
+                        expr.span.clone()
+                    ),
+                    spanned(
+                        TypeInfo::new(TypeKind::Fun { 
+                            params: flat_params, 
+                            return_type: Box::new(body_result.1),
+                            generic_params: generic_params.clone()
+                        }),
+                        expr.span
+                    )
+                ))
             }
-            Ok(spanned(
-                ir::Expr::Call {
-                    fun: Box::new(lower_expr(fun, env)?),
-                    args: lowered_args
+        },
+        Expr::Call { fun, args, generic_args } => {
+            let fun_result = lower_expr(fun, env)?;
+            match fun_result.1.inner.kind() {
+                TypeKind::Fun { params, return_type: _, generic_params } => {
+                    let mut lowered_args = Vec::new();
+                    let mut arg_types = Vec::new();
+                    for arg in args {
+                        let arg_result = lower_expr(arg, env)?;
+                        arg_types.push(arg_result.1.clone());
+                        lowered_args.push(arg_result.0);
+                    }
+                    
+                    let mut generic_arg_map = HashMap::new();
+                    if generic_params.len() > 0 
+                    && generic_args.len() == 0 
+                    && args.len() >= generic_params.len() {
+                        for (param, arg_type) in params.iter().zip(arg_types.iter()) {
+                            for (p_name, ti) in collect_generic_params(
+                                (&param.1, param.0.0),
+                                arg_type
+                            ) {
+                                generic_arg_map.insert(p_name, ti);
+                            }
+                        }
+                    } else {
+                        if generic_params.len() != generic_args.len() {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Insufficient generic arguments provided: expected {}, got {}",
+                                    generic_params.len(),
+                                    generic_args.len()
+                                ),
+                                expr.span
+                            ))
+                        }
+                        for (param, arg) in generic_params.iter().zip(generic_args.iter()) {
+                            generic_arg_map.insert(param.inner.clone(), arg.clone());
+                        }
+                    }
+                    
+                    let substituted_fun = substitute_generic_params(&fun_result.1, &generic_arg_map);
+                    let substituted_params = match substituted_fun.inner.kind() {
+                        TypeKind::Fun { params, .. } => params.clone(),
+                        _ => return Err(spanned(
+                            format_smolstr!("Substitution failed for function type"),
+                            expr.span
+                        ))
+                    };
+            
+                    let substituted_return_type = match substituted_fun.inner.kind() {
+                        TypeKind::Fun { return_type, .. } => return_type,
+                        _ => return Err(spanned(
+                            format_smolstr!("Substitution failed for function type"),
+                            expr.span
+                        ))
+                    };
+            
+                    let is_variadic = if let Some(last) = substituted_params.last() {
+                        last.0.0
+                    } else {false};
+            
+                    if is_variadic {
+                        if substituted_params.len() > args.len() {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Insufficient amount of arguments: expected at least {}, got {}",
+                                    substituted_params.len(),
+                                    args.len()
+                                ),
+                                expr.span
+                            ))
+                        }
+                        for (i, (((v, _), p_type), arg_type)) in substituted_params.iter().zip(arg_types.iter()).enumerate() {
+                            match v {
+                                true => {
+                                    if i != substituted_params.len() - 1 {
+                                        return Err(spanned(
+                                            "Cannot have multiple spread params in a function".into(),
+                                            p_type.span
+                                        ))
+                                    } else {break}
+                                },
+                                false => (),
+                            }
+                            if arg_type.inner != p_type.inner {
+                                return Err(spanned(
+                                    format_smolstr!(
+                                        "Argument type mismatch: expected {:?}, got {:?}",
+                                        p_type.inner,
+                                        arg_type.inner
+                                    ),
+                                    lowered_args[i].span
+                                ))
+                            }
+                        }
+                        let spread_args = &args[substituted_params.len()-1..];
+                        let temp = substituted_params.last().unwrap().1.clone();
+                        let spread_type = match temp.inner.kind() {
+                            TypeKind::Array(inner_type) => inner_type.clone(),
+                            o => return Err(spanned(
+                                format_smolstr!("Spread parameter should be an array: found {:?} instead", o),
+                                temp.span
+                            ))
+                        };
+                        for (arg, arg_type) in spread_args.iter().zip(arg_types.iter().skip(substituted_params.len()-1)) {
+                            if arg_type.inner != spread_type.inner {
+                                return Err(spanned(
+                                    format_smolstr!("Argument type mismatch: expected {:?}, got {:?}", spread_type.inner, arg_type.inner),
+                                    arg.span
+                                ))
+                            }
+                        }
+                    } else {
+                        if substituted_params.len() != args.len() {
+                            return Err(spanned(
+                                format_smolstr!("Argument type mismatch: expected {} args, got {}", substituted_params.len(), args.len()),
+                                expr.span
+                            ))
+                        }
+                        for ((_, p_type), arg_type) in substituted_params.iter().zip(arg_types.iter()) {
+                            if arg_type.inner != p_type.inner {
+                                return Err(spanned(
+                                    format_smolstr!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner),
+                                    expr.span
+                                ))
+                            }
+                        }
+                    }
+            
+                    Ok((
+                        spanned(
+                            ir::Expr::Call {
+                                fun: Box::new(fun_result.0),
+                                args: lowered_args
+                            },
+                            expr.span.clone()
+                        ),
+                        substituted_return_type.as_ref().clone()
+                    ))
                 },
-                expr.span
-            ))
+                ti => Err(spanned(
+                    format_smolstr!("Type {:?} is not callable", ti),
+                    expr.span
+                ))
+            }
         },
         Expr::Record(items) => {
-            let mut lowered_items = Vec::new();
+            let mut types = Vec::new();
+            let mut lowers = Vec::new();
             for (name, e) in items {
-                lowered_items.push((name.clone(), lower_expr(e, env)?));
+                let item_result = lower_expr(e, env)?;
+                types.push((name.clone(), item_result.1));
+                lowers.push((name.clone(), item_result.0));
             }
-            Ok(spanned(ir::Expr::Record(lowered_items), expr.span))
+            Ok((
+                spanned(ir::Expr::Record(lowers), expr.span.clone()),
+                spanned(TypeInfo::new(TypeKind::Record(types)), expr.span)
+            ))
         },
         Expr::Get(target, field) => {
-            let target_type = get_type(target, env)?;
-            if let Some(f) = env.get_method_function(target_type.inner.id(), field) {
-                Ok(spanned(
-                    ir::Expr::Method { 
-                        this: Box::new(lower_expr(target, env)?),
-                        fun: Box::new(lower_expr(f.as_ref(), env)?)
-                    },
-                    expr.span
+            let target_result = lower_expr(target, env)?;
+            if let Some((method_type, method_expr)) = env.get_method(target_result.1.inner.id(), field) {
+                Ok((
+                    spanned(
+                        ir::Expr::Method { 
+                            this: Box::new(target_result.0),
+                            fun: Box::new(method_expr)
+                        },
+                        expr.span.clone()
+                    ),
+                    spanned(
+                        method_type.inner,
+                        expr.span
+                    )
                 ))
             } else {
-                Ok(spanned(
-                    ir::Expr::Get(Box::new(lower_expr(target, env)?), field.clone()),
-                    expr.span
-                ))
+                match target_result.1.inner.kind() {
+                    TypeKind::Record(fields) => {
+                        for (name, e) in fields {
+                            if name == field {
+                                return Ok((
+                                    spanned(
+                                        ir::Expr::Get(Box::new(target_result.0), field.clone()),
+                                        expr.span.clone()
+                                    ),
+                                    spanned(
+                                        e.inner.clone(),
+                                        expr.span
+                                    )
+                                ))
+                            }
+                        }
+                        Err(spanned(
+                            format_smolstr!(
+                                "Type {:?} does not have property {field}",
+                                target_result.1.inner
+                            ),
+                            target.span
+                        ))
+                    },
+                    _ => Err(spanned(
+                        format_smolstr!(
+                            "Type {:?} does not have property {field}",
+                            target_result.1.inner
+                        ),
+                        target.span
+                    ))
+                }
             }
         },
         Expr::Assign { target, value } => {
-            Ok(spanned(
-                ir::Expr::Assign {
-                    target: Box::new(lower_expr(target, env)?),
-                    value: Box::new(lower_expr(value, env)?)
-                },
-                expr.span
+            let target_result = lower_expr(target, env)?;
+            let value_result = lower_expr(value, env)?;
+            if target_result.1.inner != value_result.1.inner {
+                return Err(spanned(
+                    format_smolstr!(
+                        "Cannot assign {:?} to {:?}", 
+                        value_result.1.inner, 
+                        target_result.1.inner
+                    ),
+                    value.span
+                ))
+            }
+            Ok((
+                spanned(
+                    ir::Expr::Assign {
+                        target: Box::new(target_result.0),
+                        value: Box::new(value_result.0)
+                    },
+                    expr.span.clone()
+                ),
+                spanned(
+                    TypeInfo::void(),
+                    expr.span
+                )
             ))
         },
         Expr::Unary(unary_op, e) => {
-            Ok(spanned(
-                ir::Expr::Unary(unary_op.clone(), Box::new(lower_expr(e, env)?)),
-                expr.span
-            ))
+            let expr_result = lower_expr(e, env)?;
+            match (unary_op, expr_result.1.inner.kind()) {
+                (UnaryOp::Negate, TypeKind::Any) 
+                | (UnaryOp::Negate, TypeKind::Float)
+                | (UnaryOp::Negate, TypeKind::Int) => Ok((
+                    spanned(
+                        ir::Expr::Unary(unary_op.clone(), Box::new(expr_result.0)),
+                        expr.span
+                    ),
+                    expr_result.1
+                )),
+                (UnaryOp::Not, TypeKind::Bool) => Ok((
+                    spanned(
+                        ir::Expr::Unary(unary_op.clone(), Box::new(expr_result.0)),
+                        expr.span
+                    ),
+                    expr_result.1
+                )),
+                _ => Err(spanned(
+                    format_smolstr!("Cannot apply {:?} to {:?}", unary_op, expr_result.1.inner),
+                    e.span
+                ))
+            }
         },
         Expr::If { condition, body, else_block } => {
-            let lowered_else = if let Some(else_expr) = else_block {
-                Some(Box::new(lower_expr(else_expr, env)?))
+            let condition_result = lower_expr(condition, env)?;
+            let body_result = lower_expr(body, env)?;
+            let else_block_result = if let Some(block) = else_block {
+                Some(lower_expr(block, env)?)
             } else {
                 None
             };
-            Ok(spanned(
-                ir::Expr::If {
-                    condition: Box::new(lower_expr(condition, env)?),
-                    body: Box::new(lower_expr(body, env)?),
-                    else_block: lowered_else
-                },
-                expr.span
-            ))
+            if *condition_result.1.inner.kind() != TypeKind::Bool {
+                return Err(spanned(
+                    "If condition should return Bool".into(),
+                    condition.span
+                ))
+            }
+            if let Some(result) = else_block_result {
+                if result.1.inner != body_result.1.inner {
+                    return Err(spanned(
+                        format!(
+                            "If condition branches have incompatible types: expected {:?}, got {:?}",
+                            body_result.1.inner,
+                            result.1.inner
+                        ).into(),
+                        result.1.span
+                    ))
+                }
+                Ok((
+                    spanned(
+                        ir::Expr::If {
+                            condition: Box::new(condition_result.0),
+                            body: Box::new(body_result.0),
+                            else_block: Some(Box::new(result.0))
+                        },
+                        expr.span.clone()
+                    ),
+                    spanned(
+                        body_result.1.inner, 
+                        expr.span
+                    )
+                ))
+            } else {
+                Ok((
+                    spanned(
+                        ir::Expr::If {
+                            condition: Box::new(condition_result.0),
+                            body: Box::new(body_result.0),
+                            else_block: None
+                        },
+                        expr.span.clone()
+                    ),
+                    spanned(
+                        body_result.1.inner, 
+                        expr.span
+                    )
+                ))
+            }
+            
         },
         Expr::While { condition, body } => {
-            Ok(spanned(
-                ir::Expr::While {
-                    condition: Box::new(lower_expr(condition, env)?),
-                    body: Box::new(lower_expr(body, env)?)
-                },
-                expr.span
+            let condition_result = lower_expr(condition, env)?;
+            let body_result = lower_expr(body, env)?;
+            if condition_result.1.inner != TypeInfo::bool() {
+                return Err(spanned(
+                    SmolStr::new("While loop condition should be a bool"), 
+                    condition.span
+                ))
+            }
+            if body_result.1.inner != TypeInfo::void() {
+                return Err(spanned(
+                    SmolStr::new("While loop body should return void"), 
+                    body.span
+                ))
+            }
+            Ok((
+                spanned(
+                    ir::Expr::While {
+                        condition: Box::new(condition_result.0),
+                        body: Box::new(body_result.0)
+                    },
+                    expr.span.clone()
+                ),
+                spanned(
+                    TypeInfo::void(),
+                    expr.span
+                )
             ))
         },
-        Expr::Break => Ok(spanned(ir::Expr::Break, expr.span)),
-        Expr::Continue => Ok(spanned(ir::Expr::Continue, expr.span)),
+        Expr::Break => Ok((
+            spanned(ir::Expr::Break, expr.span.clone()),
+            spanned(TypeInfo::void(), expr.span)
+        )),
+        Expr::Continue => Ok((
+            spanned(ir::Expr::Continue, expr.span.clone()),
+            spanned(TypeInfo::void(), expr.span)
+        )),
         Expr::Return(e) => {
-            Ok(spanned(
-                ir::Expr::Return(Box::new(lower_expr(e, env)?)),
-                expr.span
+            let result = lower_expr(e, env)?;
+            Ok((
+                spanned(
+                    ir::Expr::Return(Box::new(result.0)),
+                    expr.span
+                ),
+                result.1
             ))
         },
         Expr::Match { target, branches } => {
-            Ok(spanned(
-                ir::Expr::Match { 
-                    target: Box::new(lower_expr(target, env)?),
-                    branches: {
-                        let mut lower_branches = Vec::new();
-                        for (pattern, body) in branches {
-                            let lowered_pattern = match &pattern.inner {
-                                MatchArm::Conditional { alias, condition } => spanned(
-                                    ir::MatchArm::Conditional {
-                                        alias: alias.clone(),
-                                        condition: lower_expr(condition, env)?
-                                    },
-                                    pattern.span
-                                ),
-                                MatchArm::Value(e) => spanned(
-                                    ir::MatchArm::Value(lower_expr(e, env)?),
-                                    pattern.span
-                                ),
-                                MatchArm::Default(alias) => spanned(
-                                    ir::MatchArm::Default(alias.clone()),
-                                    pattern.span
-                                ),
-                                MatchArm::EnumConstructor { enum_name, variant, alias } => spanned(
-                                    ir::MatchArm::EnumConstructor {
-                                        enum_name: enum_name.clone(),
-                                        variant: variant.clone(),
-                                        alias: alias.clone()
-                                    },
-                                    pattern.span
-                                ),
-                            };
-                            lower_branches.push((lowered_pattern, lower_expr(body, env)?))
+            let target_result = lower_expr(target, env)?;
+            
+            fn match_branch(
+                target: &TypeInfo, 
+                pattern: &Spanned<MatchArm>,
+                branch: &Spanned<Expr>,
+                env: &mut TypeEnv
+            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+                match &pattern.inner {
+                    MatchArm::Conditional { alias, condition } => {
+                        let mut inner_env = env.enter_scope();
+                        inner_env.add_var_type(alias.clone(), spanned(
+                            target.clone(),
+                            Span::from(0..0)
+                        ));
+                        let cond_result = lower_expr(condition, &mut inner_env)?;
+                        match cond_result.1.inner.kind() {
+                            TypeKind::Bool => (),
+                            _ => return Err(spanned(
+                                format_smolstr!("Match guard condition should return a Bool, found {:?} instead", cond_result.1.inner),
+                                condition.span
+                            ))
                         }
-                        lower_branches
+                        let branch_result = lower_expr(branch, &mut inner_env)?;
+                        let lowered_pattern = spanned(
+                            ir::MatchArm::Conditional {
+                                alias: alias.clone(),
+                                condition: cond_result.0
+                            },
+                            pattern.span
+                        );
+                        Ok(((lowered_pattern, branch_result.0), branch_result.1, false))
                     },
+                    MatchArm::Value(e) => {
+                        let pattern_result = lower_expr(e, env)?;
+                        if &pattern_result.1.inner != target {
+                            return Err(spanned(
+                                format_smolstr!("Type mismatch in match branch: expected {:?}, got {:?}", target, pattern_result.1.inner),
+                                e.span
+                            ))
+                        }
+                        let branch_result = lower_expr(branch, env)?;
+                        let lowered_pattern = spanned(
+                            ir::MatchArm::Value(pattern_result.0),
+                            pattern.span
+                        );
+                        Ok(((lowered_pattern, branch_result.0), branch_result.1, false))
+                    },
+                    MatchArm::Default(alias) => {
+                        let mut inner_env = env.enter_scope();
+                        inner_env.add_var_type(alias.clone(), spanned(
+                            target.clone(),
+                            Span::from(0..0)
+                        ));
+                        let branch_result = lower_expr(branch, &mut inner_env)?;
+                        let lowered_pattern = spanned(
+                            ir::MatchArm::Default(alias.clone()),
+                            pattern.span
+                        );
+                        Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
+                    },
+                    MatchArm::EnumConstructor {..} => Err(spanned(
+                        "Cannot have enum variants as patterns for non enum values".into(),
+                        branch.span
+                    ))
+                }
+            }
+            
+            fn match_enum_variant_branch(
+                enum_name: &SmolStr,
+                variant: &SmolStr,
+                generic_args: &Vec<TypeInfo>,
+                pattern: &Spanned<MatchArm>,
+                branch: &Spanned<Expr>,
+                env: &mut TypeEnv
+            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+                match &pattern.inner {
+                    MatchArm::Default(alias) => {
+                        let mut inner_env = env.enter_scope();
+                        inner_env.add_var_type(alias.clone(), spanned(
+                            TypeInfo::new(TypeKind::EnumVariant { 
+                                enum_name: enum_name.clone(),
+                                variant: variant.clone(), 
+                                generic_args: generic_args.clone()
+                            }),
+                            Span::from(0..0)
+                        ));
+                        let branch_result = lower_expr(branch, &mut inner_env)?;
+                        let lowered_pattern = spanned(
+                            ir::MatchArm::Default(alias.clone()),
+                            pattern.span
+                        );
+                        Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
+                    },
+                    MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+                        if let Some(ti) = env.resolve_type(c_name) {
+                            if c_name != enum_name {
+                                return Err(spanned(
+                                    format_smolstr!("Enum mismatch: expected {enum_name}, got {c_name}"),
+                                    ti.span
+                                ))
+                            }
+                            match ti.inner.kind() {
+                                TypeKind::Enum { name: _, variants, generic_params } => {
+                                    if generic_params.len() != generic_args.len() {
+                                        return Err(spanned(
+                                            format_smolstr!(
+                                                "Incorrect amount of generic arguments provided: expected {}, got {}",
+                                                generic_params.len(),
+                                                generic_args.len()
+                                            ),
+                                            ti.span
+                                        ))
+                                    }
+                                    let inner_type = if let Some(ti) = variants.get(variant) {
+                                        ti
+                                    } else {
+                                        return Err(spanned(
+                                            format_smolstr!("Enum {enum_name} does not have a variant {variant}"),
+                                            ti.span
+                                        ))
+                                    };
+                                    
+                                    let mut inner_scope = env.enter_scope();
+                                    let mut generic_map = HashMap::new();
+                                    for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
+                                        generic_map.insert(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
+                                        inner_scope.add_custom_type(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
+                                    }
+                                    let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
+                                    inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
+                                    let branch_result = lower_expr(branch, &mut inner_scope)?;
+                                    let lowered_pattern = spanned(
+                                        ir::MatchArm::EnumConstructor {
+                                            enum_name: enum_name.clone(),
+                                            variant: variant.clone(),
+                                            alias: alias.clone()
+                                        },
+                                        pattern.span
+                                    );
+                                    Ok(((lowered_pattern, branch_result.0), branch_result.1, false))
+                                },
+                                _ => Err(spanned(
+                                    format_smolstr!("Type {c_name} is not an enum"),
+                                    ti.span
+                                ))
+                            }
+                        } else {
+                            Err(spanned(
+                                format_smolstr!("Cannot resolve enum {c_name}"),
+                                pattern.span
+                            ))
+                        }
+                    },
+                    _ => Err(spanned(
+                        "This branch is not compatible with enums".into(),
+                        pattern.span
+                    ))
+                }
+            }
+            
+            fn match_enum_instance_branch(
+                enum_name: &SmolStr,
+                variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
+                generic_args: &Vec<Spanned<TypeInfo>>,
+                pattern: &Spanned<MatchArm>,
+                branch: &Spanned<Expr>,
+                env: &mut TypeEnv
+            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+                match &pattern.inner {
+                    MatchArm::Default(alias) => {
+                        let mut inner_env = env.enter_scope();
+                        inner_env.add_var_type(alias.clone(), spanned(
+                            TypeInfo::new(TypeKind::EnumInstance { 
+                                enum_name: enum_name.clone(),
+                                variants: variants.clone(), 
+                                generic_args: generic_args.clone()
+                            }),
+                            Span::from(0..0)
+                        ));
+                        let branch_result = lower_expr(branch, &mut inner_env)?;
+                        let lowered_pattern = spanned(
+                            ir::MatchArm::Default(alias.clone()),
+                            pattern.span
+                        );
+                        Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
+                    },
+                    MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+                        if let Some(ti) = env.resolve_type(c_name) {
+                            if c_name != enum_name {
+                                return Err(spanned(
+                                    format_smolstr!("Enum mismatch: expected {enum_name}, got {c_name}"),
+                                    ti.span
+                                ))
+                            }
+                            match ti.inner.kind() {
+                                TypeKind::Enum { name: _, variants, generic_params } => {
+                                    if generic_params.len() != generic_args.len() {
+                                        return Err(spanned(
+                                            format_smolstr!(
+                                                "Incorrect amount of generic arguments provided: expected {}, got {}",
+                                                generic_params.len(),
+                                                generic_args.len()
+                                            ),
+                                            ti.span
+                                        ))
+                                    }
+                                    let inner_type = if let Some(ti) = variants.get(variant) {
+                                        ti
+                                    } else {
+                                        return Err(spanned(
+                                            format_smolstr!("Enum {enum_name} does not have a variant {variant}"),
+                                            ti.span
+                                        ))
+                                    };
+                                    
+                                    let mut inner_scope = env.enter_scope();
+                                    let mut generic_map = HashMap::new();
+                                    for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
+                                        generic_map.insert(g_name.inner.clone(), g_type.clone());
+                                        inner_scope.add_custom_type(g_name.inner.clone(), g_type.clone());
+                                    }
+                                    let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
+                                    inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
+                                    let branch_result = lower_expr(branch, &mut inner_scope)?;
+                                    let lowered_pattern = spanned(
+                                        ir::MatchArm::EnumConstructor {
+                                            enum_name: enum_name.clone(),
+                                            variant: variant.clone(),
+                                            alias: alias.clone()
+                                        },
+                                        pattern.span
+                                    );
+                                    Ok(((lowered_pattern, branch_result.0), branch_result.1, false))
+                                },
+                                _ => Err(spanned(
+                                    format_smolstr!("Type {c_name} is not an enum"),
+                                    ti.span
+                                ))
+                            }
+                        } else {
+                            Err(spanned(
+                                format_smolstr!("Cannot resolve enum {c_name}"),
+                                pattern.span
+                            ))
+                        }
+                    },
+                    _ => Err(spanned(
+                        "This branch is not compatible with enums".into(),
+                        pattern.span
+                    ))
+                }
+            }
+            
+            let mut expected_type = TypeInfo::void();
+            let mut has_default = false;
+            let mut lower_branches = Vec::new();
+            
+            match target_result.1.inner.kind() {
+                TypeKind::Fun { params: _, return_type: _, generic_params: _ } => return Err(spanned(
+                    "Cannot apply match to a function".into(), 
+                    target.span
+                )),
+                TypeKind::EnumInstance { enum_name, variants, generic_args } => {
+                    for (pattern, branch) in branches {
+                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_instance_branch(
+                            enum_name, 
+                            variants, 
+                            generic_args, 
+                            pattern, 
+                            branch, 
+                            env
+                        )?;
+                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
+                            return Err(spanned(
+                                "Match branches cannot have different return types".into(),
+                                branch_type.span
+                            ))
+                        } else {
+                            expected_type = branch_type.inner.clone()
+                        }
+                        if is_default {
+                            if has_default {
+                                return Err(spanned(
+                                    "Cannot have multiple default branches in a match expression".into(),
+                                    branch.span
+                                ))
+                            } else {
+                                has_default = true
+                            }
+                        }
+                        lower_branches.push((lowered_pattern, lowered_body));
+                    }
+                    let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
+                        TypeKind::Enum { name: _, variants, generic_params: _ } => {
+                            variants.len()
+                        },
+                        _ => panic!()
+                    };
+                    if branches.len() == variant_count {
+                        has_default = true;
+                    }
+                }
+                TypeKind::EnumVariant { enum_name, variant, generic_args } => {
+                    for (pattern, branch) in branches {
+                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_variant_branch(
+                            enum_name, 
+                            variant, 
+                            generic_args, 
+                            pattern, 
+                            branch, 
+                            env
+                        )?;
+                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
+                            return Err(spanned(
+                                "Match branches cannot have different return types".into(),
+                                branch_type.span
+                            ))
+                        } else {
+                            expected_type = branch_type.inner.clone()
+                        }
+                        if is_default {
+                            if has_default {
+                                return Err(spanned(
+                                    "Cannot have multiple default branches in a match expression".into(),
+                                    branch.span
+                                ))
+                            } else {
+                                has_default = true
+                            }
+                        }
+                        lower_branches.push((lowered_pattern, lowered_body));
+                    }
+                    let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
+                        TypeKind::Enum { name: _, variants, generic_params: _ } => {
+                            variants.len()
+                        },
+                        _ => panic!()
+                    };
+                    if branches.len() == variant_count {
+                        has_default = true;
+                    }
                 },
-                expr.span
-            ))
+                _ti => {
+                    for (pattern, branch) in branches {
+                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_branch(&target_result.1.inner, pattern, branch, env)?;
+                        if expected_type.kind() != &TypeKind::Any && expected_type.kind() != branch_type.inner.kind(){
+                            return Err(spanned(
+                                "Match branches cannot have different return types".into(),
+                                branch_type.span
+                            ))
+                        } else {
+                            expected_type = branch_type.inner
+                        }
+                        if is_default {
+                            if has_default {
+                                return Err(spanned(
+                                    "Cannot have multiple default branches in a match expression".into(),
+                                    branch.span
+                                ))
+                            } else {
+                                has_default = true
+                            }
+                        }
+                        lower_branches.push((lowered_pattern, lowered_body));
+                    }
+                }
+            }
+            if has_default {
+                Ok((
+                    spanned(
+                        ir::Expr::Match { 
+                            target: Box::new(target_result.0),
+                            branches: lower_branches,
+                        },
+                        expr.span.clone()
+                    ),
+                    spanned(
+                        expected_type,
+                        expr.span
+                    )
+                ))
+            } else {
+                Err(spanned(
+                    "Expected a default case for matching arbitrary values".into(),
+                    expr.span
+                ))
+            }
         },
     }
 }

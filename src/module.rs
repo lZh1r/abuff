@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLoc
 
 use smol_str::SmolStr;
 
-use crate::{ast::{Span, Spanned, TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun, type_checker::{hoist, lower_statement}};
+use crate::{ast::{Span, Spanned, TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun, type_checker::{hoist}};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModuleStatus {
@@ -238,16 +238,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
         },
     };
     
-    let (ordered_statements, var_exports, type_exports) = hoist(&statements, &mut module_type_env, path.to_str().unwrap())?;
-    
-    let mut lowered_statements = Vec::new();
-    
-    for st in ordered_statements {
-        match lower_statement(&st, &mut module_type_env)? {
-            Some(s) => lowered_statements.push(s),
-            None => continue,
-        }
-    }
+    let (lowered_statements, var_exports, type_exports) = hoist(&statements, &mut module_type_env, path.to_str().unwrap())?;
     
     match run(&lowered_statements, &mut module_env, path.to_path_buf(), registry) {
         Ok(_) => (),
@@ -302,7 +293,7 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                                 env.add_variable(actual_name, map.get(&name.inner).unwrap().clone());
                             } else {
                                 return Err(Spanned {
-                                    inner: SmolStr::new(format!("Cannot resolve import {} from {}", name.inner, path.to_string())),
+                                    inner: SmolStr::new(format!("Runtime Error: Cannot resolve import {} from {}", name.inner, path.to_string())),
                                     span: name.span
                                 })
                             }

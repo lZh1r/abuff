@@ -1,6 +1,6 @@
 use std::{env::{self, current_dir}, fs};
 
-use abuff::{ast::Spanned, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist, lower_statement}};
+use abuff::{ast::Spanned, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist}};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -35,20 +35,7 @@ fn main() {
                     build_report(e, &src)
                 },
                 Ok(result) => {
-                    let mut lowered_statements = Vec::new();
-                    for s in result.0 {
-                        match lower_statement(&s, &mut type_env) {
-                            Ok(st) => match st {
-                                Some(st) => lowered_statements.push(st),
-                                None => continue,
-                            },
-                            Err(e) => {
-                                println!("Type checking failed with following errors:");
-                                build_report(e, &src);
-                                continue
-                            },
-                        }
-                    }
+                    let lowered_statements = result.0;
                     let reg = GlobalRegistry;
                     match run(&lowered_statements, &mut stack, current_dir().unwrap(), &reg) {
                         Err(e) => {
@@ -103,19 +90,7 @@ fn main() {
                 match res {
                     Err(e) => build_report(e, &src),
                     Ok(result) => {
-                        let mut lowered_statements = Vec::new();
-                        for s in result.0 {
-                            match lower_statement(&s, &mut type_env) {
-                                Ok(st) => match st {
-                                    Some(st) => lowered_statements.push(st),
-                                    None => continue,
-                                },
-                                Err(e) => {
-                                    build_report(e, &src);
-                                    continue
-                                },
-                            }
-                        }
+                        let lowered_statements = result.0;
                         let reg = GlobalRegistry;
                         match run(&lowered_statements, &mut stack, current_dir().unwrap(), &reg) {
                             Err(e) => build_report(e, &src),
