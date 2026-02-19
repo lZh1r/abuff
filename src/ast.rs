@@ -77,7 +77,7 @@ pub enum MatchArm {
     Conditional {alias: SmolStr, condition: Spanned<Expr>},
     Value(Spanned<Expr>),
     Default(SmolStr),
-    EnumConstructor {enum_name: SmolStr, variant: SmolStr, alias: SmolStr}
+    EnumConstructor {enum_name: Option<SmolStr>, variant: SmolStr, alias: SmolStr}
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -289,11 +289,12 @@ impl PartialEq for TypeKind {
                     return false;
                 }
                 
-                for ((name_a, type_a), (name_b, type_b)) in fields_a.iter().zip(fields_b.iter()) {
-                    if name_a != name_b || type_a.inner != type_b.inner {
-                        return false;
+                for (name_a, type_a) in fields_a.iter() {
+                    if !fields_b.contains_key(name_a) || fields_b.get(name_a).unwrap().inner != type_a.inner {
+                        return false
                     }
                 }
+                
                 true
             },
             (TypeKind::Enum { name, variants, generic_params: _ }, TypeKind::EnumVariant { enum_name, variant, generic_args: _ }) 
