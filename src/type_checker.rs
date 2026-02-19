@@ -185,6 +185,12 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 for (interface_name, methods) in implementation {
                     env.add_interface_impl(interface_name.clone(), type_info.clone());
                     for m in methods {
+                        if method_map.contains_key(&m.inner.name) {
+                            return Err(spanned(
+                                format_smolstr!("Method {} is defined multiple times", m.inner.name),
+                                m.span
+                            ))
+                        }
                         let mut inner_scope = env.enter_scope();
                         inner_scope.add_var_type("self".into(), flat_type.clone());
                         let expected_type = m.inner.return_type.clone()
