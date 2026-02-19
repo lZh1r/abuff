@@ -1027,7 +1027,7 @@ impl<'a> Parser<'a> {
                                 
                                 spanned(
                                     MatchArm::EnumConstructor { 
-                                        enum_name: enum_name.clone(),
+                                        enum_name: Some(enum_name.clone()),
                                         variant, 
                                         alias
                                     },
@@ -1052,6 +1052,55 @@ impl<'a> Parser<'a> {
                                 ))
                             }
                         },
+                        Token::Dot => {
+                            let start = self.advance().unwrap().clone();
+                            if self.peek().is_none() {
+                                return Err(spanned(
+                                    "Unexpected EOF in match expression".into(),
+                                    start.span
+                                ))
+                            }
+                            let variant = match self.peek().unwrap().inner.clone() {
+                                Token::Ident(variant) => {
+                                    variant
+                                }
+                                _ => return Err(spanned(
+                                    "Unexpected token in match expression branch".into(),
+                                    self.peek().unwrap().span
+                                ))
+                            };
+                            
+                            self.advance(); //consume enum variant
+                            self.expect(&Token::LParen)?;
+                            if self.peek().is_none() {
+                                return Err(spanned(
+                                    "Unexpected EOF in match expression".into(),
+                                    start.span
+                                ))
+                            }
+                            let alias = match self.peek().unwrap().inner.clone() {
+                                Token::Ident(variant) => {
+                                    variant
+                                }
+                                _ => return Err(spanned(
+                                    "Unexpected token in match expression branch".into(),
+                                    self.peek().unwrap().span
+                                ))
+                            };
+                            self.advance(); //consume alias
+                            let end = self.peek()
+                                .ok_or(spanned("Unexpected EOF in match expression".into(), Span::from(0..0)))?.clone();
+                            self.expect(&Token::RParen)?;
+                            
+                            spanned(
+                                MatchArm::EnumConstructor { 
+                                    enum_name: None,
+                                    variant, 
+                                    alias
+                                },
+                                Span::from(start.span.start..end.span.end)
+                            )
+                        }
                         _ => {
                             let expr = self.parse_expression()?;
                             spanned(

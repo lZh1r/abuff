@@ -294,12 +294,58 @@ fn enum_match() {
 }
 
 #[test]
+fn enum_match_shorthand() {
+    let src = r#"
+        enum A {
+            B: Int,
+            C: Int
+        }
+        let a = A.B(1);
+        match a {
+            .B(v) -> v,
+            .C(_) -> 123
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
 fn builtin_enum_match() {
     let src = r#"
         let a = Some(1);
         match a {
             Option.Some(v) -> v,
             Option.None(_) -> 123
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn builtin_enum_match_shorthand() {
+    let src = r#"
+        let a = Some(1);
+        match a {
+            .Some(v) -> v,
+            .None(_) -> 123
         }
     "#;
     

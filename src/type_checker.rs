@@ -1979,6 +1979,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
                     },
                     MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+                        let c_name = c_name.as_ref().unwrap_or(enum_name);
                         if let Some(ti) = env.resolve_type(c_name) {
                             if c_name != enum_name {
                                 return Err(spanned(
@@ -2072,6 +2073,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
                     },
                     MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+                        let c_name = c_name.as_ref().unwrap_or(enum_name);
                         if let Some(ti) = env.resolve_type(c_name) {
                             if c_name != enum_name {
                                 return Err(spanned(
