@@ -1180,23 +1180,25 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
         Expr::Index(target, index) => {
             let target_result = lower_expr(target, env)?;
             let index_result = lower_expr(index, env)?;
-            if index_result.1.inner != TypeInfo::int() {
-                return Err(spanned(
-                    format_smolstr!("Cannot use {:?} to index arrays", index_result.1.inner),
-                    index.span
-                ))
-            }
             match target_result.1.inner.kind() {
-                TypeKind::Array(element_type) => Ok((
-                    spanned(
-                        ir::Expr::Index(
-                            Box::new(target_result.0),
-                            Box::new(index_result.0)
+                TypeKind::Array(element_type) => {
+                    if index_result.1.inner != TypeInfo::int() {
+                        return Err(spanned(
+                            format_smolstr!("Cannot use {:?} to index arrays", index_result.1.inner),
+                            index.span
+                        ))
+                    }
+                    Ok((
+                        spanned(
+                            ir::Expr::Index(
+                                Box::new(target_result.0),
+                                Box::new(index_result.0)
+                            ),
+                            expr.span
                         ),
-                        expr.span
-                    ),
-                    *element_type.clone()
-                )),
+                        *element_type.clone()
+                    ))
+                },
                 _ => Err(spanned(
                     format_smolstr!("Cannot index {:?}", target_result.1.inner),
                     target.span
