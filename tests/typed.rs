@@ -277,3 +277,31 @@ fn test_hoist_function() {
         _ => panic!()
     };
 }
+
+#[test]
+fn simple_method() {
+    let src = r#"
+        type A = {
+            a: Int
+        } impl {
+            _: {
+                fun hello(val: Int) {
+                    print("hello", val, self.a)
+                }
+            }
+        };
+        let a: A = {a: 1};
+        a.hello(2);
+        a.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

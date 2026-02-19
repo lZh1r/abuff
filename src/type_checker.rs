@@ -131,7 +131,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
     match &statement.inner {
         Statement::Let { name, expr, type_info } => {
             let expr_result = lower_expr(expr, env)?;
-            if let Some(ti) = type_info {
+            let expected_type = if let Some(ti) = type_info {
                 let expected_type = flatten_type(ti, env)?;
                 if expected_type.inner != expr_result.1.inner {
                     return Err(spanned(
@@ -143,11 +143,14 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         statement.span
                     ))
                 }
-            }
-            env.add_var_type(name.clone(), expr_result.1.clone());
+                expected_type.into_owned()
+            } else {
+                expr_result.1.clone()
+            };
+            env.add_var_type(name.clone(), expected_type.clone());
             Ok(LoweringResult { 
                 name: Some(name.clone()),
-                var_type: Some(expr_result.1), 
+                var_type: Some(expected_type), 
                 custom_type: None,
                 export: false,
                 lowered_statement: Some(spanned(
@@ -180,10 +183,12 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 let mut method_map = HashMap::new();
                 
                 for (interface_name, methods) in implementation {
-                    let mut inner_scope = env.enter_scope();
                     env.add_interface_impl(interface_name.clone(), type_info.clone());
                     for m in methods {
-                        let expected_type = m.inner.return_type.clone().unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+                        let mut inner_scope = env.enter_scope();
+                        inner_scope.add_var_type("self".into(), flat_type.clone());
+                        let expected_type = m.inner.return_type.clone()
+                            .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
                         if m.inner.generic_params.len() == 0 {
                             let mut flat_params = Vec::new();
                             for (n, p_type) in &m.inner.params {
@@ -226,6 +231,19 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 statement.span
                             );
                             
+                            method_map.insert(
+                                m.inner.name.clone(),
+                                (
+                                    fun_type.clone(),
+                                    spanned(
+                                        ir::Expr::Fun { 
+                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                            body: Box::new(method_result.0)
+                                        },
+                                        m.span
+                                    )
+                                )
+                            );
                             env.add_var_type(name.clone(), fun_type.clone());
                         } else {
                             // Register generic params in the inner scope so they can be referenced
@@ -281,7 +299,19 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 }),
                                 statement.span
                             );
-                            method_map.insert(m.inner.name.clone(), (fun_type.clone(), method_result.0));
+                            method_map.insert(
+                                m.inner.name.clone(),
+                                (
+                                    fun_type.clone(),
+                                    spanned(
+                                        ir::Expr::Fun { 
+                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                            body: Box::new(method_result.0)
+                                        },
+                                        m.span
+                                    )
+                                )
+                            );
                             env.add_var_type(name.clone(), fun_type);
                         }
                     }
@@ -533,16 +563,17 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 ));
             }
             
-            let mut variant_funs = Vec::new();
+            let mut variant_funs = HashMap::new();
             let mut variant_hashmap = HashMap::new();
             // since enums are just fancy records, we need to store their lowered fields somewhere
-            let mut record_exprs = Vec::new();
+            let mut record_exprs = HashMap::new();
             
             for (v_name, maybe_ti) in variants {
                 if let Some(ti) = maybe_ti {
                     let ti = flatten_type(ti, &mut inner_scope)?.into_owned();
-                    record_exprs.push(
-                        (v_name.clone(), Spanned {
+                    record_exprs.insert(
+                        v_name.clone(),
+                        Spanned {
                             inner: ir::Expr::Fun { 
                                 params: vec![(false, SmolStr::new("+arg"))], 
                                 body: Box::new(Spanned {
@@ -558,9 +589,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 })
                             },
                             span: ti.span
-                        })
+                        }
                     );
-                    variant_funs.push((v_name.clone(), spanned(
+                    variant_funs.insert(v_name.clone(), spanned(
                         TypeInfo::new(TypeKind::Fun { 
                             params: vec![((false, "+arg".into()), ti.clone())],
                             return_type: Box::new(spanned(
@@ -578,10 +609,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             generic_params: generic_params.clone()
                         }),
                         statement.span
-                    )));
+                    ));
                     variant_hashmap.insert(v_name.clone(), ti.clone());
                 } else {
-                    variant_funs.push((v_name.clone(), spanned(
+                    variant_funs.insert(v_name.clone(), spanned(
                         TypeInfo::new(TypeKind::Fun { 
                             params: Vec::new(),
                             return_type: Box::new(spanned(
@@ -595,9 +626,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             generic_params: Vec::new()
                         }),
                         statement.span
-                    )));
-                    record_exprs.push(
-                        (v_name.clone(), Spanned {
+                    ));
+                    record_exprs.insert(
+                        v_name.clone(),
+                        Spanned {
                             inner: ir::Expr::Fun { 
                                 params: vec![], 
                                 body: Box::new(Spanned {
@@ -613,7 +645,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 })
                             },
                             span: Span::from(0..0)
-                        })
+                        }
                     );
                     variant_hashmap.insert(v_name.clone(), spanned(TypeInfo::void(), statement.span));
                 }
@@ -869,14 +901,17 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
     match type_info.inner.kind() {
         TypeKind::Custom { name, generic_args } => {
             let resolved_type = if let Some(ti) = env.resolve_type(name.as_str()) {
-                ti
+                spanned(
+                    TypeInfo::new_with_id(ti.inner.kind().clone(), ti.inner.id()),
+                    ti.span
+                )
             } else {
                 return Err(spanned(
                     format!("Cannot resolve type {name}").into(),
                     type_info.span
                 ));
             };
-            
+
             let generic_args = {
                 let mut new_args = Vec::new();
                 for ti in generic_args {
@@ -884,7 +919,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                 }
                 new_args
             };
-            
+
             match resolved_type.inner.kind() {
                 //useless but idc
                 TypeKind::Fun { params, return_type, generic_params } => {
@@ -903,11 +938,11 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                         new_params.push((n.clone(), flatten_type(ti, &mut new_scope)?.into_owned()));
                     }
                     Ok(Cow::Owned(spanned(
-                        TypeInfo::new(TypeKind::Fun { 
+                        TypeInfo::new_with_id(TypeKind::Fun { 
                             params: new_params, 
                             return_type: Box::new(flatten_type(return_type, &mut new_scope)?.into_owned()),
                             generic_params: Vec::new()
-                        }),
+                        }, resolved_type.inner.id()),
                         type_info.span
                     )))
                 },
@@ -919,7 +954,7 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                         ))
                     }
                     Ok(Cow::Owned(spanned(
-                        TypeInfo::new(TypeKind::EnumInstance { enum_name: name.clone(), variants: variants.clone(), generic_args: generic_args.clone() }),
+                        TypeInfo::new_with_id(TypeKind::EnumInstance { enum_name: name.clone(), variants: variants.clone(), generic_args: generic_args.clone() }, resolved_type.inner.id()),
                         type_info.span
                     )))
                 },
@@ -1019,11 +1054,11 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                 let final_return = replace_custom_with_generic(new_return, &generic_names);
 
                 return Ok(Cow::Owned(spanned(
-                    TypeInfo::new(TypeKind::Fun {
+                    TypeInfo::new_with_id(TypeKind::Fun {
                         params: new_params,
                         return_type: Box::new(final_return),
                         generic_params: generic_params.clone(),
-                    }),
+                    }, type_info.inner.id()),
                     type_info.span,
                 )));
             }
@@ -1034,26 +1069,26 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                 new_params.push((a.clone(), flatten_type(ti, env)?.into_owned()));
             }
             Ok(Cow::Owned(spanned(
-                TypeInfo::new(TypeKind::Fun {
+                TypeInfo::new_with_id(TypeKind::Fun {
                     params: new_params,
                     return_type: Box::new(flatten_type(return_type, env)?.into_owned()),
                     generic_params: Vec::new(),
-                }),
+                }, type_info.inner.id()),
                 type_info.span,
             )))
         },
         TypeKind::Record(entries) => {
-            let mut new_entries = Vec::new();
+            let mut new_entries = HashMap::new();
             for (name, ti) in entries {
-                new_entries.push((name.clone(), flatten_type(ti, env)?.into_owned()));
+                new_entries.insert(name.clone(), flatten_type(ti, env)?.into_owned());
             }
             Ok(Cow::Owned(spanned(
-                TypeInfo::new(TypeKind::Record(new_entries)),
+                TypeInfo::new_with_id(TypeKind::Record(new_entries), type_info.inner.id()),
                 type_info.span
             )))
         },
         TypeKind::Array(ti) => Ok(Cow::Owned(spanned(
-            TypeInfo::new(TypeKind::Array(Box::new(flatten_type(ti, env)?.into_owned()))),
+            TypeInfo::new_with_id(TypeKind::Array(Box::new(flatten_type(ti, env)?.into_owned())), type_info.inner.id()),
             type_info.span
         ))),
         _ => Ok(Cow::Borrowed(type_info))
@@ -1625,12 +1660,12 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             }
         },
         Expr::Record(items) => {
-            let mut types = Vec::new();
-            let mut lowers = Vec::new();
+            let mut types = HashMap::new();
+            let mut lowers = HashMap::new();
             for (name, e) in items {
                 let item_result = lower_expr(e, env)?;
-                types.push((name.clone(), item_result.1));
-                lowers.push((name.clone(), item_result.0));
+                types.insert(name.clone(), item_result.1);
+                lowers.insert(name.clone(), item_result.0);
             }
             Ok((
                 spanned(ir::Expr::Record(lowers), expr.span.clone()),
@@ -1656,19 +1691,17 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             } else {
                 match target_result.1.inner.kind() {
                     TypeKind::Record(fields) => {
-                        for (name, e) in fields {
-                            if name == field {
-                                return Ok((
-                                    spanned(
-                                        ir::Expr::Get(Box::new(target_result.0), field.clone()),
-                                        expr.span.clone()
-                                    ),
-                                    spanned(
-                                        e.inner.clone(),
-                                        expr.span
-                                    )
-                                ))
-                            }
+                        if let Some(e) = fields.get(field) {
+                            return Ok((
+                                spanned(
+                                    ir::Expr::Get(Box::new(target_result.0), field.clone()),
+                                    expr.span.clone()
+                                ),
+                                spanned(
+                                    e.inner.clone(),
+                                    expr.span
+                                )
+                            ))
                         }
                         Err(spanned(
                             format_smolstr!(

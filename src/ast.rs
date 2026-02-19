@@ -187,6 +187,9 @@ impl TypeInfo {
     pub fn new(kind: TypeKind) -> Self {
         Self { kind, id: next_type_id() }
     }
+    pub fn new_with_id(kind: TypeKind, id: u32) -> Self {
+        Self { kind, id: id }
+    }
     pub fn kind(&self) -> &TypeKind {
         &self.kind
     }
@@ -217,7 +220,7 @@ pub enum TypeKind {
         return_type: Box<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
     },
-    Record(Vec<(SmolStr, Spanned<TypeInfo>)>),
+    Record(HashMap<SmolStr, Spanned<TypeInfo>>),
     Custom {name: SmolStr, generic_args: Vec<Spanned<TypeInfo>>},
     GenericParam(SmolStr),
     Array(Box<Spanned<TypeInfo>>),

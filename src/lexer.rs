@@ -66,6 +66,9 @@ pub enum Token {
     #[token("null")]
     Null,
     
+    #[token("impl")]
+    Impl,
+    
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| SmolStr::new(lex.slice()))]
     Ident(SmolStr),
     

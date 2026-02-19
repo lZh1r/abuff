@@ -1,7 +1,9 @@
-use smol_str::SmolStr;
+use std::collections::HashMap;
+
+use smol_str::{SmolStr, format_smolstr};
 
 use crate::{
-    ast::{Expr, MatchArm, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp},
+    ast::{Expr, MatchArm, Method, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp},
     lexer::Token,
 };
 
@@ -372,6 +374,56 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Eq)?;
         let type_expr = self.parse_type()?;
         
+        let mut implementation = Vec::new();
+        if self.check(&Token::Impl) {
+            self.advance();
+            self.expect(&Token::LBrace)?;
+            loop {
+                if self.check(&Token::RBrace) {
+                    self.advance();
+                    break
+                }
+                match &self.peek().ok_or(spanned("Unexpected EOF in impl block".into(), Span::from(0..0)))?.inner.clone() {
+                    Token::Ident(iface) => {
+                        self.advance();
+                        let mut methods = Vec::new();
+                        self.expect(&Token::Colon)?;
+                        self.expect(&Token::LBrace)?;
+                        loop {
+                            if self.check(&Token::RBrace) {
+                                self.advance();
+                                break
+                            }
+                            let fun = self.fun_statement()?;
+                            let method = match fun.inner {
+                                Statement::Fun { name, params, body, return_type, generic_params } => {
+                                    spanned(
+                                        Method {
+                                            name: name,
+                                            params: params,
+                                            body: body,
+                                            return_type: return_type,
+                                            generic_params: generic_params,
+                                        },
+                                        fun.span
+                                    )
+                                },
+                                _ => panic!()
+                            };
+                            methods.push(method);
+                        }
+                        implementation.push((iface.clone(), methods));
+                    },
+                    t => {
+                        return Err(spanned(
+                            format_smolstr!("Unexpected token: Expected identifier, got {t:?}"),
+                            self.peek().unwrap().span
+                        ))
+                    }
+                }
+            }
+        }
+        
         let end_span = if self.check(&Token::Semicolon) {
             self.advance().unwrap().span
         } else {
@@ -382,7 +434,7 @@ impl<'a> Parser<'a> {
         };
         
         Ok(spanned(
-            Statement::TypeDef { name: type_name, type_info: type_expr, generic_params: type_generics, implementation: vec![] },
+            Statement::TypeDef { name: type_name, type_info: type_expr, generic_params: type_generics, implementation },
             Span::from(start_span.start..end_span.end)
         ))
     }
@@ -1548,14 +1600,14 @@ impl<'a> Parser<'a> {
             Token::LBrace => {
                 // record type { name: Type, ... }
                 self.advance(); // consume '{'
-                let mut fields: Vec<(SmolStr, Spanned<TypeInfo>)> = Vec::new();
+                let mut fields = HashMap::new();
                 if !self.check(&Token::RBrace) {
                     loop {
                         let name_tok = self.advance().ok_or(spanned("Unexpected EOF in record type".into(), Span::from(0..0)))?.clone();
                         let fname = if let Token::Ident(s) = name_tok.inner.clone() { s } else { return Err(spanned("Expected identifier in record type".into(), name_tok.span)); };
                         self.expect(&Token::Colon)?;
                         let ftype = self.parse_type()?;
-                        fields.push((fname, ftype));
+                        fields.insert(fname, ftype);
                         if self.check(&Token::Comma) {
                             self.advance();
                             continue;

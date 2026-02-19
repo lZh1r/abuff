@@ -22,7 +22,7 @@ pub enum Expr {
     Fun {params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>},
     Method {this: Box<Spanned<Expr>>, fun: Box<Spanned<Expr>>},
     Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
-    Record(Vec<(SmolStr, Spanned<Expr>)>),
+    Record(HashMap<SmolStr, Spanned<Expr>>),
     Get(Box<Spanned<Expr>>, SmolStr),
     Assign {target: Box<Spanned<Expr>>, value: Box<Spanned<Expr>>},
     Unary(UnaryOp, Box<Spanned<Expr>>),

@@ -178,10 +178,9 @@ impl TypeEnv {
 
     pub fn get_method(&self, id: u32, name: &str) -> Option<(Spanned<TypeInfo>, Spanned<ir::Expr>)> {
         let mut current = Some(self.clone());
-
         while let Some(env) = current {
             let scope = env.0.read().unwrap();
-
+            
             match scope.method_map.get(&id) {
                 Some(map) => match map.get(name) {
                     Some(method) => return Some(method.clone()),
