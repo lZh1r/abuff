@@ -171,9 +171,9 @@ impl TypeEnv {
         false
     }
     
-    pub fn insert_methods(&mut self, type_id: u32, methods: HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>) {
+    pub fn insert_method(&mut self, type_id: u32, method: (SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>))) {
         let mut scope = self.0.write().unwrap();
-        scope.method_map.insert(type_id, methods);
+        scope.method_map.entry(type_id).or_default().insert(method.0, method.1);
     }
 
     pub fn get_method(&self, id: u32, name: &str) -> Option<(Spanned<TypeInfo>, Spanned<ir::Expr>)> {

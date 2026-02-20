@@ -305,3 +305,34 @@ fn simple_method() {
         _ => panic!()
     };
 }
+
+#[test]
+fn self_referencial_method() {
+    let src = r#"
+        type A = {
+            a: Int
+        } impl {
+            _: {
+                fun hello(val: Int) {
+                    print("hello", val, self.a)
+                }
+                fun greet() {
+                    self.hello(1000)
+                }
+            }
+        };
+        let a: A = {a: 1};
+        a.greet()
+        a.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

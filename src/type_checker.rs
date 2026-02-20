@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
@@ -180,18 +180,19 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             } else {
                 let flat_type = flatten_type(type_info, env)?.into_owned();
                 env.add_custom_type(name.clone(), flat_type.clone());
-                let mut method_map = HashMap::new();
+                let mut implemented_methods = HashSet::new();
                 
                 for (interface_name, methods) in implementation {
                     env.add_interface_impl(interface_name.clone(), type_info.clone());
+                    let mut interface_env = env.enter_scope();
                     for m in methods {
-                        if method_map.contains_key(&m.inner.name) {
+                        if implemented_methods.contains(&m.inner.name) {
                             return Err(spanned(
                                 format_smolstr!("Method {} is defined multiple times", m.inner.name),
                                 m.span
                             ))
                         }
-                        let mut inner_scope = env.enter_scope();
+                        let mut inner_scope = interface_env.enter_scope();
                         inner_scope.add_var_type("self".into(), flat_type.clone());
                         let expected_type = m.inner.return_type.clone()
                             .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
@@ -230,27 +231,30 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 TypeInfo::new(
                                     TypeKind::Fun {
                                         params: flat_params, 
-                                        return_type: Box::new(method_result.1),
+                                        return_type: Box::new(method_result.1.clone()),
                                         generic_params: Vec::new()
                                     }
                                 ),
                                 statement.span
                             );
                             
-                            method_map.insert(
-                                m.inner.name.clone(),
+                            env.insert_method(
+                                flat_type.inner.id(),
                                 (
-                                    fun_type.clone(),
-                                    spanned(
-                                        ir::Expr::Fun { 
-                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                            body: Box::new(method_result.0)
-                                        },
-                                        m.span
+                                    m.inner.name.clone(),
+                                    (
+                                        fun_type.clone(),
+                                        spanned(
+                                            ir::Expr::Fun { 
+                                                params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                                body: Box::new(method_result.0)
+                                            },
+                                            m.span
+                                        )
                                     )
                                 )
                             );
-                            env.add_var_type(name.clone(), fun_type.clone());
+                            implemented_methods.insert(m.inner.name.clone());
                         } else {
                             // Register generic params in the inner scope so they can be referenced
                             for generic in generic_params {
@@ -305,24 +309,26 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 }),
                                 statement.span
                             );
-                            method_map.insert(
-                                m.inner.name.clone(),
+                            env.insert_method(
+                                flat_type.inner.id(),
                                 (
-                                    fun_type.clone(),
-                                    spanned(
-                                        ir::Expr::Fun { 
-                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                            body: Box::new(method_result.0)
-                                        },
-                                        m.span
+                                    m.inner.name.clone(),
+                                    (
+                                        fun_type.clone(),
+                                        spanned(
+                                            ir::Expr::Fun { 
+                                                params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                                body: Box::new(method_result.0)
+                                            },
+                                            m.span
+                                        )
                                     )
                                 )
                             );
-                            env.add_var_type(name.clone(), fun_type);
+                            implemented_methods.insert(m.inner.name.clone());
                         }
                     }
                 }
-                env.insert_methods(flat_type.inner.id(), method_map);
                 Ok(LoweringResult { 
                     name: Some(name.clone()),
                     var_type: None, 
