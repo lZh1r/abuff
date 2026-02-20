@@ -200,7 +200,7 @@ impl TypeInfo {
 
 impl PartialEq for TypeInfo {
     fn eq(&self, other: &Self) -> bool {
-        self.id == other.id || self.kind == other.kind
+        self.kind == other.kind
     }
 }
 

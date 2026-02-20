@@ -1156,11 +1156,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
         },
         Expr::Array(spanneds) => {
             let mut lowered = Vec::new();
-            let mut expected_type = spanned(TypeInfo::unknown(), Span::from(0..0));
+            let mut expected_type = spanned(TypeInfo::void(), Span::from(0..0));
             for e in spanneds {
                 let result = lower_expr(e, env)?;
                 if result.1.inner != expected_type.inner {
-                    if expected_type.inner == TypeInfo::unknown() {
+                    if expected_type.inner == TypeInfo::void() {
                         expected_type = result.1
                     } else {
                         return Err(spanned(
