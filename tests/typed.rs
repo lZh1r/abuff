@@ -336,3 +336,87 @@ fn self_referencial_method() {
         _ => panic!()
     };
 }
+
+#[test]
+fn generic_type_method() {
+    let src = r#"
+        type A<T> = {
+            a: T
+        } impl {
+            _: {
+                fun hello(val: Int) {
+                    print("hello", val, self.a)
+                }
+            }
+        };
+        let a: A<Int> = {a: 1};
+        a.hello(9);
+        a.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn generic_type_generic_method() {
+    let src = r#"
+        type A<T> = {
+            a: T
+        } impl {
+            _: {
+                fun hello<T>(val: T) {
+                    print("hello", val, self.a)
+                }
+            }
+        };
+        let a: A<Int> = {a: 1};
+        a.hello(9);
+        a.hello("hello");
+        a.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn generic_type_reuse_method() {
+    let src = r#"
+        type A<T> = {
+            a: T
+        } impl {
+            _: {
+                fun get(): T {
+                    self.a
+                }
+            }
+        };
+        let a: A<Int> = {a: 1};
+        a.get()
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

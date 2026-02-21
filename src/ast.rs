@@ -2,8 +2,6 @@ use std::{collections::HashMap, fmt::Display, ops::Range};
 
 use smol_str::SmolStr;
 
-use crate::env::TypeEnv;
-
 use std::sync::atomic::{AtomicU32, Ordering};
 
 static TYPE_ID_COUNTER: AtomicU32 = AtomicU32::new(10);
@@ -231,7 +229,7 @@ pub enum TypeKind {
     },
     EnumInstance {enum_name: SmolStr, variants: HashMap<SmolStr, Spanned<TypeInfo>>, generic_args: Vec<Spanned<TypeInfo>>},
     EnumVariant {enum_name: SmolStr, variant: SmolStr, generic_args: Vec<TypeInfo>},
-    TypeClosure {params: Vec<Spanned<SmolStr>>, env: TypeEnv, body: Box<Spanned<TypeInfo>>}
+    TypeClosure {params: Vec<Spanned<SmolStr>>, body: Box<Spanned<TypeInfo>>}
 }
 
 impl PartialEq for TypeKind {

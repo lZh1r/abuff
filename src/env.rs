@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, sync::{Arc, OnceLock, RwLock}, time::Instant
 
 use smol_str::{SmolStr, ToSmolStr};
 
-use crate::{ast::{Expr, Span, Spanned, TypeInfo}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::register_fun};
+use crate::{ast::{Span, Spanned, TypeInfo}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::register_fun};
 
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -179,17 +179,20 @@ impl TypeEnv {
     pub fn get_method(&self, id: u32, name: &str) -> Option<(Spanned<TypeInfo>, Spanned<ir::Expr>)> {
         let mut current = Some(self.clone());
         while let Some(env) = current {
-            let scope = env.0.read().unwrap();
-            
-            match scope.method_map.get(&id) {
-                Some(map) => match map.get(name) {
-                    Some(method) => return Some(method.clone()),
-                    None => (),
-                },
-                None => (),
+            let parent;
+            let method = {
+                let scope = env.0.read().unwrap();
+                parent = scope.parent.clone();
+                scope.method_map
+                    .get(&id)
+                    .and_then(|m| m.get(name).cloned())
+            };
+        
+            if let Some(m) = method {
+                return Some(m);
             }
-
-            current = scope.parent.clone();
+        
+            current = parent;
         }
 
         None

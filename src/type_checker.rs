@@ -163,180 +163,184 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             })
         },
         Statement::TypeDef { name, type_info, generic_params, implementation } => {
-            if generic_params.len() != 0 {
-                // we don't check this closure's type here, as it will be evaluated when used
-                let closure_type = spanned(
-                    TypeInfo::new(TypeKind::TypeClosure { params: generic_params.clone(), env: env.clone(), body: Box::new(type_info.clone()) }),
+            let mut generic_scope = env.enter_scope();
+            let flat_type = if generic_params.len() != 0 {
+                for param in generic_params {
+                    generic_scope.add_custom_type(
+                        param.inner.clone(),
+                        spanned(
+                            TypeInfo::new(TypeKind::GenericParam(param.inner.clone())),
+                            param.span.clone()
+                        )
+                    );
+                }
+                spanned(
+                    TypeInfo::new(TypeKind::TypeClosure { 
+                        params: generic_params.clone(),
+                        body: Box::new(type_info.clone())
+                    }),
                     statement.span
-                );
-                env.add_custom_type(name.clone(), closure_type.clone());
-                Ok(LoweringResult { 
-                    name: Some(name.clone()),
-                    var_type: None, 
-                    custom_type: Some(closure_type),
-                    export: false,
-                    lowered_statement: None
-                })
+                )
             } else {
-                let flat_type = flatten_type(type_info, env)?.into_owned();
-                env.add_custom_type(name.clone(), flat_type.clone());
-                let mut implemented_methods = HashSet::new();
-                
-                for (interface_name, methods) in implementation {
-                    env.add_interface_impl(interface_name.clone(), type_info.clone());
-                    let mut interface_env = env.enter_scope();
-                    for m in methods {
-                        if implemented_methods.contains(&m.inner.name) {
-                            return Err(spanned(
-                                format_smolstr!("Method {} is defined multiple times", m.inner.name),
-                                m.span
-                            ))
+                flatten_type(type_info, env)?.into_owned()
+            };
+            
+            env.add_custom_type(name.clone(), flat_type.clone());
+            let mut implemented_methods = HashSet::new();
+            for (interface_name, methods) in implementation {
+                env.add_interface_impl(interface_name.clone(), type_info.clone());
+                let mut interface_env = generic_scope.enter_scope();
+                for m in methods {
+                    if implemented_methods.contains(&m.inner.name) {
+                        return Err(spanned(
+                            format_smolstr!("Method {} is defined multiple times", m.inner.name),
+                            m.span
+                        ))
+                    }
+                    let mut inner_scope = interface_env.enter_scope();
+                    inner_scope.add_var_type("self".into(), flat_type.clone());
+                    let expected_type = m.inner.return_type.clone()
+                        .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+                    if m.inner.generic_params.len() == 0 {
+                        let mut flat_params = Vec::new();
+                        for (n, p_type) in &m.inner.params {
+                            let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
+                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                            flat_params.push((n.clone(), flattened))
                         }
-                        let mut inner_scope = interface_env.enter_scope();
-                        inner_scope.add_var_type("self".into(), flat_type.clone());
-                        let expected_type = m.inner.return_type.clone()
-                            .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
-                        if m.inner.generic_params.len() == 0 {
-                            let mut flat_params = Vec::new();
-                            for (n, p_type) in &m.inner.params {
-                                let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
-                                inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                                flat_params.push((n.clone(), flattened))
-                            }
-                            let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                            inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
-                            inner_scope.add_var_type(
-                                name.clone(),
-                                spanned(
-                                    TypeInfo::new(TypeKind::Fun {
-                                        params: flat_params.clone(), 
-                                        return_type: Box::new(expected_type.clone()),
-                                        generic_params: generic_params.clone()
-                                    }),
-                                    statement.span
-                                )
-                            );
-                            let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
-                            if method_result.1.inner != expected_type.inner {
-                                return Err(spanned(
-                                    format_smolstr!(
-                                        "Function return type mismatch: expected {:?}, got {:?}",
-                                        expected_type.inner,
-                                        method_result.1.inner
-                                    ),
-                                    expected_type.span
-                                ))
-                            }
-                            let fun_type = spanned(
-                                TypeInfo::new(
-                                    TypeKind::Fun {
-                                        params: flat_params, 
-                                        return_type: Box::new(method_result.1.clone()),
-                                        generic_params: Vec::new()
-                                    }
-                                ),
-                                statement.span
-                            );
-                            
-                            env.insert_method(
-                                flat_type.inner.id(),
-                                (
-                                    m.inner.name.clone(),
-                                    (
-                                        fun_type.clone(),
-                                        spanned(
-                                            ir::Expr::Fun { 
-                                                params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                                body: Box::new(method_result.0)
-                                            },
-                                            m.span
-                                        )
-                                    )
-                                )
-                            );
-                            implemented_methods.insert(m.inner.name.clone());
-                        } else {
-                            // Register generic params in the inner scope so they can be referenced
-                            for generic in generic_params {
-                                inner_scope.add_custom_type(
-                                    generic.inner.clone(),
-                                    spanned(
-                                        TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
-                                        generic.span
-                                    )
-                                );
-                            }
-            
-                            // Flatten parameter types with generics in scope and add them to the inner scope
-                            let mut flat_params = Vec::new();
-                            for (n, p_type) in &m.inner.params {
-                                let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                                inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                                flat_params.push((n.clone(), flattened));
-                            }
-            
-                            let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                            inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
-            
-                            inner_scope.add_var_type(
-                                name.clone(),
-                                spanned(
-                                    TypeInfo::new(TypeKind::Fun {
-                                        params: flat_params.clone(),
-                                        return_type: Box::new(expected_flat.clone()),
-                                        generic_params: generic_params.clone()
-                                    }),
-                                    statement.span
-                                )
-                            );
-            
-                            let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
-                            if method_result.1.inner != expected_flat.inner {
-                                return Err(spanned(
-                                    format_smolstr!(
-                                        "Function return type mismatch: expected {:?}, got {:?}", 
-                                        expected_flat.inner, 
-                                        method_result.1.inner
-                                    ),
-                                    expected_flat.span
-                                ))
-                            }
-                            let fun_type = spanned(
+                        let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                        inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                        inner_scope.add_var_type(
+                            name.clone(),
+                            spanned(
                                 TypeInfo::new(TypeKind::Fun {
-                                    params: flat_params.clone(),
-                                    return_type: Box::new(method_result.1.clone()),
+                                    params: flat_params.clone(), 
+                                    return_type: Box::new(expected_type.clone()),
                                     generic_params: generic_params.clone()
                                 }),
                                 statement.span
-                            );
-                            env.insert_method(
-                                flat_type.inner.id(),
+                            )
+                        );
+                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                        if method_result.1.inner != expected_type.inner {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Function return type mismatch: expected {:?}, got {:?}",
+                                    expected_type.inner,
+                                    method_result.1.inner
+                                ),
+                                expected_type.span
+                            ))
+                        }
+                        let fun_type = spanned(
+                            TypeInfo::new(
+                                TypeKind::Fun {
+                                    params: flat_params, 
+                                    return_type: Box::new(method_result.1.clone()),
+                                    generic_params: Vec::new()
+                                }
+                            ),
+                            statement.span
+                        );
+                        
+                        env.insert_method(
+                            flat_type.inner.id(),
+                            (
+                                m.inner.name.clone(),
                                 (
-                                    m.inner.name.clone(),
-                                    (
-                                        fun_type.clone(),
-                                        spanned(
-                                            ir::Expr::Fun { 
-                                                params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                                body: Box::new(method_result.0)
-                                            },
-                                            m.span
-                                        )
+                                    fun_type.clone(),
+                                    spanned(
+                                        ir::Expr::Fun { 
+                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                            body: Box::new(method_result.0)
+                                        },
+                                        m.span
                                     )
                                 )
+                            )
+                        );
+                        implemented_methods.insert(m.inner.name.clone());
+                    } else {
+                        // Register generic params in the inner scope so they can be referenced
+                        for generic in generic_params {
+                            inner_scope.add_custom_type(
+                                generic.inner.clone(),
+                                spanned(
+                                    TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
+                                    generic.span
+                                )
                             );
-                            implemented_methods.insert(m.inner.name.clone());
                         }
+        
+                        // Flatten parameter types with generics in scope and add them to the inner scope
+                        let mut flat_params = Vec::new();
+                        for (n, p_type) in &m.inner.params {
+                            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                            flat_params.push((n.clone(), flattened));
+                        }
+        
+                        let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                        inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+        
+                        inner_scope.add_var_type(
+                            name.clone(),
+                            spanned(
+                                TypeInfo::new(TypeKind::Fun {
+                                    params: flat_params.clone(),
+                                    return_type: Box::new(expected_flat.clone()),
+                                    generic_params: generic_params.clone()
+                                }),
+                                statement.span
+                            )
+                        );
+        
+                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                        if method_result.1.inner != expected_flat.inner {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Function return type mismatch: expected {:?}, got {:?}", 
+                                    expected_flat.inner, 
+                                    method_result.1.inner
+                                ),
+                                expected_flat.span
+                            ))
+                        }
+                        let fun_type = spanned(
+                            TypeInfo::new(TypeKind::Fun {
+                                params: flat_params.clone(),
+                                return_type: Box::new(method_result.1.clone()),
+                                generic_params: generic_params.clone()
+                            }),
+                            statement.span
+                        );
+                        env.insert_method(
+                            flat_type.inner.id(),
+                            (
+                                m.inner.name.clone(),
+                                (
+                                    fun_type.clone(),
+                                    spanned(
+                                        ir::Expr::Fun { 
+                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                            body: Box::new(method_result.0)
+                                        },
+                                        m.span
+                                    )
+                                )
+                            )
+                        );
+                        implemented_methods.insert(m.inner.name.clone());
                     }
                 }
-                Ok(LoweringResult { 
-                    name: Some(name.clone()),
-                    var_type: None, 
-                    custom_type: Some(flat_type),
-                    export: false,
-                    lowered_statement: None
-                })
             }
+            Ok(LoweringResult { 
+                name: Some(name.clone()),
+                var_type: None, 
+                custom_type: Some(flat_type),
+                export: false,
+                lowered_statement: None
+            })
         },
         Statement::Expr(expr) => {
             let expr_result = lower_expr(expr, env)?;
@@ -970,19 +974,41 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                         type_info.span
                     )))
                 },
-                TypeKind::TypeClosure { params, env: closure_scope, body } => {
-                    if params.len() != generic_args.len() {
+                TypeKind::TypeClosure { params, body } => {
+                    let mut inner_scope = env.enter_scope();
+                    if generic_args.len() == 0 && params.len() > 0 {
+                        for p in params {
+                            inner_scope.add_custom_type(
+                                p.inner.clone(),
+                                spanned(
+                                    TypeInfo::new(TypeKind::GenericParam(p.inner.clone())),
+                                    p.span.clone()
+                                )
+                            );
+                        }
+                        
+                    } else if params.len() != generic_args.len() {
                         return Err(spanned(
-                            format!("A wrong number of generic args provided: expected: {}, got {}", params.len(), generic_args.len()).into(),
+                            format_smolstr!(
+                                "A wrong number of generic args provided: expected: {}, got {}",
+                                params.len(),
+                                generic_args.len()
+                            ),
                             resolved_type.span
                         ))
+                    } else {
+                        for (param, arg) in params.iter().zip(generic_args.iter()) {
+                            let flat_arg = flatten_type(arg, env)?.into_owned();
+                            inner_scope.add_custom_type(param.inner.clone(), flat_arg);
+                        }
+                        
                     }
-                    let mut inner_scope = closure_scope.clone();
-                    for (param, arg) in params.iter().zip(generic_args.iter()) {
-                        let flat_arg = flatten_type(arg, env)?.into_owned();
-                        inner_scope.add_custom_type(param.inner.clone(), flat_arg);
-                    }
-                    Ok(Cow::Owned(flatten_type(body, &mut inner_scope)?.into_owned()))
+                    
+                    let flattened = flatten_type(body, &mut inner_scope)?.into_owned();
+                    Ok(Cow::Owned(spanned(
+                        TypeInfo::new_with_id(flattened.inner.kind().clone(), resolved_type.inner.id()),
+                        flattened.span
+                    )))
                 },
                 _ => {
                     if generic_args.len() != 0 {
@@ -1103,6 +1129,24 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
             TypeInfo::new_with_id(TypeKind::Array(Box::new(flatten_type(ti, env)?.into_owned())), type_info.inner.id()),
             type_info.span
         ))),
+        TypeKind::TypeClosure { params, body } => {
+            let mut inner_scope = env.enter_scope();
+            for p in params {
+                inner_scope.add_custom_type(
+                    p.inner.clone(),
+                    spanned(
+                        TypeInfo::new(TypeKind::GenericParam(p.inner.clone())),
+                        p.span.clone()
+                    )
+                );
+            }
+            
+            let flattened = flatten_type(body, &mut inner_scope)?.into_owned();
+            Ok(Cow::Owned(spanned(
+                TypeInfo::new_with_id(flattened.inner.kind().clone(), type_info.inner.id()),
+                flattened.span
+            )))
+        },
         _ => Ok(Cow::Borrowed(type_info))
     }
 }
@@ -1687,7 +1731,8 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             ))
         },
         Expr::Get(target, field) => {
-            let target_result = lower_expr(target, env)?;
+            let mut target_result = lower_expr(target, env)?;
+            target_result.1 = flatten_type(&target_result.1, env)?.into_owned();
             if let Some((method_type, method_expr)) = env.get_method(target_result.1.inner.id(), field) {
                 Ok((
                     spanned(
