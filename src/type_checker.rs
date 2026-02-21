@@ -637,7 +637,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                     generic_args: generic_params
                                         .clone()
                                         .into_iter()
-                                        .map(|name| TypeInfo::new(TypeKind::GenericParam(name.inner)))
+                                        .map(|name| spanned(
+                                            TypeInfo::new(TypeKind::GenericParam(name.inner)),
+                                            name.span
+                                        ))
                                         .collect()
                                 }, enum_type_id),
                                 statement.span
@@ -655,7 +658,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                 TypeInfo::new_with_id(TypeKind::EnumVariant { 
                                     enum_name: name.clone(),
                                     variant: v_name.clone(),
-                                    generic_args: vec![TypeInfo::any(); generic_params.len()]
+                                    generic_args: vec![spanned(TypeInfo::any(), Span::from(0..0)); generic_params.len()]
                                 }, enum_type_id),
                                 statement.span
                             )),
@@ -1014,7 +1017,7 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
         },
         TypeKind::EnumVariant { enum_name, variant, generic_args } => {
             let new_args = generic_args.iter()
-                .map(|arg| substitute_generic_params(&spanned(arg.clone(), type_info.span), generic_arg_map).inner)
+                .map(|arg| substitute_generic_params(&spanned(arg.inner.clone(), type_info.span), generic_arg_map))
                 .collect();
             spanned(
                 TypeInfo::new_with_id(TypeKind::EnumVariant {
@@ -2175,139 +2178,88 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 }
             }
 
-            fn match_enum_variant_branch(
-                enum_name: &SmolStr,
-                variant: &SmolStr,
-                generic_args: &Vec<TypeInfo>,
-                pattern: &Spanned<MatchArm>,
-                branch: &Spanned<Expr>,
-                env: &mut TypeEnv
-            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
-                match &pattern.inner {
-                    MatchArm::Default(alias) => {
-                        let mut inner_env = env.enter_scope();
-                        let enum_type_id = env.resolve_type(enum_name).map(|t| t.inner.id()).unwrap_or(0);
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            TypeInfo::new_with_id(TypeKind::EnumVariant { 
-                                enum_name: enum_name.clone(),
-                                variant: variant.clone(), 
-                                generic_args: generic_args.clone()
-                            }, enum_type_id),
-                            Span::from(0..0)
-                        ));
-                        let branch_result = lower_expr(branch, &mut inner_env)?;
-                        let lowered_pattern = spanned(
-                            ir::MatchArm::Default(alias.clone()),
-                            pattern.span
-                        );
-                        Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
-                    },
-                    MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
-                        let c_name = c_name.as_ref().unwrap_or(enum_name);
-                        if let Some(ti) = env.resolve_type(c_name) {
-                            if c_name != enum_name {
-                                return Err(spanned(
-                                    format_smolstr!("Enum mismatch: expected {enum_name}, got {c_name}"),
-                                    ti.span
-                                ))
-                            }
-                            match ti.inner.kind() {
-                                TypeKind::Enum { name: _, variants, generic_params } => {
-                                    if generic_params.len() != generic_args.len() {
-                                        return Err(spanned(
-                                            format_smolstr!(
-                                                "Incorrect amount of generic arguments provided: expected {}, got {}",
-                                                generic_params.len(),
-                                                generic_args.len()
-                                            ),
-                                            ti.span
-                                        ))
-                                    }
-                                    let inner_type = if let Some(ti) = variants.get(variant) {
-                                        ti
-                                    } else {
-                                        return Err(spanned(
-                                            format_smolstr!("Enum {enum_name} does not have a variant {variant}"),
-                                            ti.span
-                                        ))
-                                    };
-
-                                    let mut inner_scope = env.enter_scope();
-                                    let mut generic_map = HashMap::new();
-                                    for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
-                                        generic_map.insert(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
-                                        inner_scope.add_custom_type(g_name.inner.clone(), spanned(g_type.clone(), Span::from(0..0)));
-                                    }
-                                    let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
-                                    let branch_result = lower_expr(branch, &mut inner_scope)?;
-                                    let lowered_pattern = spanned(
-                                        ir::MatchArm::EnumConstructor {
-                                            enum_name: enum_name.clone(),
-                                            variant: variant.clone(),
-                                            alias: alias.clone()
-                                        },
-                                        pattern.span
-                                    );
-                                    Ok(((lowered_pattern, branch_result.0), branch_result.1, false))
-                                },
-                                _ => Err(spanned(
-                                    format_smolstr!("Type {c_name} is not an enum"),
-                                    ti.span
-                                ))
-                            }
-                        } else {
-                            Err(spanned(
-                                format_smolstr!("Cannot resolve enum {c_name}"),
-                                pattern.span
-                            ))
-                        }
-                    },
-                    _ => Err(spanned(
-                        "This branch is not compatible with enums".into(),
-                        pattern.span
-                    ))
-                }
-            }
-
             fn match_enum_instance_branch(
                 enum_name: &SmolStr,
                 variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
                 generic_args: &Vec<Spanned<TypeInfo>>,
                 pattern: &Spanned<MatchArm>,
                 branch: &Spanned<Expr>,
-                env: &mut TypeEnv
-            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+                env: &mut TypeEnv,
+            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>>
+            {
+                // If the supplied variants map is empty we are matching a single enum variant.
+                // Resolve the enum definition to obtain its full variant map in that case.
+                let resolved_variants = if variants.is_empty() {
+                    match env.resolve_type(enum_name) {
+                        Some(ti) => match ti.inner.kind() {
+                            TypeKind::Enum { variants, .. } => variants.clone(),
+                            _ => {
+                                return Err(spanned(
+                                    format_smolstr!("Type {enum_name} is not an enum"),
+                                    ti.span,
+                                ))
+                            }
+                        },
+                        None => {
+                            return Err(spanned(
+                                format_smolstr!("Cannot resolve enum {enum_name}"),
+                                pattern.span,
+                            ))
+                        }
+                    }
+                } else {
+                    variants.clone()
+                };
+
                 match &pattern.inner {
                     MatchArm::Default(alias) => {
                         let mut inner_env = env.enter_scope();
                         let enum_type_id = env.resolve_type(enum_name).map(|t| t.inner.id()).unwrap_or(0);
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            TypeInfo::new_with_id(TypeKind::EnumInstance { 
+
+                        // Bind the alias to the whole enum (instance or single variant)
+                        let kind = if variants.is_empty() {
+                            // Single variant – we don't know the exact variant name here, so use a placeholder.
+                            TypeKind::EnumVariant {
                                 enum_name: enum_name.clone(),
-                                variants: variants.clone(), 
-                                generic_args: generic_args.clone()
-                            }, enum_type_id),
-                            Span::from(0..0)
-                        ));
-                        let branch_result = lower_expr(branch, &mut inner_env)?;
-                        let lowered_pattern = spanned(
-                            ir::MatchArm::Default(alias.clone()),
-                            pattern.span
+                                variant: SmolStr::new(""),
+                                generic_args: generic_args.clone(),
+                            }
+                        } else {
+                            TypeKind::EnumInstance {
+                                enum_name: enum_name.clone(),
+                                variants: resolved_variants.clone(),
+                                generic_args: generic_args.clone(),
+                            }
+                        };
+
+                        inner_env.add_var_type(
+                            alias.clone(),
+                            spanned(TypeInfo::new_with_id(kind, enum_type_id), Span::from(0..0)),
                         );
+
+                        let branch_result = lower_expr(branch, &mut inner_env)?;
+                        let lowered_pattern = spanned(ir::MatchArm::Default(alias.clone()), pattern.span);
                         Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
-                    },
-                    MatchArm::EnumConstructor { enum_name: c_name, variant, alias } => {
+                    }
+                    MatchArm::EnumConstructor {
+                        enum_name: c_name,
+                        variant,
+                        alias,
+                    } => {
                         let c_name = c_name.as_ref().unwrap_or(enum_name);
                         if let Some(ti) = env.resolve_type(c_name) {
                             if c_name != enum_name {
                                 return Err(spanned(
                                     format_smolstr!("Enum mismatch: expected {enum_name}, got {c_name}"),
-                                    ti.span
-                                ))
+                                    ti.span,
+                                ));
                             }
                             match ti.inner.kind() {
-                                TypeKind::Enum { name: _, variants, generic_params } => {
+                                TypeKind::Enum {
+                                    name: _,
+                                    variants: _,
+                                    generic_params,
+                                } => {
                                     if generic_params.len() != generic_args.len() {
                                         return Err(spanned(
                                             format_smolstr!(
@@ -2315,16 +2267,18 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                                 generic_params.len(),
                                                 generic_args.len()
                                             ),
-                                            ti.span
-                                        ))
+                                            ti.span,
+                                        ));
                                     }
-                                    let inner_type = if let Some(ti) = variants.get(variant) {
+
+                                    // Use the resolved variant map (either the supplied one or the enum's own)
+                                    let inner_type = if let Some(ti) = resolved_variants.get(variant) {
                                         ti
                                     } else {
                                         return Err(spanned(
                                             format_smolstr!("Enum {enum_name} does not have a variant {variant}"),
-                                            ti.span
-                                        ))
+                                            ti.span,
+                                        ));
                                     };
 
                                     let mut inner_scope = env.enter_scope();
@@ -2333,55 +2287,41 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                         generic_map.insert(g_name.inner.clone(), g_type.clone());
                                         inner_scope.add_custom_type(g_name.inner.clone(), g_type.clone());
                                     }
+
                                     let resolved_type = flatten_type(inner_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(alias.clone(), substitute_generic_params(&resolved_type, &generic_map));
+                                    inner_scope.add_var_type(
+                                        alias.clone(),
+                                        substitute_generic_params(&resolved_type, &generic_map),
+                                    );
+
                                     let branch_result = lower_expr(branch, &mut inner_scope)?;
                                     let lowered_pattern = spanned(
                                         ir::MatchArm::EnumConstructor {
                                             enum_name: enum_name.clone(),
                                             variant: variant.clone(),
-                                            alias: alias.clone()
+                                            alias: alias.clone(),
                                         },
-                                        pattern.span
+                                        pattern.span,
                                     );
                                     Ok(((lowered_pattern, branch_result.0), branch_result.1, false))
-                                },
+                                }
                                 _ => Err(spanned(
                                     format_smolstr!("Type {c_name} is not an enum"),
-                                    ti.span
-                                ))
+                                    ti.span,
+                                )),
                             }
                         } else {
                             Err(spanned(
                                 format_smolstr!("Cannot resolve enum {c_name}"),
-                                pattern.span
+                                pattern.span,
                             ))
                         }
-                    },
+                    }
                     _ => Err(spanned(
                         "This branch is not compatible with enums".into(),
-                        pattern.span
-                    ))
+                        pattern.span,
+                    )),
                 }
-            }
-
-            fn match_enum_definition_branch(
-                enum_name: &SmolStr,
-                variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
-                pattern: &Spanned<MatchArm>,
-                branch: &Spanned<Expr>,
-                env: &mut TypeEnv
-            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
-                // Enum definitions have no generic arguments at value level
-                let empty_generic_args: Vec<Spanned<TypeInfo>> = Vec::new();
-                match_enum_instance_branch(
-                    enum_name,
-                    variants,
-                    &empty_generic_args,
-                    pattern,
-                    branch,
-                    env
-                )
             }
 
             let mut expected_type = TypeInfo::void();
@@ -2433,11 +2373,12 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         has_default = true;
                     }
                 }
-                TypeKind::EnumVariant { enum_name, variant, generic_args } => {
+                //variant name here does not matter, as you can not construct a value if the variant name is incorrect
+                TypeKind::EnumVariant { enum_name, variant: _, generic_args } => {
                     for (pattern, branch) in branches {
-                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_variant_branch(
+                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_instance_branch(
                             enum_name, 
-                            variant, 
+                            &HashMap::new(), 
                             generic_args, 
                             pattern, 
                             branch, 
@@ -2475,9 +2416,10 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 },
                 TypeKind::Enum { name, variants, generic_params: _ } => {
                     for (pattern, branch) in branches {
-                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_definition_branch(
+                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_instance_branch(
                             name,
                             variants,
+                            &vec![],
                             pattern,
                             branch,
                             env

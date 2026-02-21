@@ -229,7 +229,7 @@ pub enum TypeKind {
         generic_params: Vec<Spanned<SmolStr>>
     },
     EnumInstance {enum_name: SmolStr, variants: HashMap<SmolStr, Spanned<TypeInfo>>, generic_args: Vec<Spanned<TypeInfo>>},
-    EnumVariant {enum_name: SmolStr, variant: SmolStr, generic_args: Vec<TypeInfo>},
+    EnumVariant {enum_name: SmolStr, variant: SmolStr, generic_args: Vec<Spanned<TypeInfo>>},
     TypeClosure {params: Vec<Spanned<SmolStr>>, body: Box<Spanned<TypeInfo>>}
 }
 
@@ -378,7 +378,7 @@ impl PartialEq for TypeKind {
                         if args1.len() != args2.len() {
                             false
                         } else {
-                            args1.iter().zip(args2.iter()).all(|(a1, a2)| a1.inner == *a2)
+                            args1.iter().zip(args2.iter()).all(|(a1, a2)| a1.inner == a2.inner)
                         }
                     }
                 }
