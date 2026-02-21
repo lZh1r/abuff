@@ -75,7 +75,7 @@ export fun assert(expression: Bool, reason: String) {
 export enum Option<T> {
     Some: T,
     None
-}
+};
 
 /// Constructs an Option.Some of type T.
 /// Used as a shorthand for Option.Some().
@@ -96,4 +96,4 @@ export type Error = {
 export enum Result<T> {
     Ok: T,
     Err: Error
-}
+};

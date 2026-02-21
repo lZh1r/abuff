@@ -113,7 +113,8 @@ pub enum Statement {
     EnumDef {
         name: SmolStr, 
         variants: Vec<(SmolStr, Option<Spanned<TypeInfo>>)>,
-        generic_params: Vec<Spanned<SmolStr>>
+        generic_params: Vec<Spanned<SmolStr>>,
+        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>
     },
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>, bool)>, path: Spanned<SmolStr>},
     Export(Box<Spanned<Statement>>)

@@ -195,3 +195,42 @@ fn test_import_simple_enum() {
         _ => panic!()
     };
 }
+
+#[test]
+fn type_with_methods_import() {
+    let src = r#"
+        import {type G} from "tests/stubs/method";
+        let g: G = "bb";
+        g.hello();
+        g
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "bb".to_string()),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn enum_with_methods_import() {
+    let src = r#"
+        import {H} from "tests/stubs/method";
+        let good = H.Good();
+        good.isGood()
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Bool(b) => assert_eq!(b, true),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

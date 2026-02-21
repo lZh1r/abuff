@@ -188,7 +188,7 @@ fn test_simpler_enum() {
             Red,
             Green,
             Blue
-        }
+        };
         fun giveColor(x: Color): Color {
             x
         }
@@ -216,7 +216,7 @@ fn test_simple_enum() {
         enum Hello {
             A: Int,
             B: String
-        }
+        };
         fun world(x: Hello): Hello {
             x
         }

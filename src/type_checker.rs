@@ -46,7 +46,7 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                 }
             },
             Statement::TypeDef { name: _, type_info: _, generic_params: _, implementation: _ }
-            | Statement::EnumDef { name: _, variants: _, generic_params: _ } => types.push(st),
+            | Statement::EnumDef { name: _, variants: _, generic_params: _, implementation: _ } => types.push(st),
             Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ } 
             | Statement::NativeFun { name: _, params: _, return_type: _, generic_params: _ } => functions.push(st),
             Statement::Export(statement) => {
@@ -58,7 +58,7 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                 }
                 match &statement.inner {
                     Statement::TypeDef { name: _, type_info: _, generic_params: _, implementation: _ } 
-                    | Statement::EnumDef { name: _, variants: _, generic_params: _ } => types.push(st),
+                    | Statement::EnumDef { name: _, variants: _, generic_params: _, implementation: _ } => types.push(st),
                     Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ }
                    | Statement::NativeFun { name: _, params: _, return_type: _, generic_params: _ } => functions.push(st),
                     _ => rest.push(st)
@@ -570,7 +570,20 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 })
             }
         },
-        Statement::EnumDef { name, variants, generic_params } => {
+        Statement::EnumDef { name, variants, generic_params, implementation } => {
+            let mut generic_scope = env.enter_scope();
+            if generic_params.len() != 0 {
+                for param in generic_params {
+                    generic_scope.add_custom_type(
+                        param.inner.clone(),
+                        spanned(
+                            TypeInfo::new(TypeKind::GenericParam(param.inner.clone())),
+                            param.span.clone()
+                        )
+                    );
+                }
+            }
+            
             let mut inner_scope = env.enter_scope();
             for p in generic_params {
                 inner_scope.add_custom_type(p.inner.clone(), spanned(
@@ -578,6 +591,13 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     p.span
                 ));
             }
+            
+            // Create enum_type first to get its typeId for use in EnumVariant types
+            let enum_type = spanned(
+                TypeInfo::new(TypeKind::Enum { name: name.clone(), variants: HashMap::new(), generic_params: generic_params.clone() }),
+                statement.span
+            );
+            let enum_type_id = enum_type.inner.id();
             
             let mut variant_funs = HashMap::new();
             let mut variant_hashmap = HashMap::new();
@@ -611,7 +631,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         TypeInfo::new(TypeKind::Fun { 
                             params: vec![((false, "+arg".into()), ti.clone())],
                             return_type: Box::new(spanned(
-                                TypeInfo::new(TypeKind::EnumVariant { 
+                                TypeInfo::new_with_id(TypeKind::EnumVariant { 
                                     enum_name: name.clone(),
                                     variant: v_name.clone(),
                                     generic_args: generic_params
@@ -619,7 +639,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                         .into_iter()
                                         .map(|name| TypeInfo::new(TypeKind::GenericParam(name.inner)))
                                         .collect()
-                                }),
+                                }, enum_type_id),
                                 statement.span
                             )),
                             generic_params: generic_params.clone()
@@ -632,11 +652,11 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         TypeInfo::new(TypeKind::Fun { 
                             params: Vec::new(),
                             return_type: Box::new(spanned(
-                                TypeInfo::new(TypeKind::EnumVariant { 
+                                TypeInfo::new_with_id(TypeKind::EnumVariant { 
                                     enum_name: name.clone(),
                                     variant: v_name.clone(),
                                     generic_args: vec![TypeInfo::any(); generic_params.len()]
-                                }),
+                                }, enum_type_id),
                                 statement.span
                             )),
                             generic_params: Vec::new()
@@ -671,13 +691,163 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 TypeInfo::new(TypeKind::Record(variant_funs)),
                 statement.span
             );
+            
+            // Update enum_type with the correct variants
             let enum_type = spanned(
-                TypeInfo::new(TypeKind::Enum { name: name.clone(), variants: variant_hashmap, generic_params: generic_params.clone() }),
+                TypeInfo::new_with_id(TypeKind::Enum { name: name.clone(), variants: variant_hashmap, generic_params: generic_params.clone() }, enum_type_id),
                 statement.span
             );
             
             env.add_custom_type(name.clone(), enum_type.clone());
             env.add_var_type(name.clone(), enum_var.clone());
+            
+            // Process implementation for enum methods
+            let mut implemented_methods = HashSet::new();
+            for (interface_name, methods) in implementation {
+                env.add_interface_impl(interface_name.clone(), enum_type.clone());
+                let mut interface_env = generic_scope.enter_scope();
+                for m in methods {
+                    if implemented_methods.contains(&m.inner.name) {
+                        return Err(spanned(
+                            format_smolstr!("Method {} is defined multiple times", m.inner.name),
+                            m.span
+                        ))
+                    }
+                    let mut inner_scope = interface_env.enter_scope();
+                    inner_scope.add_var_type("self".into(), enum_type.clone());
+                    let expected_type = m.inner.return_type.clone()
+                        .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+                    if m.inner.generic_params.len() == 0 {
+                        let mut flat_params = Vec::new();
+                        for (n, p_type) in &m.inner.params {
+                            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                            flat_params.push((n.clone(), flattened))
+                        }
+                        let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                        inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                        inner_scope.add_var_type(
+                            name.clone(),
+                            spanned(
+                                TypeInfo::new(TypeKind::Fun {
+                                    params: flat_params.clone(), 
+                                    return_type: Box::new(expected_type.clone()),
+                                    generic_params: generic_params.clone()
+                                }),
+                                statement.span
+                            )
+                        );
+                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                        if method_result.1.inner != expected_type.inner {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Function return type mismatch: expected {:?}, got {:?}",
+                                    expected_type.inner,
+                                    method_result.1.inner
+                                ),
+                                expected_type.span
+                            ))
+                        }
+                        let fun_type = spanned(
+                            TypeInfo::new(
+                                TypeKind::Fun {
+                                    params: flat_params, 
+                                    return_type: Box::new(method_result.1.clone()),
+                                    generic_params: Vec::new()
+                                }
+                            ),
+                            statement.span
+                        );
+                        
+                        env.insert_method(
+                            enum_type.inner.id(),
+                            (
+                                m.inner.name.clone(),
+                                (
+                                    fun_type.clone(),
+                                    spanned(
+                                        ir::Expr::Fun { 
+                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                            body: Box::new(method_result.0)
+                                        },
+                                        m.span
+                                    )
+                                )
+                            )
+                        );
+                        implemented_methods.insert(m.inner.name.clone());
+                    } else {
+                        // Register generic params in the inner scope so they can be referenced
+                        for generic in generic_params {
+                            inner_scope.add_custom_type(
+                                generic.inner.clone(),
+                                spanned(
+                                    TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
+                                    generic.span
+                                )
+                            );
+                        }
+                        let mut flat_params = Vec::new();
+                        for (n, p_type) in &m.inner.params {
+                            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                            flat_params.push((n.clone(), flattened));
+                        }
+                        let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                        inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                        inner_scope.add_var_type(
+                            name.clone(),
+                            spanned(
+                                TypeInfo::new(TypeKind::Fun {
+                                    params: flat_params.clone(), 
+                                    return_type: Box::new(expected_type.clone()),
+                                    generic_params: generic_params.clone()
+                                }),
+                                statement.span
+                            )
+                        );
+                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                        if method_result.1.inner != expected_type.inner {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Function return type mismatch: expected {:?}, got {:?}",
+                                    expected_type.inner,
+                                    method_result.1.inner
+                                ),
+                                expected_type.span
+                            ))
+                        }
+                        let fun_type = spanned(
+                            TypeInfo::new(
+                                TypeKind::Fun {
+                                    params: flat_params, 
+                                    return_type: Box::new(method_result.1.clone()),
+                                    generic_params: m.inner.generic_params.clone()
+                                }
+                            ),
+                            statement.span
+                        );
+                        
+                        env.insert_method(
+                            enum_type.inner.id(),
+                            (
+                                m.inner.name.clone(),
+                                (
+                                    fun_type.clone(),
+                                    spanned(
+                                        ir::Expr::Fun { 
+                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                            body: Box::new(method_result.0)
+                                        },
+                                        m.span
+                                    )
+                                )
+                            )
+                        );
+                        implemented_methods.insert(m.inner.name.clone());
+                    }
+                }
+            }
             
             Ok(LoweringResult { 
                 name: Some(name.clone()),
@@ -834,11 +1004,11 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
                 .map(|arg| substitute_generic_params(arg, generic_arg_map))
                 .collect();
             spanned(
-                TypeInfo::new(TypeKind::EnumInstance {
+                TypeInfo::new_with_id(TypeKind::EnumInstance {
                     enum_name: enum_name.clone(),
                     variants: variants.clone(),
                     generic_args: new_args,
-                }),
+                }, type_info.inner.id()),
                 type_info.span
             )
         },
@@ -847,11 +1017,11 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
                 .map(|arg| substitute_generic_params(&spanned(arg.clone(), type_info.span), generic_arg_map).inner)
                 .collect();
             spanned(
-                TypeInfo::new(TypeKind::EnumVariant {
+                TypeInfo::new_with_id(TypeKind::EnumVariant {
                     enum_name: enum_name.clone(),
                     variant: variant.clone(),
                     generic_args: new_args,
-                }),
+                }, type_info.inner.id()),
                 type_info.span
             )
         },
@@ -1938,7 +2108,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
         },
         Expr::Match { target, branches } => {
             let target_result = lower_expr(target, env)?;
-            
+
             fn match_branch(
                 target: &TypeInfo, 
                 pattern: &Spanned<MatchArm>,
@@ -2004,7 +2174,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     ))
                 }
             }
-            
+
             fn match_enum_variant_branch(
                 enum_name: &SmolStr,
                 variant: &SmolStr,
@@ -2016,12 +2186,13 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 match &pattern.inner {
                     MatchArm::Default(alias) => {
                         let mut inner_env = env.enter_scope();
+                        let enum_type_id = env.resolve_type(enum_name).map(|t| t.inner.id()).unwrap_or(0);
                         inner_env.add_var_type(alias.clone(), spanned(
-                            TypeInfo::new(TypeKind::EnumVariant { 
+                            TypeInfo::new_with_id(TypeKind::EnumVariant { 
                                 enum_name: enum_name.clone(),
                                 variant: variant.clone(), 
                                 generic_args: generic_args.clone()
-                            }),
+                            }, enum_type_id),
                             Span::from(0..0)
                         ));
                         let branch_result = lower_expr(branch, &mut inner_env)?;
@@ -2060,7 +2231,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                             ti.span
                                         ))
                                     };
-                                    
+
                                     let mut inner_scope = env.enter_scope();
                                     let mut generic_map = HashMap::new();
                                     for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
@@ -2098,7 +2269,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     ))
                 }
             }
-            
+
             fn match_enum_instance_branch(
                 enum_name: &SmolStr,
                 variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
@@ -2110,12 +2281,13 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 match &pattern.inner {
                     MatchArm::Default(alias) => {
                         let mut inner_env = env.enter_scope();
+                        let enum_type_id = env.resolve_type(enum_name).map(|t| t.inner.id()).unwrap_or(0);
                         inner_env.add_var_type(alias.clone(), spanned(
-                            TypeInfo::new(TypeKind::EnumInstance { 
+                            TypeInfo::new_with_id(TypeKind::EnumInstance { 
                                 enum_name: enum_name.clone(),
                                 variants: variants.clone(), 
                                 generic_args: generic_args.clone()
-                            }),
+                            }, enum_type_id),
                             Span::from(0..0)
                         ));
                         let branch_result = lower_expr(branch, &mut inner_env)?;
@@ -2154,7 +2326,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                             ti.span
                                         ))
                                     };
-                                    
+
                                     let mut inner_scope = env.enter_scope();
                                     let mut generic_map = HashMap::new();
                                     for (g_name, g_type) in generic_params.iter().zip(generic_args.iter()) {
@@ -2192,11 +2364,30 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     ))
                 }
             }
-            
+
+            fn match_enum_definition_branch(
+                enum_name: &SmolStr,
+                variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
+                pattern: &Spanned<MatchArm>,
+                branch: &Spanned<Expr>,
+                env: &mut TypeEnv
+            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+                // Enum definitions have no generic arguments at value level
+                let empty_generic_args: Vec<Spanned<TypeInfo>> = Vec::new();
+                match_enum_instance_branch(
+                    enum_name,
+                    variants,
+                    &empty_generic_args,
+                    pattern,
+                    branch,
+                    env
+                )
+            }
+
             let mut expected_type = TypeInfo::void();
             let mut has_default = false;
             let mut lower_branches = Vec::new();
-            
+
             match target_result.1.inner.kind() {
                 TypeKind::Fun { params: _, return_type: _, generic_params: _ } => return Err(spanned(
                     "Cannot apply match to a function".into(), 
@@ -2282,6 +2473,44 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         has_default = true;
                     }
                 },
+                TypeKind::Enum { name, variants, generic_params: _ } => {
+                    for (pattern, branch) in branches {
+                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_definition_branch(
+                            name,
+                            variants,
+                            pattern,
+                            branch,
+                            env
+                        )?;
+                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
+                            return Err(spanned(
+                                "Match branches cannot have different return types".into(),
+                                branch_type.span
+                            ))
+                        } else {
+                            expected_type = branch_type.inner.clone()
+                        }
+                        if is_default {
+                            if has_default {
+                                return Err(spanned(
+                                    "Cannot have multiple default branches in a match expression".into(),
+                                    branch.span
+                                ))
+                            } else {
+                                has_default = true
+                            }
+                        }
+                        lower_branches.push((lowered_pattern, lowered_body));
+                    }
+                    // All variants covered means a default is implicit
+                    let variant_count = match env.resolve_type(name.as_str()).unwrap().inner.kind() {
+                        TypeKind::Enum { name: _, variants, generic_params: _ } => variants.len(),
+                        _ => panic!()
+                    };
+                    if branches.len() == variant_count {
+                        has_default = true;
+                    }
+                }
                 _ti => {
                     for (pattern, branch) in branches {
                         let ((lowered_pattern, lowered_body), branch_type, is_default) = match_branch(&target_result.1.inner, pattern, branch, env)?;

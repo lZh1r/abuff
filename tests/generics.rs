@@ -141,7 +141,7 @@ fn test_implicit_enum_generic() {
     let src = r#"
         enum A<T> {
             B: T
-        }
+        };
         
         A.B(1)
     "#;
@@ -168,7 +168,7 @@ fn test_enum_generic() {
     let src = r#"
         enum A<T> {
             B: T
-        }
+        };
         
         A.B<Int>(1)
     "#;

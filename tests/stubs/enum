@@ -1,4 +1,4 @@
 export enum Test {
     A: Int,
     B: Int
-}
+};

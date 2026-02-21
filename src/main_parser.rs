@@ -502,11 +502,70 @@ impl<'a> Parser<'a> {
                 break
             }
         }
-        let end_span = self.peek().unwrap().span;
+        let _end_span = self.peek().unwrap().span;
         self.expect(&Token::RBrace)?;
         
+        let mut implementation = Vec::new();
+        if self.check(&Token::Impl) {
+            self.advance();
+            self.expect(&Token::LBrace)?;
+            loop {
+                if self.check(&Token::RBrace) {
+                    self.advance();
+                    break
+                }
+                match &self.peek().ok_or(spanned("Unexpected EOF in impl block".into(), Span::from(0..0)))?.inner.clone() {
+                    Token::Ident(iface) => {
+                        self.advance();
+                        let mut methods = Vec::new();
+                        self.expect(&Token::Colon)?;
+                        self.expect(&Token::LBrace)?;
+                        loop {
+                            if self.check(&Token::RBrace) {
+                                self.advance();
+                                break
+                            }
+                            let fun = self.fun_statement()?;
+                            let method = match fun.inner {
+                                Statement::Fun { name, params, body, return_type, generic_params } => {
+                                    spanned(
+                                        Method {
+                                            name: name,
+                                            params: params,
+                                            body: body,
+                                            return_type: return_type,
+                                            generic_params: generic_params,
+                                        },
+                                        fun.span
+                                    )
+                                },
+                                _ => panic!()
+                            };
+                            methods.push(method);
+                        }
+                        implementation.push((iface.clone(), methods));
+                    },
+                    t => {
+                        return Err(spanned(
+                            format_smolstr!("Unexpected token: Expected identifier, got {t:?}"),
+                            self.peek().unwrap().span
+                        ))
+                    }
+                }
+            }
+        }
+        
+        let end_span = if self.check(&Token::Semicolon) {
+            self.advance().unwrap().span
+        } else {
+            return Err(spanned(
+                "Expected a semicolon at the end of the statement".into(),
+                self.peek().unwrap().span
+            ));
+        };
+        
         Ok(spanned(
-            Statement::EnumDef { name: enum_name, variants: enum_variants, generic_params: enum_generics },
+            Statement::EnumDef { name: enum_name, variants: enum_variants, generic_params: enum_generics, implementation },
             Span::from(start_span.start..end_span.end)
         ))
     }

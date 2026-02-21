@@ -274,7 +274,7 @@ fn enum_match() {
         enum A {
             B: Int,
             C: Int
-        }
+        };
         let a = A.B(1);
         match a {
             A.B(v) -> v,
@@ -299,7 +299,7 @@ fn enum_match_shorthand() {
         enum A {
             B: Int,
             C: Int
-        }
+        };
         let a = A.B(1);
         match a {
             .B(v) -> v,

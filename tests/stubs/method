@@ -1,0 +1,21 @@
+export type G = String impl {
+    _: {
+        fun hello() {
+            print(self)
+        }
+    }
+};
+
+export enum H {
+    Good,
+    Evil
+} impl {
+    _: {
+        fun isGood(): Bool {
+            match self {
+                .Good(_) -> true,
+                _ -> false
+            }
+        }
+    }
+};
