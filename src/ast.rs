@@ -329,9 +329,9 @@ impl PartialEq for TypeKind {
                 TypeKind::EnumVariant { enum_name: name1, variant: v1, generic_args: g_a }, 
                 TypeKind::EnumVariant { enum_name: name2, variant: v2, generic_args: g_b }
             ) => {
-                name1 == name2 && v1 == v2 && {
+                name1 == name2 && {
                     for (a,b) in g_a.iter().zip(g_b.iter()) {
-                        if a != b {
+                        if a.inner != b.inner {
                             return false;
                         }
                     }

@@ -75,6 +75,15 @@ export fun assert(expression: Bool, reason: String) {
 export enum Option<T> {
     Some: T,
     None
+} impl {
+    _: {
+        fun intoResult(): Result<T> {
+            match self {
+                .Some(value) -> Result.Ok(value),
+                .None(_) -> Result.Err({message: "the value is not provided"})
+            }
+        }
+    }
 };
 
 /// Constructs an Option.Some of type T.
@@ -96,4 +105,13 @@ export type Error = {
 export enum Result<T> {
     Ok: T,
     Err: Error
+} impl {
+    _: {
+        fun isOk(): Bool {
+            match self {
+                .Ok(_) -> true,
+                .Err(_) -> false
+            }
+        }
+    }
 };

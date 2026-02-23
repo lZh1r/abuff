@@ -2,14 +2,16 @@ use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{Expr, MatchArm, Operation, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
+use crate::{ast::{Expr, MatchArm, Method, Operation, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::get_native_fun};
 
 struct LoweringResult {
     name: Option<SmolStr>,
     var_type: Option<Spanned<TypeInfo>>,
     custom_type: Option<Spanned<TypeInfo>>,
     export: bool,
-    lowered_statement: Option<Spanned<ir::Statement>>
+    lowered_statement: Option<Spanned<ir::Statement>>,
+    methods: Option<Vec<(SmolStr, Vec<Spanned<Method>>)>>,
+    generic_params: Option<Vec<Spanned<SmolStr>>>
 }
 
 fn spanned<T>(inner: T, span: Span) -> Spanned<T> {
@@ -68,11 +70,20 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
         }
     }
     
+    let mut methods = Vec::new();
+    
     //processing types
     loop {
         if types.is_empty() {break}
         let st = types.pop().unwrap();
         let result = process_statement(&st, env, path)?;
+        methods.push((
+            result.custom_type.clone().unwrap(),
+            result.methods.unwrap(),
+            result.generic_params.unwrap(),
+            result.name.clone().unwrap()
+        ));
+        
         if result.export && let Some(name) = result.name {
             if let Some(ti) = result.var_type {
                 var_exports.insert(name.clone(), ti);
@@ -83,6 +94,168 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
         }
         if let Some(statement) = result.lowered_statement {
             lowered_statements.push(statement);
+        }
+    }
+    
+    //process methods
+    for (ti, implementation, generic_params, name) in methods.into_iter() {
+        let mut generic_scope = env.enter_scope();
+        for param in &generic_params {
+            generic_scope.add_custom_type(
+                param.inner.clone(),
+                spanned(
+                    TypeInfo::new(TypeKind::GenericParam(param.inner.clone())),
+                    param.span
+                )
+            );
+        }
+        let mut implemented_methods = HashSet::new();
+        for (interface_name, methods) in implementation {
+            env.add_interface_impl(interface_name.clone(), ti.clone());
+            let mut interface_env = generic_scope.enter_scope();
+            for m in methods {
+                if implemented_methods.contains(&m.inner.name) {
+                    return Err(spanned(
+                        format_smolstr!("Method {} is defined multiple times", m.inner.name),
+                        m.span
+                    ))
+                }
+                let mut inner_scope = interface_env.enter_scope();
+                inner_scope.add_var_type("self".into(), ti.clone());
+                let expected_type = m.inner.return_type.clone()
+                    .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+                if m.inner.generic_params.len() == 0 {
+                    let mut flat_params = Vec::new();
+                    for (n, p_type) in &m.inner.params {
+                        let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
+                        inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                        flat_params.push((n.clone(), flattened))
+                    }
+                    let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                    inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                    inner_scope.add_var_type(
+                        name.clone(),
+                        spanned(
+                            TypeInfo::new(TypeKind::Fun {
+                                params: flat_params.clone(), 
+                                return_type: Box::new(expected_type.clone()),
+                                generic_params: generic_params.clone()
+                            }),
+                            ti.span.clone()
+                        )
+                    );
+                    let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                    if method_result.1.inner != expected_type.inner {
+                        return Err(spanned(
+                            format_smolstr!(
+                                "Function return type mismatch: expected {:?}, got {:?}",
+                                expected_type.inner,
+                                method_result.1.inner
+                            ),
+                            expected_type.span
+                        ))
+                    }
+                    let fun_type = spanned(
+                        TypeInfo::new(
+                            TypeKind::Fun {
+                                params: flat_params, 
+                                return_type: Box::new(method_result.1.clone()),
+                                generic_params: Vec::new()
+                            }
+                        ),
+                        ti.span
+                    );
+                    
+                    env.insert_method(
+                        ti.inner.id(),
+                        (
+                            m.inner.name.clone(),
+                            (
+                                fun_type.clone(),
+                                spanned(
+                                    ir::Expr::Fun { 
+                                        params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                        body: Box::new(method_result.0)
+                                    },
+                                    m.span
+                                )
+                            )
+                        )
+                    );
+                    implemented_methods.insert(m.inner.name.clone());
+                } else {
+                    // Register generic params in the inner scope so they can be referenced
+                    for generic in &generic_params {
+                        inner_scope.add_custom_type(
+                            generic.inner.clone(),
+                            spanned(
+                                TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
+                                generic.span
+                            )
+                        );
+                    }
+    
+                    // Flatten parameter types with generics in scope and add them to the inner scope
+                    let mut flat_params = Vec::new();
+                    for (n, p_type) in &m.inner.params {
+                        let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+                        inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                        flat_params.push((n.clone(), flattened));
+                    }
+    
+                    let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                    inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+    
+                    inner_scope.add_var_type(
+                        name.clone(),
+                        spanned(
+                            TypeInfo::new(TypeKind::Fun {
+                                params: flat_params.clone(),
+                                return_type: Box::new(expected_flat.clone()),
+                                generic_params: generic_params.clone()
+                            }),
+                            ti.span.clone()
+                        )
+                    );
+    
+                    let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+                    if method_result.1.inner != expected_flat.inner {
+                        return Err(spanned(
+                            format_smolstr!(
+                                "Function return type mismatch: expected {:?}, got {:?}", 
+                                expected_flat.inner, 
+                                method_result.1.inner
+                            ),
+                            expected_flat.span
+                        ))
+                    }
+                    let fun_type = spanned(
+                        TypeInfo::new(TypeKind::Fun {
+                            params: flat_params.clone(),
+                            return_type: Box::new(method_result.1.clone()),
+                            generic_params: generic_params.clone()
+                        }),
+                        ti.span
+                    );
+                    env.insert_method(
+                        ti.inner.id(),
+                        (
+                            m.inner.name.clone(),
+                            (
+                                fun_type.clone(),
+                                spanned(
+                                    ir::Expr::Fun { 
+                                        params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+                                        body: Box::new(method_result.0)
+                                    },
+                                    m.span
+                                )
+                            )
+                        )
+                    );
+                    implemented_methods.insert(m.inner.name.clone());
+                }
+            }
         }
     }
     
@@ -159,7 +332,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         expr: expr_result.0
                     },
                     statement.span
-                ))
+                )),
+                methods: None,
+                generic_params: None
             })
         },
         Statement::TypeDef { name, type_info, generic_params, implementation } => {
@@ -186,160 +361,162 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             };
             
             env.add_custom_type(name.clone(), flat_type.clone());
-            let mut implemented_methods = HashSet::new();
-            for (interface_name, methods) in implementation {
-                env.add_interface_impl(interface_name.clone(), type_info.clone());
-                let mut interface_env = generic_scope.enter_scope();
-                for m in methods {
-                    if implemented_methods.contains(&m.inner.name) {
-                        return Err(spanned(
-                            format_smolstr!("Method {} is defined multiple times", m.inner.name),
-                            m.span
-                        ))
-                    }
-                    let mut inner_scope = interface_env.enter_scope();
-                    inner_scope.add_var_type("self".into(), flat_type.clone());
-                    let expected_type = m.inner.return_type.clone()
-                        .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
-                    if m.inner.generic_params.len() == 0 {
-                        let mut flat_params = Vec::new();
-                        for (n, p_type) in &m.inner.params {
-                            let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
-                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                            flat_params.push((n.clone(), flattened))
-                        }
-                        let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                        inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
-                        inner_scope.add_var_type(
-                            name.clone(),
-                            spanned(
-                                TypeInfo::new(TypeKind::Fun {
-                                    params: flat_params.clone(), 
-                                    return_type: Box::new(expected_type.clone()),
-                                    generic_params: generic_params.clone()
-                                }),
-                                statement.span
-                            )
-                        );
-                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
-                        if method_result.1.inner != expected_type.inner {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Function return type mismatch: expected {:?}, got {:?}",
-                                    expected_type.inner,
-                                    method_result.1.inner
-                                ),
-                                expected_type.span
-                            ))
-                        }
-                        let fun_type = spanned(
-                            TypeInfo::new(
-                                TypeKind::Fun {
-                                    params: flat_params, 
-                                    return_type: Box::new(method_result.1.clone()),
-                                    generic_params: Vec::new()
-                                }
-                            ),
-                            statement.span
-                        );
+            // let mut implemented_methods = HashSet::new();
+            // for (interface_name, methods) in implementation {
+            //     env.add_interface_impl(interface_name.clone(), type_info.clone());
+            //     let mut interface_env = generic_scope.enter_scope();
+            //     for m in methods {
+            //         if implemented_methods.contains(&m.inner.name) {
+            //             return Err(spanned(
+            //                 format_smolstr!("Method {} is defined multiple times", m.inner.name),
+            //                 m.span
+            //             ))
+            //         }
+            //         let mut inner_scope = interface_env.enter_scope();
+            //         inner_scope.add_var_type("self".into(), flat_type.clone());
+            //         let expected_type = m.inner.return_type.clone()
+            //             .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+            //         if m.inner.generic_params.len() == 0 {
+            //             let mut flat_params = Vec::new();
+            //             for (n, p_type) in &m.inner.params {
+            //                 let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
+            //                 inner_scope.add_var_type(n.1.clone(), flattened.clone());
+            //                 flat_params.push((n.clone(), flattened))
+            //             }
+            //             let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+            //             inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+            //             inner_scope.add_var_type(
+            //                 name.clone(),
+            //                 spanned(
+            //                     TypeInfo::new(TypeKind::Fun {
+            //                         params: flat_params.clone(), 
+            //                         return_type: Box::new(expected_type.clone()),
+            //                         generic_params: generic_params.clone()
+            //                     }),
+            //                     statement.span
+            //                 )
+            //             );
+            //             let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+            //             if method_result.1.inner != expected_type.inner {
+            //                 return Err(spanned(
+            //                     format_smolstr!(
+            //                         "Function return type mismatch: expected {:?}, got {:?}",
+            //                         expected_type.inner,
+            //                         method_result.1.inner
+            //                     ),
+            //                     expected_type.span
+            //                 ))
+            //             }
+            //             let fun_type = spanned(
+            //                 TypeInfo::new(
+            //                     TypeKind::Fun {
+            //                         params: flat_params, 
+            //                         return_type: Box::new(method_result.1.clone()),
+            //                         generic_params: Vec::new()
+            //                     }
+            //                 ),
+            //                 statement.span
+            //             );
                         
-                        env.insert_method(
-                            flat_type.inner.id(),
-                            (
-                                m.inner.name.clone(),
-                                (
-                                    fun_type.clone(),
-                                    spanned(
-                                        ir::Expr::Fun { 
-                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                            body: Box::new(method_result.0)
-                                        },
-                                        m.span
-                                    )
-                                )
-                            )
-                        );
-                        implemented_methods.insert(m.inner.name.clone());
-                    } else {
-                        // Register generic params in the inner scope so they can be referenced
-                        for generic in generic_params {
-                            inner_scope.add_custom_type(
-                                generic.inner.clone(),
-                                spanned(
-                                    TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
-                                    generic.span
-                                )
-                            );
-                        }
+            //             env.insert_method(
+            //                 flat_type.inner.id(),
+            //                 (
+            //                     m.inner.name.clone(),
+            //                     (
+            //                         fun_type.clone(),
+            //                         spanned(
+            //                             ir::Expr::Fun { 
+            //                                 params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+            //                                 body: Box::new(method_result.0)
+            //                             },
+            //                             m.span
+            //                         )
+            //                     )
+            //                 )
+            //             );
+            //             implemented_methods.insert(m.inner.name.clone());
+            //         } else {
+            //             // Register generic params in the inner scope so they can be referenced
+            //             for generic in generic_params {
+            //                 inner_scope.add_custom_type(
+            //                     generic.inner.clone(),
+            //                     spanned(
+            //                         TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
+            //                         generic.span
+            //                     )
+            //                 );
+            //             }
         
-                        // Flatten parameter types with generics in scope and add them to the inner scope
-                        let mut flat_params = Vec::new();
-                        for (n, p_type) in &m.inner.params {
-                            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                            flat_params.push((n.clone(), flattened));
-                        }
+            //             // Flatten parameter types with generics in scope and add them to the inner scope
+            //             let mut flat_params = Vec::new();
+            //             for (n, p_type) in &m.inner.params {
+            //                 let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+            //                 inner_scope.add_var_type(n.1.clone(), flattened.clone());
+            //                 flat_params.push((n.clone(), flattened));
+            //             }
         
-                        let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                        inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+            //             let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+            //             inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
         
-                        inner_scope.add_var_type(
-                            name.clone(),
-                            spanned(
-                                TypeInfo::new(TypeKind::Fun {
-                                    params: flat_params.clone(),
-                                    return_type: Box::new(expected_flat.clone()),
-                                    generic_params: generic_params.clone()
-                                }),
-                                statement.span
-                            )
-                        );
+            //             inner_scope.add_var_type(
+            //                 name.clone(),
+            //                 spanned(
+            //                     TypeInfo::new(TypeKind::Fun {
+            //                         params: flat_params.clone(),
+            //                         return_type: Box::new(expected_flat.clone()),
+            //                         generic_params: generic_params.clone()
+            //                     }),
+            //                     statement.span
+            //                 )
+            //             );
         
-                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
-                        if method_result.1.inner != expected_flat.inner {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Function return type mismatch: expected {:?}, got {:?}", 
-                                    expected_flat.inner, 
-                                    method_result.1.inner
-                                ),
-                                expected_flat.span
-                            ))
-                        }
-                        let fun_type = spanned(
-                            TypeInfo::new(TypeKind::Fun {
-                                params: flat_params.clone(),
-                                return_type: Box::new(method_result.1.clone()),
-                                generic_params: generic_params.clone()
-                            }),
-                            statement.span
-                        );
-                        env.insert_method(
-                            flat_type.inner.id(),
-                            (
-                                m.inner.name.clone(),
-                                (
-                                    fun_type.clone(),
-                                    spanned(
-                                        ir::Expr::Fun { 
-                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                            body: Box::new(method_result.0)
-                                        },
-                                        m.span
-                                    )
-                                )
-                            )
-                        );
-                        implemented_methods.insert(m.inner.name.clone());
-                    }
-                }
-            }
+            //             let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+            //             if method_result.1.inner != expected_flat.inner {
+            //                 return Err(spanned(
+            //                     format_smolstr!(
+            //                         "Function return type mismatch: expected {:?}, got {:?}", 
+            //                         expected_flat.inner, 
+            //                         method_result.1.inner
+            //                     ),
+            //                     expected_flat.span
+            //                 ))
+            //             }
+            //             let fun_type = spanned(
+            //                 TypeInfo::new(TypeKind::Fun {
+            //                     params: flat_params.clone(),
+            //                     return_type: Box::new(method_result.1.clone()),
+            //                     generic_params: generic_params.clone()
+            //                 }),
+            //                 statement.span
+            //             );
+            //             env.insert_method(
+            //                 flat_type.inner.id(),
+            //                 (
+            //                     m.inner.name.clone(),
+            //                     (
+            //                         fun_type.clone(),
+            //                         spanned(
+            //                             ir::Expr::Fun { 
+            //                                 params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+            //                                 body: Box::new(method_result.0)
+            //                             },
+            //                             m.span
+            //                         )
+            //                     )
+            //                 )
+            //             );
+            //             implemented_methods.insert(m.inner.name.clone());
+            //         }
+            //     }
+            // }
             Ok(LoweringResult { 
                 name: Some(name.clone()),
                 var_type: None, 
                 custom_type: Some(flat_type),
                 export: false,
-                lowered_statement: None
+                lowered_statement: None,
+                methods: Some(implementation.clone()),
+                generic_params: Some(generic_params.clone())
             })
         },
         Statement::Expr(expr) => {
@@ -352,7 +529,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 lowered_statement: Some(spanned(
                     ir::Statement::Expr(expr_result.0),
                     statement.span
-                ))
+                )),
+                methods: None,
+                generic_params: None
             })
         },
         Statement::Fun { name, params, body, return_type, generic_params } => {
@@ -418,7 +597,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             )
                         }, 
                         statement.span
-                    ))
+                    )),
+                    methods: None,
+                    generic_params: None
                 })
             } else {
                 // Register generic params in the inner scope so they can be referenced
@@ -486,7 +667,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             )
                         }, 
                         statement.span
-                    ))
+                    )),
+                    methods: None,
+                    generic_params: None
                 })
             }
         },
@@ -525,7 +708,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     lowered_statement: Some(spanned(
                         ir::Statement::NativeFun(name.clone()),
                         statement.span
-                    ))
+                    )),
+                    methods: None,
+                    generic_params: None
                 })
             } else {
                 // Register generic params in the inner scope so they can be referenced
@@ -566,7 +751,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     lowered_statement: Some(spanned(
                         ir::Statement::NativeFun(name.clone()),
                         statement.span
-                    ))
+                    )),
+                    methods: None,
+                    generic_params: None
                 })
             }
         },
@@ -704,153 +891,153 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             env.add_custom_type(name.clone(), enum_type.clone());
             env.add_var_type(name.clone(), enum_var.clone());
             
-            // Process implementation for enum methods
-            let mut implemented_methods = HashSet::new();
-            for (interface_name, methods) in implementation {
-                env.add_interface_impl(interface_name.clone(), enum_type.clone());
-                let mut interface_env = generic_scope.enter_scope();
-                for m in methods {
-                    if implemented_methods.contains(&m.inner.name) {
-                        return Err(spanned(
-                            format_smolstr!("Method {} is defined multiple times", m.inner.name),
-                            m.span
-                        ))
-                    }
-                    let mut inner_scope = interface_env.enter_scope();
-                    inner_scope.add_var_type("self".into(), enum_type.clone());
-                    let expected_type = m.inner.return_type.clone()
-                        .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
-                    if m.inner.generic_params.len() == 0 {
-                        let mut flat_params = Vec::new();
-                        for (n, p_type) in &m.inner.params {
-                            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                            flat_params.push((n.clone(), flattened))
-                        }
-                        let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                        inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
-                        inner_scope.add_var_type(
-                            name.clone(),
-                            spanned(
-                                TypeInfo::new(TypeKind::Fun {
-                                    params: flat_params.clone(), 
-                                    return_type: Box::new(expected_type.clone()),
-                                    generic_params: generic_params.clone()
-                                }),
-                                statement.span
-                            )
-                        );
-                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
-                        if method_result.1.inner != expected_type.inner {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Function return type mismatch: expected {:?}, got {:?}",
-                                    expected_type.inner,
-                                    method_result.1.inner
-                                ),
-                                expected_type.span
-                            ))
-                        }
-                        let fun_type = spanned(
-                            TypeInfo::new(
-                                TypeKind::Fun {
-                                    params: flat_params, 
-                                    return_type: Box::new(method_result.1.clone()),
-                                    generic_params: Vec::new()
-                                }
-                            ),
-                            statement.span
-                        );
+            // // Process implementation for enum methods
+            // let mut implemented_methods = HashSet::new();
+            // for (interface_name, methods) in implementation {
+            //     env.add_interface_impl(interface_name.clone(), enum_type.clone());
+            //     let mut interface_env = generic_scope.enter_scope();
+            //     for m in methods {
+            //         if implemented_methods.contains(&m.inner.name) {
+            //             return Err(spanned(
+            //                 format_smolstr!("Method {} is defined multiple times", m.inner.name),
+            //                 m.span
+            //             ))
+            //         }
+            //         let mut inner_scope = interface_env.enter_scope();
+            //         inner_scope.add_var_type("self".into(), enum_type.clone());
+            //         let expected_type = m.inner.return_type.clone()
+            //             .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+            //         if m.inner.generic_params.len() == 0 {
+            //             let mut flat_params = Vec::new();
+            //             for (n, p_type) in &m.inner.params {
+            //                 let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+            //                 inner_scope.add_var_type(n.1.clone(), flattened.clone());
+            //                 flat_params.push((n.clone(), flattened))
+            //             }
+            //             let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+            //             inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+            //             inner_scope.add_var_type(
+            //                 name.clone(),
+            //                 spanned(
+            //                     TypeInfo::new(TypeKind::Fun {
+            //                         params: flat_params.clone(), 
+            //                         return_type: Box::new(expected_type.clone()),
+            //                         generic_params: generic_params.clone()
+            //                     }),
+            //                     statement.span
+            //                 )
+            //             );
+            //             let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+            //             if method_result.1.inner != expected_type.inner {
+            //                 return Err(spanned(
+            //                     format_smolstr!(
+            //                         "Function return type mismatch: expected {:?}, got {:?}",
+            //                         expected_type.inner,
+            //                         method_result.1.inner
+            //                     ),
+            //                     expected_type.span
+            //                 ))
+            //             }
+            //             let fun_type = spanned(
+            //                 TypeInfo::new(
+            //                     TypeKind::Fun {
+            //                         params: flat_params, 
+            //                         return_type: Box::new(method_result.1.clone()),
+            //                         generic_params: Vec::new()
+            //                     }
+            //                 ),
+            //                 statement.span
+            //             );
                         
-                        env.insert_method(
-                            enum_type.inner.id(),
-                            (
-                                m.inner.name.clone(),
-                                (
-                                    fun_type.clone(),
-                                    spanned(
-                                        ir::Expr::Fun { 
-                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                            body: Box::new(method_result.0)
-                                        },
-                                        m.span
-                                    )
-                                )
-                            )
-                        );
-                        implemented_methods.insert(m.inner.name.clone());
-                    } else {
-                        // Register generic params in the inner scope so they can be referenced
-                        for generic in generic_params {
-                            inner_scope.add_custom_type(
-                                generic.inner.clone(),
-                                spanned(
-                                    TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
-                                    generic.span
-                                )
-                            );
-                        }
-                        let mut flat_params = Vec::new();
-                        for (n, p_type) in &m.inner.params {
-                            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                            inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                            flat_params.push((n.clone(), flattened));
-                        }
-                        let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                        inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
-                        inner_scope.add_var_type(
-                            name.clone(),
-                            spanned(
-                                TypeInfo::new(TypeKind::Fun {
-                                    params: flat_params.clone(), 
-                                    return_type: Box::new(expected_type.clone()),
-                                    generic_params: generic_params.clone()
-                                }),
-                                statement.span
-                            )
-                        );
-                        let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
-                        if method_result.1.inner != expected_type.inner {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Function return type mismatch: expected {:?}, got {:?}",
-                                    expected_type.inner,
-                                    method_result.1.inner
-                                ),
-                                expected_type.span
-                            ))
-                        }
-                        let fun_type = spanned(
-                            TypeInfo::new(
-                                TypeKind::Fun {
-                                    params: flat_params, 
-                                    return_type: Box::new(method_result.1.clone()),
-                                    generic_params: m.inner.generic_params.clone()
-                                }
-                            ),
-                            statement.span
-                        );
+            //             env.insert_method(
+            //                 enum_type.inner.id(),
+            //                 (
+            //                     m.inner.name.clone(),
+            //                     (
+            //                         fun_type.clone(),
+            //                         spanned(
+            //                             ir::Expr::Fun { 
+            //                                 params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+            //                                 body: Box::new(method_result.0)
+            //                             },
+            //                             m.span
+            //                         )
+            //                     )
+            //                 )
+            //             );
+            //             implemented_methods.insert(m.inner.name.clone());
+            //         } else {
+            //             // Register generic params in the inner scope so they can be referenced
+            //             for generic in generic_params {
+            //                 inner_scope.add_custom_type(
+            //                     generic.inner.clone(),
+            //                     spanned(
+            //                         TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
+            //                         generic.span
+            //                     )
+            //                 );
+            //             }
+            //             let mut flat_params = Vec::new();
+            //             for (n, p_type) in &m.inner.params {
+            //                 let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+            //                 inner_scope.add_var_type(n.1.clone(), flattened.clone());
+            //                 flat_params.push((n.clone(), flattened));
+            //             }
+            //             let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+            //             inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+            //             inner_scope.add_var_type(
+            //                 name.clone(),
+            //                 spanned(
+            //                     TypeInfo::new(TypeKind::Fun {
+            //                         params: flat_params.clone(), 
+            //                         return_type: Box::new(expected_type.clone()),
+            //                         generic_params: generic_params.clone()
+            //                     }),
+            //                     statement.span
+            //                 )
+            //             );
+            //             let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
+            //             if method_result.1.inner != expected_type.inner {
+            //                 return Err(spanned(
+            //                     format_smolstr!(
+            //                         "Function return type mismatch: expected {:?}, got {:?}",
+            //                         expected_type.inner,
+            //                         method_result.1.inner
+            //                     ),
+            //                     expected_type.span
+            //                 ))
+            //             }
+            //             let fun_type = spanned(
+            //                 TypeInfo::new(
+            //                     TypeKind::Fun {
+            //                         params: flat_params, 
+            //                         return_type: Box::new(method_result.1.clone()),
+            //                         generic_params: m.inner.generic_params.clone()
+            //                     }
+            //                 ),
+            //                 statement.span
+            //             );
                         
-                        env.insert_method(
-                            enum_type.inner.id(),
-                            (
-                                m.inner.name.clone(),
-                                (
-                                    fun_type.clone(),
-                                    spanned(
-                                        ir::Expr::Fun { 
-                                            params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                            body: Box::new(method_result.0)
-                                        },
-                                        m.span
-                                    )
-                                )
-                            )
-                        );
-                        implemented_methods.insert(m.inner.name.clone());
-                    }
-                }
-            }
+            //             env.insert_method(
+            //                 enum_type.inner.id(),
+            //                 (
+            //                     m.inner.name.clone(),
+            //                     (
+            //                         fun_type.clone(),
+            //                         spanned(
+            //                             ir::Expr::Fun { 
+            //                                 params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
+            //                                 body: Box::new(method_result.0)
+            //                             },
+            //                             m.span
+            //                         )
+            //                     )
+            //                 )
+            //             );
+            //             implemented_methods.insert(m.inner.name.clone());
+            //         }
+            //     }
+            // }
             
             Ok(LoweringResult { 
                 name: Some(name.clone()),
@@ -866,7 +1053,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         }
                     },
                     statement.span
-                ))
+                )),
+                methods: Some(implementation.clone()),
+                generic_params: Some(generic_params.clone())
             })
         },
         Statement::Import { symbols, path } => {
@@ -929,7 +1118,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             statement.span
                         ))
                     } else { None }
-                }
+                },
+                methods: None,
+                generic_params: None
             })
         },
         Statement::Export(st) => {
@@ -964,7 +1155,9 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             statement.span
                         ))
                     } else { None }
-                }
+                },
+                methods: result.methods,
+                generic_params: result.generic_params
             })
         },
     }
@@ -2260,14 +2453,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                     variants: _,
                                     generic_params,
                                 } => {
-                                    if generic_params.len() != generic_args.len() {
+                                    if generic_params.len() != generic_args.len() && generic_args.len() != 0{
                                         return Err(spanned(
                                             format_smolstr!(
                                                 "Incorrect amount of generic arguments provided: expected {}, got {}",
                                                 generic_params.len(),
                                                 generic_args.len()
                                             ),
-                                            ti.span,
+                                            pattern.span,
                                         ));
                                     }
 
@@ -2277,7 +2470,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                     } else {
                                         return Err(spanned(
                                             format_smolstr!("Enum {enum_name} does not have a variant {variant}"),
-                                            ti.span,
+                                            pattern.span,
                                         ));
                                     };
 
@@ -2307,7 +2500,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                 }
                                 _ => Err(spanned(
                                     format_smolstr!("Type {c_name} is not an enum"),
-                                    ti.span,
+                                    pattern.span,
                                 )),
                             }
                         } else {
@@ -2324,7 +2517,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 }
             }
 
-            let mut expected_type = TypeInfo::void();
+            let mut expected_type = TypeInfo::never();
             let mut has_default = false;
             let mut lower_branches = Vec::new();
 
@@ -2343,14 +2536,18 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             branch, 
                             env
                         )?;
-                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
-                            return Err(spanned(
-                                "Match branches cannot have different return types".into(),
-                                branch_type.span
-                            ))
-                        } else {
+                        if expected_type.kind() == &TypeKind::Never {
                             expected_type = branch_type.inner.clone()
-                        }
+                        } else if expected_type.kind() != branch_type.inner.kind() {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
+                                    expected_type,
+                                    branch_type.inner
+                                ),
+                                branch.span
+                            ))
+                        } 
                         if is_default {
                             if has_default {
                                 return Err(spanned(
@@ -2384,14 +2581,18 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             branch, 
                             env
                         )?;
-                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
-                            return Err(spanned(
-                                "Match branches cannot have different return types".into(),
-                                branch_type.span
-                            ))
-                        } else {
+                        if expected_type.kind() == &TypeKind::Never {
                             expected_type = branch_type.inner.clone()
-                        }
+                        } else if expected_type.kind() != branch_type.inner.kind() {
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
+                                    expected_type,
+                                    branch_type.inner
+                                ),
+                                branch.span
+                            ))
+                        } 
                         if is_default {
                             if has_default {
                                 return Err(spanned(
@@ -2424,14 +2625,19 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             branch,
                             env
                         )?;
-                        if expected_type.kind() != &TypeKind::Void && expected_type.kind() != branch_type.inner.kind(){
-                            return Err(spanned(
-                                "Match branches cannot have different return types".into(),
-                                branch_type.span
-                            ))
-                        } else {
+                        if expected_type.kind() == &TypeKind::Never {
                             expected_type = branch_type.inner.clone()
-                        }
+                        } else if expected_type.kind() != branch_type.inner.kind() {
+                            println!("{}", expected_type.kind() == branch_type.inner.kind());
+                            return Err(spanned(
+                                format_smolstr!(
+                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
+                                    expected_type,
+                                    branch_type.inner
+                                ),
+                                branch.span
+                            ))
+                        } 
                         if is_default {
                             if has_default {
                                 return Err(spanned(
@@ -2458,7 +2664,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         let ((lowered_pattern, lowered_body), branch_type, is_default) = match_branch(&target_result.1.inner, pattern, branch, env)?;
                         if expected_type.kind() != &TypeKind::Any && expected_type.kind() != branch_type.inner.kind(){
                             return Err(spanned(
-                                "Match branches cannot have different return types".into(),
+                                format_smolstr!(
+                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
+                                    expected_type,
+                                    branch_type.inner
+                                ),
                                 branch_type.span
                             ))
                         } else {

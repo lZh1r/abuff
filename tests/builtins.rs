@@ -75,3 +75,23 @@ fn test_option() {
         _ => panic!()
     };
 }
+
+#[test]
+fn methods() {
+    let src = r#"
+        let some = Some(1);
+        some.intoResult().isOk()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Bool(b) => assert_eq!(b, true),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
