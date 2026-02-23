@@ -94,7 +94,8 @@ pub enum Statement {
         name: SmolStr, 
         type_info: Spanned<TypeInfo>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>
+        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>,
+        interfaces: Vec<Spanned<SmolStr>>
     },
     Expr(Spanned<Expr>),
     Fun {
@@ -114,7 +115,8 @@ pub enum Statement {
         name: SmolStr, 
         variants: Vec<(SmolStr, Option<Spanned<TypeInfo>>)>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>
+        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>,
+        interfaces: Vec<Spanned<SmolStr>>
     },
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>, bool)>, path: Spanned<SmolStr>},
     Export(Box<Spanned<Statement>>)
@@ -326,8 +328,8 @@ impl PartialEq for TypeKind {
                 }
             },
             (
-                TypeKind::EnumVariant { enum_name: name1, variant: v1, generic_args: g_a }, 
-                TypeKind::EnumVariant { enum_name: name2, variant: v2, generic_args: g_b }
+                TypeKind::EnumVariant { enum_name: name1, variant: _, generic_args: g_a }, 
+                TypeKind::EnumVariant { enum_name: name2, variant: _, generic_args: g_b }
             ) => {
                 name1 == name2 && {
                     for (a,b) in g_a.iter().zip(g_b.iter()) {

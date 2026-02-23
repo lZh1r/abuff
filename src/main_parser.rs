@@ -346,6 +346,38 @@ impl<'a> Parser<'a> {
             t => return Err(spanned(format!("Expected identifier, got {t:?} instead").into(), ident_token.span))
         };
         
+        let mut interfaces = Vec::new();
+        if self.check(&Token::Colon) {
+            let start_span = self.advance().unwrap().span;
+            loop {
+                if self.check(&Token::Eq) {
+                    break
+                } else {
+                    match self.advance() {
+                        Some(token) => {
+                            match &token.inner {
+                                Token::Ident(i) => {
+                                    interfaces.push(spanned(i.clone(), token.span));
+                                    if !self.check(&Token::Comma) {
+                                        break
+                                    }
+                                },
+                                t => return Err(
+                                    spanned(
+                                        format_smolstr!("Expected identifier, got {t:?} instead"),
+                                        token.span
+                                    )
+                                )
+                            }
+                        },
+                        None => {
+                            return Err(spanned("Unexpected EOF in type declaration".into(), start_span))
+                        },
+                    }
+                }
+            }
+        }
+        
         let type_generics = if self.check(&Token::Lt) {
             let mut params = Vec::new();
             let lt = self.advance().unwrap().clone();
@@ -375,6 +407,7 @@ impl<'a> Parser<'a> {
         let type_expr = self.parse_type()?;
         
         let mut implementation = Vec::new();
+        let mut own_methods = Vec::new();
         if self.check(&Token::Impl) {
             self.advance();
             self.expect(&Token::LBrace)?;
@@ -387,7 +420,6 @@ impl<'a> Parser<'a> {
                     Token::Ident(iface) => {
                         self.advance();
                         let mut methods = Vec::new();
-                        self.expect(&Token::Colon)?;
                         self.expect(&Token::LBrace)?;
                         loop {
                             if self.check(&Token::RBrace) {
@@ -414,6 +446,25 @@ impl<'a> Parser<'a> {
                         }
                         implementation.push((iface.clone(), methods));
                     },
+                    Token::Fun => {
+                        let fun = self.fun_statement()?;
+                        let method = match fun.inner {
+                            Statement::Fun { name, params, body, return_type, generic_params } => {
+                                spanned(
+                                    Method {
+                                        name: name,
+                                        params: params,
+                                        body: body,
+                                        return_type: return_type,
+                                        generic_params: generic_params,
+                                    },
+                                    fun.span
+                                )
+                            },
+                            _ => panic!()
+                        };
+                        own_methods.push(method);
+                    },
                     t => {
                         return Err(spanned(
                             format_smolstr!("Unexpected token: Expected identifier, got {t:?}"),
@@ -433,8 +484,16 @@ impl<'a> Parser<'a> {
             ));
         };
         
+        implementation.push(("+self".into(), own_methods));
+        
         Ok(spanned(
-            Statement::TypeDef { name: type_name, type_info: type_expr, generic_params: type_generics, implementation },
+            Statement::TypeDef { 
+                name: type_name, 
+                type_info: type_expr,
+                generic_params: type_generics, 
+                implementation, 
+                interfaces
+            },
             Span::from(start_span.start..end_span.end)
         ))
     }
@@ -443,6 +502,38 @@ impl<'a> Parser<'a> {
         let start_span = self.advance().unwrap().span; //consume enum
         if self.peek().is_none() {
             return Err(spanned("Unexpected EOF in enum declaration".into(), start_span))
+        }
+        
+        let mut interfaces = Vec::new();
+        if self.check(&Token::Colon) {
+            let start_span = self.advance().unwrap().span;
+            loop {
+                if self.check(&Token::Eq) {
+                    break
+                } else {
+                    match self.advance() {
+                        Some(token) => {
+                            match &token.inner {
+                                Token::Ident(i) => {
+                                    interfaces.push(spanned(i.clone(), token.span));
+                                    if !self.check(&Token::Comma) {
+                                        break
+                                    }
+                                },
+                                t => return Err(
+                                    spanned(
+                                        format_smolstr!("Expected identifier, got {t:?} instead"),
+                                        token.span
+                                    )
+                                )
+                            }
+                        },
+                        None => {
+                            return Err(spanned("Unexpected EOF in type declaration".into(), start_span))
+                        },
+                    }
+                }
+            }
         }
         
         let ident_token = self.advance().unwrap().clone();
@@ -505,6 +596,7 @@ impl<'a> Parser<'a> {
         let _end_span = self.peek().unwrap().span;
         self.expect(&Token::RBrace)?;
         
+        let mut own_methods = Vec::new();
         let mut implementation = Vec::new();
         if self.check(&Token::Impl) {
             self.advance();
@@ -518,7 +610,6 @@ impl<'a> Parser<'a> {
                     Token::Ident(iface) => {
                         self.advance();
                         let mut methods = Vec::new();
-                        self.expect(&Token::Colon)?;
                         self.expect(&Token::LBrace)?;
                         loop {
                             if self.check(&Token::RBrace) {
@@ -545,6 +636,25 @@ impl<'a> Parser<'a> {
                         }
                         implementation.push((iface.clone(), methods));
                     },
+                    Token::Fun => {
+                        let fun = self.fun_statement()?;
+                        let method = match fun.inner {
+                            Statement::Fun { name, params, body, return_type, generic_params } => {
+                                spanned(
+                                    Method {
+                                        name: name,
+                                        params: params,
+                                        body: body,
+                                        return_type: return_type,
+                                        generic_params: generic_params,
+                                    },
+                                    fun.span
+                                )
+                            },
+                            _ => panic!()
+                        };
+                        own_methods.push(method);
+                    },
                     t => {
                         return Err(spanned(
                             format_smolstr!("Unexpected token: Expected identifier, got {t:?}"),
@@ -564,8 +674,16 @@ impl<'a> Parser<'a> {
             ));
         };
         
+        implementation.push(("+self".into(), own_methods));
+        
         Ok(spanned(
-            Statement::EnumDef { name: enum_name, variants: enum_variants, generic_params: enum_generics, implementation },
+            Statement::EnumDef { 
+                name: enum_name, 
+                variants: enum_variants, 
+                generic_params: enum_generics, 
+                implementation,
+                interfaces
+            },
             Span::from(start_span.start..end_span.end)
         ))
     }

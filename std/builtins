@@ -76,12 +76,10 @@ export enum Option<T> {
     Some: T,
     None
 } impl {
-    _: {
-        fun intoResult(): Result<T> {
-            match self {
-                .Some(value) -> Result.Ok(value),
-                .None(_) -> Result.Err({message: "the value is not provided"})
-            }
+    fun intoResult(): Result<T> {
+        match self {
+            .Some(value) -> Result.Ok(value),
+            .None(_) -> Result.Err({message: "the value is not provided"})
         }
     }
 };
@@ -106,12 +104,10 @@ export enum Result<T> {
     Ok: T,
     Err: Error
 } impl {
-    _: {
-        fun isOk(): Bool {
-            match self {
-                .Ok(_) -> true,
-                .Err(_) -> false
-            }
+    fun isOk(): Bool {
+        match self {
+            .Ok(_) -> true,
+            .Err(_) -> false
         }
     }
 };

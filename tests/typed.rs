@@ -284,10 +284,8 @@ fn simple_method() {
         type A = {
             a: Int
         } impl {
-            _: {
-                fun hello(val: Int) {
-                    print("hello", val, self.a)
-                }
+            fun hello(val: Int) {
+                print("hello", val, self.a)
             }
         };
         let a: A = {a: 1};
@@ -312,13 +310,11 @@ fn self_referencial_method() {
         type A = {
             a: Int
         } impl {
-            _: {
-                fun hello(val: Int) {
-                    print("hello", val, self.a)
-                }
-                fun greet() {
-                    self.hello(1000)
-                }
+            fun hello(val: Int) {
+                print("hello", val, self.a)
+            }
+            fun greet() {
+                self.hello(1000)
             }
         };
         let a: A = {a: 1};
@@ -343,10 +339,8 @@ fn generic_type_method() {
         type A<T> = {
             a: T
         } impl {
-            _: {
-                fun hello(val: Int) {
-                    print("hello", val, self.a)
-                }
+            fun hello(val: Int) {
+                print("hello", val, self.a)
             }
         };
         let a: A<Int> = {a: 1};
@@ -371,10 +365,8 @@ fn generic_type_generic_method() {
         type A<T> = {
             a: T
         } impl {
-            _: {
-                fun hello<T>(val: T) {
-                    print("hello", val, self.a)
-                }
+            fun hello<T>(val: T) {
+                print("hello", val, self.a)
             }
         };
         let a: A<Int> = {a: 1};
@@ -400,10 +392,8 @@ fn generic_type_reuse_method() {
         type A<T> = {
             a: T
         } impl {
-            _: {
-                fun get(): T {
-                    self.a
-                }
+            fun get(): T {
+                self.a
             }
         };
         let a: A<Int> = {a: 1};
