@@ -406,7 +406,7 @@ impl<'a> Parser<'a> {
         self.expect(&Token::Eq)?;
         let type_expr = self.parse_type()?;
         
-        let mut implementation = Vec::new();
+        let mut implementation = HashMap::new();
         let mut own_methods = Vec::new();
         if self.check(&Token::Impl) {
             self.advance();
@@ -444,7 +444,7 @@ impl<'a> Parser<'a> {
                             };
                             methods.push(method);
                         }
-                        implementation.push((iface.clone(), methods));
+                        implementation.insert(iface.clone(), methods);
                     },
                     Token::Fun => {
                         let fun = self.fun_statement()?;
@@ -484,7 +484,7 @@ impl<'a> Parser<'a> {
             ));
         };
         
-        implementation.push(("+self".into(), own_methods));
+        implementation.insert("+self".into(), own_methods);
         
         Ok(spanned(
             Statement::TypeDef { 
@@ -597,7 +597,7 @@ impl<'a> Parser<'a> {
         self.expect(&Token::RBrace)?;
         
         let mut own_methods = Vec::new();
-        let mut implementation = Vec::new();
+        let mut implementation = HashMap::new();
         if self.check(&Token::Impl) {
             self.advance();
             self.expect(&Token::LBrace)?;
@@ -634,7 +634,7 @@ impl<'a> Parser<'a> {
                             };
                             methods.push(method);
                         }
-                        implementation.push((iface.clone(), methods));
+                        implementation.insert(iface.clone(), methods);
                     },
                     Token::Fun => {
                         let fun = self.fun_statement()?;
@@ -674,7 +674,7 @@ impl<'a> Parser<'a> {
             ));
         };
         
-        implementation.push(("+self".into(), own_methods));
+        implementation.insert("+self".into(), own_methods);
         
         Ok(spanned(
             Statement::EnumDef { 

@@ -94,7 +94,7 @@ pub enum Statement {
         name: SmolStr, 
         type_info: Spanned<TypeInfo>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>,
+        implementation: HashMap<SmolStr, Vec<Spanned<Method>>>,
         interfaces: Vec<Spanned<SmolStr>>
     },
     Expr(Spanned<Expr>),
@@ -115,7 +115,7 @@ pub enum Statement {
         name: SmolStr, 
         variants: Vec<(SmolStr, Option<Spanned<TypeInfo>>)>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: Vec<(SmolStr, Vec<Spanned<Method>>)>,
+        implementation: HashMap<SmolStr, Vec<Spanned<Method>>>,
         interfaces: Vec<Spanned<SmolStr>>
     },
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>, bool)>, path: Spanned<SmolStr>},
