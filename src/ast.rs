@@ -183,6 +183,9 @@ impl TypeInfo {
     pub fn any() -> Self {
         Self { kind: TypeKind::Any, id: 8 }
     }
+    pub fn never() -> Self {
+        Self { kind: TypeKind::Any, id: 9 }
+    }
     pub fn new(kind: TypeKind) -> Self {
         Self { kind, id: next_type_id() }
     }
@@ -212,6 +215,7 @@ pub enum TypeKind {
     Bool,
     Void,
     Null,
+    Never,
     Unknown,
     Any,
     Fun {
