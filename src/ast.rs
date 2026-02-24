@@ -195,8 +195,8 @@ impl TypeInfo {
     pub fn new_with_id(kind: TypeKind, id: u32) -> Self {
         Self { kind, id: id }
     }
-    pub fn new_return(inner: TypeInfo) -> Self {
-        Self { kind: inner.kind().clone(), id: inner.id}
+    pub fn new_return(inner: Spanned<TypeInfo>) -> Self {
+        Self { kind: TypeKind::Return(Box::new(inner.clone())), id: inner.inner.id}
     }
     pub fn kind(&self) -> &TypeKind {
         &self.kind
