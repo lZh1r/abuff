@@ -317,23 +317,6 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
-    register_fun(BUILTINS_PATH, "panic", |obj| {
-        if obj.len() > 1 {
-            return Err(Spanned {
-                inner: format!("Expected at most 1 argument, but got {}", obj.len()).into(),
-                span: Span::from(0..0)
-            })
-        }
-        match obj.first().unwrap() {
-            Value::String(s) => panic!("{s}"),
-            Value::Null => panic!(),
-            v => Err(Spanned {
-                inner: format!("{v} is not a valid reason for panicking").into(),
-                span: Span::from(0..0)
-            })
-        }
-    });
-    
     let registry = GlobalRegistry;
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),

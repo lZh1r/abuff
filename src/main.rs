@@ -48,6 +48,7 @@ fn main() {
                                 ControlFlow::Return(_) => println!("Error: Return outside of function"),
                                 ControlFlow::Break => println!("Error: Break outside of loop"),
                                 ControlFlow::Continue => println!("Error: Continue outside of loop"),
+                                ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                             }
                         }
                     }
@@ -100,6 +101,7 @@ fn main() {
                                     ControlFlow::Return(_) => println!("Error: Return outside of function"),
                                     ControlFlow::Break => println!("Error: Break outside of loop"),
                                     ControlFlow::Continue => println!("Error: Continue outside of loop"),
+                                    ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                                 }
                             }
                         }

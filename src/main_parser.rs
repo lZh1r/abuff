@@ -962,6 +962,20 @@ impl<'a> Parser<'a> {
             }
             Token::Break => Ok(spanned(Expr::Break, token.span)),
             Token::Continue => Ok(spanned(Expr::Continue, token.span)),
+            Token::Panic => {
+                if self.peek().is_some() {
+                    if self.check(&Token::Semicolon) {
+                        Ok(spanned(Expr::Panic(None), token.span))
+                    } else {
+                        let expr = self.parse_expression()?;
+                        let combined_span = Span { start: token.span.start, end: expr.span.end };
+                        Ok(spanned(Expr::Panic(Some(Box::new(expr))), combined_span))
+                    }
+                    
+                } else {
+                    Err(spanned("Unexpected EOF".into(), token.span))
+                }
+            },
             Token::False => Ok(spanned(Expr::Bool(false), token.span)),
             Token::True => Ok(spanned(Expr::Bool(true), token.span)),
             Token::Null => Ok(spanned(Expr::Null, token.span)),

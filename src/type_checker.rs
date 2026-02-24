@@ -1680,7 +1680,6 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     )
                 ))
             }
-            
         },
         Expr::Fun { params, body, return_type, generic_params } => {
             let mut inner_scope = env.enter_scope();
@@ -1775,7 +1774,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         arg_types.push(arg_result.1.clone());
                         lowered_args.push(arg_result.0);
                     }
-                    
+            
                     let mut generic_arg_map = HashMap::new();
                     if generic_params.len() > 0 
                     && generic_args.len() == 0 
@@ -1803,7 +1802,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             generic_arg_map.insert(param.inner.clone(), arg.clone());
                         }
                     }
-                    
+            
                     let substituted_fun = substitute_generic_params(&fun_result.1, &generic_arg_map);
                     let substituted_params = match substituted_fun.inner.kind() {
                         TypeKind::Fun { params, .. } => params.clone(),
@@ -1812,7 +1811,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             expr.span
                         ))
                     };
-            
+    
                     let substituted_return_type = match substituted_fun.inner.kind() {
                         TypeKind::Fun { return_type, .. } => return_type,
                         _ => return Err(spanned(
@@ -1820,11 +1819,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             expr.span
                         ))
                     };
-            
+    
                     let is_variadic = if let Some(last) = substituted_params.last() {
                         last.0.0
                     } else {false};
-            
+    
                     if is_variadic {
                         if substituted_params.len() > args.len() {
                             return Err(spanned(
@@ -1892,7 +1891,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             }
                         }
                     }
-            
+    
                     Ok((
                         spanned(
                             ir::Expr::Call {
@@ -2080,7 +2079,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     )
                 ))
             }
-            
+    
         },
         Expr::While { condition, body } => {
             let condition_result = lower_expr(condition, env)?;
@@ -2126,7 +2125,13 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     ir::Expr::Return(Box::new(result.0)),
                     expr.span
                 ),
-                result.1
+                spanned(
+                    TypeInfo::new_with_id(
+                        TypeKind::Return(Box::new(result.1.clone())),
+                        result.1.inner.id()
+                    ),
+                    result.1.span
+                )
             ))
         },
         Expr::Match { target, branches } => {
@@ -2365,7 +2370,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         )?;
                         if expected_type.kind() == &TypeKind::Never {
                             expected_type = branch_type.inner.clone()
-                        } else if expected_type.kind() != branch_type.inner.kind() {
+                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
                             return Err(spanned(
                                 format_smolstr!(
                                     "Match branches cannot have different return types: expected {:?}, got {:?}",
@@ -2410,7 +2415,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         )?;
                         if expected_type.kind() == &TypeKind::Never {
                             expected_type = branch_type.inner.clone()
-                        } else if expected_type.kind() != branch_type.inner.kind() {
+                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
                             return Err(spanned(
                                 format_smolstr!(
                                     "Match branches cannot have different return types: expected {:?}, got {:?}",
@@ -2454,8 +2459,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         )?;
                         if expected_type.kind() == &TypeKind::Never {
                             expected_type = branch_type.inner.clone()
-                        } else if expected_type.kind() != branch_type.inner.kind() {
-                            println!("{}", expected_type.kind() == branch_type.inner.kind());
+                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
                             return Err(spanned(
                                 format_smolstr!(
                                     "Match branches cannot have different return types: expected {:?}, got {:?}",
@@ -2488,19 +2492,24 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 }
                 _ti => {
                     for (pattern, branch) in branches {
-                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_branch(&target_result.1.inner, pattern, branch, env)?;
-                        if expected_type.kind() != &TypeKind::Any && expected_type.kind() != branch_type.inner.kind(){
+                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_branch(
+                            &target_result.1.inner,
+                            pattern,
+                            branch,
+                            env
+                        )?;
+                        if expected_type.kind() == &TypeKind::Never {
+                            expected_type = branch_type.inner.clone()
+                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
                             return Err(spanned(
                                 format_smolstr!(
                                     "Match branches cannot have different return types: expected {:?}, got {:?}",
                                     expected_type,
                                     branch_type.inner
                                 ),
-                                branch_type.span
+                                branch.span
                             ))
-                        } else {
-                            expected_type = branch_type.inner
-                        }
+                        } 
                         if is_default {
                             if has_default {
                                 return Err(spanned(
@@ -2535,6 +2544,50 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     expr.span
                 ))
             }
+        },
+        Expr::Panic(reason) => {
+            match reason {
+                Some(reason) => {
+                    let reason_result = lower_expr(reason, env)?;
+                    Ok((
+                        spanned(
+                            ir::Expr::Panic(Some(Box::new(reason_result.0))), 
+                            expr.span
+                        ),
+                        spanned(
+                            TypeInfo::new(
+                                TypeKind::Return(
+                                    Box::new(spanned(
+                                        TypeInfo::void(),
+                                        Span::from(0..0)
+                                    ))
+                                )
+                            ),
+                            expr.span
+                        )
+                    ))
+                },
+                None => {
+                    Ok((
+                        spanned(
+                            ir::Expr::Panic(None), 
+                            expr.span
+                        ),
+                        spanned(
+                            TypeInfo::new(
+                                TypeKind::Return(
+                                    Box::new(spanned(
+                                        TypeInfo::void(),
+                                        Span::from(0..0)
+                                    ))
+                                )
+                            ),
+                            expr.span
+                        )
+                    ))
+                },
+            }
+            
         },
     }
 }

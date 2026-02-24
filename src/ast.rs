@@ -67,6 +67,7 @@ pub enum Expr {
     Break,
     Continue,
     Return(Box<Spanned<Expr>>),
+    Panic(Option<Box<Spanned<Expr>>>),
     Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>}
 }
 
@@ -200,6 +201,12 @@ impl TypeInfo {
     pub fn id(&self) -> u32 {
         self.id
     }
+    pub fn is_return(&self) -> bool {
+        match self.kind() {
+            TypeKind::Return(_) => true,
+            _ => false
+        }
+    }
 }
 
 impl PartialEq for TypeInfo {
@@ -236,7 +243,8 @@ pub enum TypeKind {
     },
     EnumInstance {enum_name: SmolStr, variants: HashMap<SmolStr, Spanned<TypeInfo>>, generic_args: Vec<Spanned<TypeInfo>>},
     EnumVariant {enum_name: SmolStr, variant: SmolStr, generic_args: Vec<Spanned<TypeInfo>>},
-    TypeClosure {params: Vec<Spanned<SmolStr>>, body: Box<Spanned<TypeInfo>>}
+    TypeClosure {params: Vec<Spanned<SmolStr>>, body: Box<Spanned<TypeInfo>>},
+    Return(Box<Spanned<TypeInfo>>)
 }
 
 impl PartialEq for TypeKind {
@@ -414,6 +422,8 @@ impl PartialEq for TypeKind {
             //         true
             //     }
             // },
+            (TypeKind::Return(a), TypeKind::Return(b)) => a == b,
+            (TypeKind::Return(a), b) | (b, TypeKind::Return(a)) => a.inner.kind() == b,
             (TypeKind::Any, _) | (_, TypeKind::Any) => true,
             _ => false,
         }

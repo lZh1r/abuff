@@ -31,6 +31,7 @@ pub enum Expr {
     Break,
     Continue,
     Return(Box<Spanned<Expr>>),
+    Panic(Option<Box<Spanned<Expr>>>),
     EnumConstructor {enum_name: SmolStr, variant: SmolStr, value: Box<Spanned<Expr>>},
     Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>}
 }
@@ -56,6 +57,7 @@ pub enum Statement {
 pub enum ControlFlow {
     Value(Value),
     Return(Value),
+    Panic(Option<SmolStr>),
     Break,
     Continue
 }

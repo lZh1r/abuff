@@ -20,7 +20,15 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         },
         Expr::Binary { left, operation, right } => binary_operation(left, operation, right, env, expr.span),
         Expr::Block(statements, final_expr) => eval_block(statements, final_expr, env),
-        Expr::Fun { params: param, body } => Ok(ControlFlow::Value(Value::Closure { params: param.clone(), body: body.clone(), env: env.clone() })),
+        Expr::Fun { params: param, body } => Ok(
+            ControlFlow::Value(
+                Value::Closure {
+                    params: param.clone(),
+                    body: body.clone(),
+                    env: env.clone()
+                }
+            )
+        ),
         Expr::Call { fun, args: arg } => {
             let fun_cf = eval_expr(fun, env)?;
             let mut args = Vec::new();
@@ -235,6 +243,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     ControlFlow::Continue => continue,
                     ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                     ControlFlow::Value(_) => (),
+                    ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                 }
             }
             Ok(ControlFlow::Value(Value::Void))
@@ -255,6 +264,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     inner: "Runtime error: Expected a value, but found \"continue\"".into(),
                     span: expr.span
                 }),
+                ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
             }
         },
         Expr::Array(elements) => {
@@ -271,6 +281,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                         inner: "Runtime Error: Expected a value, but got continue".into(),
                         span: e.span
                     }),
+                    ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                 }
             }
             Ok(ControlFlow::Value(Value::Array(values)))
@@ -361,7 +372,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.clone();
                         inner_env.add_variable(alias.clone(), target.inner.clone());
-                
+        
                         match eval_expr(condition, &mut inner_env)? {
                             ControlFlow::Value(Value::Bool(true)) => {
                                 Ok(Some(eval_expr(outcome, &mut inner_env)?))
@@ -371,6 +382,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                 inner: format!("Runtime Error: match guard must be a Bool, found {:?}", v).into(),
                                 span: condition.span
                             }),
+                            ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                             cf => Err(Spanned {
                                 inner: format!("Runtime Error: cannot use {:?} as match guard", cf).into(),
                                 span: condition.span
@@ -380,12 +392,13 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     MatchArm::Value(pattern_expr) => {
                         let pattern_value = match eval_expr(pattern_expr, env)? {
                             ControlFlow::Value(v) => v,
+                            ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                             cf => return Err(Spanned {
                                 inner: format!("Runtime Error: cannot use {:?} as pattern", cf).into(),
                                 span: pattern_expr.span
                             })
                         };
-                
+        
                         if *target.inner == pattern_value {
                             Ok(Some(eval_expr(outcome, env)?))
                         } else {
@@ -426,10 +439,12 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                         span: expr.span
                     })
                 },
-                ControlFlow::Break | ControlFlow::Continue | ControlFlow::Return(_) => Err(Spanned { 
+                ControlFlow::Return(v) => return Ok(ControlFlow::Return(v.clone())),
+                ControlFlow::Break | ControlFlow::Continue => Err(Spanned { 
                     inner: "Runtime Error: Cannot match control flow statements".into(),
                     span: target.span
                 }),
+                ControlFlow::Panic(reason) => panic!("{}", reason.clone().unwrap_or_default()),
             }
         }
         Expr::Method { this, fun } => {
@@ -443,6 +458,22 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             };
             method_scope.add_variable("self".to_smolstr(), value);
             eval_expr(fun, &mut method_scope)
+        },
+        Expr::Panic(reason) => {
+            match reason {
+                Some(e) => {
+                    match eval_expr(e, env)? {
+                        ControlFlow::Value(value) => {
+                            match value {
+                                Value::String(s) => Ok(ControlFlow::Panic(Some(s))),
+                                _ => panic!() // should be handled by the type checker
+                            }
+                        },
+                        _ => panic!()
+                    }
+                },
+                None => Ok(ControlFlow::Panic(None)),
+            }
         },
     }
 }
@@ -512,6 +543,7 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                     match eval_expr(&body, &mut new_scope)? {
                         ControlFlow::Return(v) => Ok(ControlFlow::Value(v)),
                         ControlFlow::Value(v) => Ok(ControlFlow::Value(v)),
+                        ControlFlow::Panic(reason) => panic!("{}", reason.clone().unwrap_or_default()),
                         _ => Err(Spanned {
                             inner: "Runtime Error: break/continue is not allowed here".into(),
                             span: body.span

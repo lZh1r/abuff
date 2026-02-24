@@ -36,6 +36,9 @@ pub enum Token {
     #[token("continue")]
     Continue,
     
+    #[token("panic")]
+    Panic,
+    
     #[token("type")]
     Type,
     

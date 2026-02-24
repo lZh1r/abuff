@@ -56,9 +56,6 @@ export native fun readfile(path: String): Result<String>;
 /// If the file does not exist it will get created.
 export native fun writefile(path: String, content: String): Result<Void>;
 
-/// Finishes execution as a failure with some message
-export native fun panic(reason: String);
-
 /// Asserts that an expression is true, otherwise panics
 /// ```
 /// let a = 9;
@@ -66,7 +63,7 @@ export native fun panic(reason: String);
 /// assert(a % b == 0, "Oopsie!") // panics and prints "Oopsie"
 /// ```
 export fun assert(expression: Bool, reason: String) {
-    if (!expression) panic(reason)
+    if (!expression) panic reason
 }
 
 /// Enum representing optional values.
@@ -80,6 +77,27 @@ export enum Option<T> {
         match self {
             .Some(value) -> Result.Ok(value),
             .None(_) -> Result.Err({message: "the value is not provided"})
+        }
+    }
+    
+    fun isSome(): Bool {
+        match self {
+            .Some(_) -> true,
+            .None(_) -> false
+        }
+    }
+    
+    fun isNone(): Bool {
+        match self {
+            .Some(_) -> false,
+            .None(_) -> true
+        }
+    }
+    
+    fun unwrap(): T {
+        match self {
+            .Some(value) -> value,
+            .None(_) -> panic "Called unwrap on None"
         }
     }
 };
@@ -108,6 +126,13 @@ export enum Result<T> {
         match self {
             .Ok(_) -> true,
             .Err(_) -> false
+        }
+    }
+    
+    fun isErr(): Bool {
+        match self {
+            .Ok(_) -> false,
+            .Err(_) -> true
         }
     }
 };
