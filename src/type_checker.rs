@@ -2200,7 +2200,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 }
             }
 
-            fn match_enum_instance_branch(
+            fn match_enum_branch(
                 enum_name: &SmolStr,
                 variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
                 generic_args: &Vec<Spanned<TypeInfo>>,
@@ -2345,10 +2345,83 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     )),
                 }
             }
+            
+            fn check_branch_type(
+                expected_type: &mut TypeInfo,
+                branch_type: &Spanned<TypeInfo>,
+                branch: &Spanned<Expr>,
+                is_default: bool,
+                all_branches_handled: &mut bool,
+            ) -> Result<(), Spanned<SmolStr>> {
+                if expected_type.kind() == &TypeKind::Never {
+                    *expected_type = branch_type.inner.clone();
+                } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
+                    return Err(spanned(
+                        format_smolstr!(
+                            "Match branches cannot have different return types: expected {:?}, got {:?}",
+                            expected_type,
+                            branch_type.inner
+                        ),
+                        branch.span
+                    ))
+                } 
+                if is_default {
+                    match all_branches_handled {
+                        true => {
+                            return Err(spanned(
+                                "Cannot have multiple default branches in a match expression".into(),
+                                branch.span
+                            ))
+                        },
+                        false => *all_branches_handled = true
+                    }
+                }
+                Ok(())
+            }
+            
+            fn process_enum_branch(
+                branches: &Vec<(Spanned<MatchArm>, Spanned<Expr>)>,
+                expected_type: &mut TypeInfo,
+                all_branches_handled: &mut bool,
+                lowered_branches: &mut Vec<(Spanned<ir::MatchArm>, Spanned<ir::Expr>)>,
+                enum_name: &SmolStr,
+                enum_variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
+                enum_generic_args: &Vec<Spanned<TypeInfo>>,
+                env: &mut TypeEnv
+            ) -> Result<(), Spanned<SmolStr>> {
+                for (pattern, branch) in branches {
+                    let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_branch(
+                        enum_name, 
+                        enum_variants, 
+                        enum_generic_args, 
+                        pattern, 
+                        branch, 
+                        env
+                    )?;
+                    check_branch_type(
+                        expected_type, 
+                        &branch_type, 
+                        branch,
+                        is_default,
+                        all_branches_handled
+                    )?;
+                    lowered_branches.push((lowered_pattern, lowered_body));
+                }
+                let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
+                    TypeKind::Enum { name: _, variants, generic_params: _ } => {
+                        variants.len()
+                    },
+                    _ => panic!()
+                };
+                if branches.len() == variant_count {
+                    *all_branches_handled = true;
+                }
+                Ok(())
+            }
 
             let mut expected_type = TypeInfo::never();
-            let mut has_default = false;
-            let mut lower_branches = Vec::new();
+            let mut all_branches_handled = false;
+            let mut lowered_branches = Vec::new();
 
             match target_result.1.inner.kind() {
                 TypeKind::Fun { params: _, return_type: _, generic_params: _ } => return Err(spanned(
@@ -2356,138 +2429,43 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     target.span
                 )),
                 TypeKind::EnumInstance { enum_name, variants, generic_args } => {
-                    for (pattern, branch) in branches {
-                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_instance_branch(
-                            enum_name, 
-                            variants, 
-                            generic_args, 
-                            pattern, 
-                            branch, 
-                            env
-                        )?;
-                        if expected_type.kind() == &TypeKind::Never {
-                            expected_type = branch_type.inner.clone()
-                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
-                                    expected_type,
-                                    branch_type.inner
-                                ),
-                                branch.span
-                            ))
-                        } 
-                        if is_default {
-                            if has_default {
-                                return Err(spanned(
-                                    "Cannot have multiple default branches in a match expression".into(),
-                                    branch.span
-                                ))
-                            } else {
-                                has_default = true
-                            }
-                        }
-                        lower_branches.push((lowered_pattern, lowered_body));
-                    }
-                    let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
-                        TypeKind::Enum { name: _, variants, generic_params: _ } => {
-                            variants.len()
-                        },
-                        _ => panic!()
-                    };
-                    if branches.len() == variant_count {
-                        has_default = true;
-                    }
+                    process_enum_branch(
+                        branches, 
+                        &mut expected_type, 
+                        &mut all_branches_handled, 
+                        &mut lowered_branches,
+                        enum_name, 
+                        variants, 
+                        generic_args,
+                        env
+                    )?
                 }
                 //variant name here does not matter, as you can not construct a value if the variant name is incorrect
                 TypeKind::EnumVariant { enum_name, variant: _, generic_args } => {
-                    for (pattern, branch) in branches {
-                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_instance_branch(
-                            enum_name, 
-                            &HashMap::new(), 
-                            generic_args, 
-                            pattern, 
-                            branch, 
-                            env
-                        )?;
-                        if expected_type.kind() == &TypeKind::Never {
-                            expected_type = branch_type.inner.clone()
-                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
-                                    expected_type,
-                                    branch_type.inner
-                                ),
-                                branch.span
-                            ))
-                        } 
-                        if is_default {
-                            if has_default {
-                                return Err(spanned(
-                                    "Cannot have multiple default branches in a match expression".into(),
-                                    branch.span
-                                ))
-                            } else {
-                                has_default = true
-                            }
-                        }
-                        lower_branches.push((lowered_pattern, lowered_body));
-                    }
-                    let variant_count = match env.resolve_type(enum_name.as_str()).unwrap().inner.kind() {
-                        TypeKind::Enum { name: _, variants, generic_params: _ } => {
-                            variants.len()
-                        },
-                        _ => panic!()
-                    };
-                    if branches.len() == variant_count {
-                        has_default = true;
-                    }
+                    process_enum_branch(
+                        branches, 
+                        &mut expected_type, 
+                        &mut all_branches_handled, 
+                        &mut lowered_branches,
+                        enum_name, 
+                        &HashMap::new(), 
+                        generic_args,
+                        env
+                    )?
                 },
                 TypeKind::Enum { name, variants, generic_params: _ } => {
-                    for (pattern, branch) in branches {
-                        let ((lowered_pattern, lowered_body), branch_type, is_default) = match_enum_instance_branch(
-                            name,
-                            variants,
-                            &vec![],
-                            pattern,
-                            branch,
-                            env
-                        )?;
-                        if expected_type.kind() == &TypeKind::Never {
-                            expected_type = branch_type.inner.clone()
-                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
-                                    expected_type,
-                                    branch_type.inner
-                                ),
-                                branch.span
-                            ))
-                        } 
-                        if is_default {
-                            if has_default {
-                                return Err(spanned(
-                                    "Cannot have multiple default branches in a match expression".into(),
-                                    branch.span
-                                ))
-                            } else {
-                                has_default = true
-                            }
-                        }
-                        lower_branches.push((lowered_pattern, lowered_body));
-                    }
-                    // All variants covered means a default is implicit
-                    let variant_count = match env.resolve_type(name.as_str()).unwrap().inner.kind() {
-                        TypeKind::Enum { name: _, variants, generic_params: _ } => variants.len(),
-                        _ => panic!()
-                    };
-                    if branches.len() == variant_count {
-                        has_default = true;
-                    }
+                    process_enum_branch(
+                        branches, 
+                        &mut expected_type, 
+                        &mut all_branches_handled, 
+                        &mut lowered_branches,
+                        name, 
+                        variants, 
+                        &Vec::new(),
+                        env
+                    )?
                 }
-                _ti => {
+                _ => {
                     for (pattern, branch) in branches {
                         let ((lowered_pattern, lowered_body), branch_type, is_default) = match_branch(
                             &target_result.1.inner,
@@ -2495,38 +2473,23 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             branch,
                             env
                         )?;
-                        if expected_type.kind() == &TypeKind::Never {
-                            expected_type = branch_type.inner.clone()
-                        } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
-                            return Err(spanned(
-                                format_smolstr!(
-                                    "Match branches cannot have different return types: expected {:?}, got {:?}",
-                                    expected_type,
-                                    branch_type.inner
-                                ),
-                                branch.span
-                            ))
-                        } 
-                        if is_default {
-                            if has_default {
-                                return Err(spanned(
-                                    "Cannot have multiple default branches in a match expression".into(),
-                                    branch.span
-                                ))
-                            } else {
-                                has_default = true
-                            }
-                        }
-                        lower_branches.push((lowered_pattern, lowered_body));
+                        check_branch_type(
+                            &mut expected_type, 
+                            &branch_type, 
+                            branch,
+                            is_default,
+                            &mut all_branches_handled
+                        )?;
+                        lowered_branches.push((lowered_pattern, lowered_body));
                     }
                 }
             }
-            if has_default {
+            if all_branches_handled {
                 Ok((
                     spanned(
                         ir::Expr::Match { 
                             target: Box::new(target_result.0),
-                            branches: lower_branches,
+                            branches: lowered_branches,
                         },
                         expr.span.clone()
                     ),
