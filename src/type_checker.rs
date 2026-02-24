@@ -28,54 +28,67 @@ fn spanned<T>(inner: T, span: Span) -> Spanned<T> {
     Spanned { inner, span }
 }
 
-pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str) -> Result<
+pub fn hoist(
+    statements: &Vec<Spanned<Statement>>,
+    env: &mut TypeEnv,
+    path: &str,
+) -> Result<
     (
-        Vec<Spanned<ir::Statement>>, //ordered statements
+        Vec<Spanned<ir::Statement>>, // ordered statements
         HashMap<SmolStr, Spanned<TypeInfo>>, // var_exports
         HashMap<SmolStr, Spanned<TypeInfo>>, // type_exports
-    ), Spanned<SmolStr>
+    ),
+    Spanned<SmolStr>,
 > {
-    
     let mut lowered_statements = Vec::new();
     let is_top_level = env.is_top_level();
     let mut var_exports = HashMap::new();
     let mut type_exports = HashMap::new();
-    
-    let mut functions = Vec::new();
-    let mut rest = Vec::new();
-    
+
+    let mut functions: Vec<FunctionStatement> = Vec::new();
+    let mut rest: Vec<&Spanned<Statement>> = Vec::new();
+
+    // First pass: handle imports and separate the rest
     let mut new_statements = Vec::new();
     for st in statements {
         match &st.inner {
             Statement::Import { symbols: _, path: _ } => {
-                let result = process_statement(&st, env, path)?;
+                let result = process_statement(st, env, path)?;
                 if let Some(statement) = result.lowered_statement {
                     lowered_statements.push(statement);
                 }
-            },
-            _ => new_statements.push(st)
+            }
+            _ => new_statements.push(st),
         }
     }
-    
-    let mut statements = new_statements;
-    statements.reverse();
-    //processing imports and sorting other statements into groups
-    loop {
-        if statements.is_empty() {break}
-        let st = statements.pop().unwrap();
+
+    // Second pass: classify statements (types, functions, exports, etc.)
+    for st in new_statements {
         match &st.inner {
-            Statement::TypeDef { name, type_info: _, generic_params, implementation, interfaces }
-            | Statement::EnumDef { name, variants: _, generic_params, implementation, interfaces } => {
+            Statement::TypeDef {
+                name,
+                type_info: _,
+                generic_params,
+                implementation,
+                interfaces,
+            }
+            | Statement::EnumDef {
+                name,
+                variants: _,
+                generic_params,
+                implementation,
+                interfaces,
+            } => {
                 let result = process_statement(st, env, path)?;
-                
+
                 // interfaces list does not account for the type's own methods,
                 // while implementation map does, so we need to balance their lens
-                let actual_len = implementation.len() - {
-                    match implementation.contains_key("+self".into()) {
-                        true => 1,
-                        false => 0,
-                    }
-                };
+                let actual_len = implementation.len()
+                    - if implementation.contains_key("+self".into()) {
+                        1
+                    } else {
+                        0
+                    };
                 if actual_len > interfaces.len() {
                     return Err(spanned(
                         format_smolstr!(
@@ -83,20 +96,20 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                             interfaces.len(),
                             actual_len
                         ),
-                        st.span
-                    ))
+                        st.span,
+                    ));
                 }
-                
-                if implementation.len() > 0 {
-                    functions.push(FunctionStatement::Methods { 
+
+                if !implementation.is_empty() {
+                    functions.push(FunctionStatement::Methods {
                         type_info: result.custom_type.clone().unwrap(),
                         name,
                         generic_params,
                         interfaces,
-                        implementations: implementation
+                        implementations: implementation,
                     });
                 }
-                
+
                 if result.export && let Some(name) = result.name {
                     if let Some(ti) = result.var_type {
                         var_exports.insert(name.clone(), ti);
@@ -108,31 +121,42 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                 if let Some(statement) = result.lowered_statement {
                     lowered_statements.push(statement);
                 }
-            },
-            Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ } 
-            | Statement::NativeFun { name: _, params: _, return_type: _, generic_params: _ } => {
-                functions.push(FunctionStatement::Fun(st))
-            },
+            }
+            Statement::Fun { .. } | Statement::NativeFun { .. } => {
+                functions.push(FunctionStatement::Fun(st));
+            }
             Statement::Export(statement) => {
                 if !is_top_level {
                     return Err(spanned(
                         "Exports should be made at the top level".into(),
-                        st.span
-                    ))
+                        st.span,
+                    ));
                 }
                 match &statement.inner {
-                    Statement::TypeDef { name, type_info: _, generic_params, implementation, interfaces } 
-                    | Statement::EnumDef { name, variants: _, generic_params, implementation, interfaces } => {
+                    Statement::TypeDef {
+                        name,
+                        type_info: _,
+                        generic_params,
+                        implementation,
+                        interfaces,
+                    }
+                    | Statement::EnumDef {
+                        name,
+                        variants: _,
+                        generic_params,
+                        implementation,
+                        interfaces,
+                    } => {
                         let result = process_statement(st, env, path)?;
-                        
+
                         // interfaces list does not account for the type's own methods,
                         // while implementation map does, so we need to balance their lens
-                        let actual_len = implementation.len() - {
-                            match implementation.contains_key("+self".into()) {
-                                true => 1,
-                                false => 0,
-                            }
-                        };
+                        let actual_len = implementation.len()
+                            - if implementation.contains_key("+self".into()) {
+                                1
+                            } else {
+                                0
+                            };
                         if actual_len > interfaces.len() {
                             return Err(spanned(
                                 format_smolstr!(
@@ -140,20 +164,20 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                                     interfaces.len(),
                                     actual_len
                                 ),
-                                st.span
-                            ))
+                                st.span,
+                            ));
                         }
-                        
-                        if implementation.len() > 0 {
-                            functions.push(FunctionStatement::Methods { 
+
+                        if !implementation.is_empty() {
+                            functions.push(FunctionStatement::Methods {
                                 type_info: result.custom_type.clone().unwrap(),
                                 name,
                                 generic_params,
                                 interfaces,
-                                implementations: implementation
+                                implementations: implementation,
                             });
                         }
-                        
+
                         if result.export && let Some(name) = result.name {
                             if let Some(ti) = result.var_type {
                                 var_exports.insert(name.clone(), ti);
@@ -165,27 +189,22 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                         if let Some(statement) = result.lowered_statement {
                             lowered_statements.push(statement);
                         }
-                    },
-                    Statement::Fun { name: _, params: _, body: _, return_type: _, generic_params: _ }
-                   | Statement::NativeFun { name: _, params: _, return_type: _, generic_params: _ } => {
-                       functions.push(FunctionStatement::Fun(st))
-                   },
-                    _ => rest.push(st)
+                    }
+                    Statement::Fun { .. } | Statement::NativeFun { .. } => {
+                        functions.push(FunctionStatement::Fun(st));
+                    }
+                    _ => rest.push(st),
                 }
             }
             _ => rest.push(st),
         }
     }
-    
-    functions.reverse();
-    
-    //processing functions
-    loop {
-        if functions.is_empty() {break}
-        let st = functions.pop().unwrap();
+
+    // Process functions in the order they were collected
+    for st in functions {
         match st {
             FunctionStatement::Fun(st) => {
-                let result = process_statement(&st, env, path)?;
+                let result = process_statement(st, env, path)?;
                 if result.export && let Some(name) = result.name {
                     if let Some(ti) = result.var_type {
                         var_exports.insert(name.clone(), ti);
@@ -195,65 +214,79 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                     }
                 }
                 lowered_statements.push(result.lowered_statement.unwrap());
-            },
-            FunctionStatement::Methods { type_info: ti, name, generic_params, interfaces, implementations } => {
-                //check if all the declared interfaces are implemented
+            }
+            FunctionStatement::Methods {
+                type_info: ti,
+                name,
+                generic_params,
+                interfaces,
+                implementations,
+            } => {
+                // Check that all declared interfaces are implemented
                 for iface in interfaces {
                     if !implementations.contains_key(&iface.inner) {
                         return Err(spanned(
-                            format_smolstr!("Interface {} is not implemented", iface.inner), 
-                            iface.span
-                        ))
+                            format_smolstr!("Interface {} is not implemented", iface.inner),
+                            iface.span,
+                        ));
                     }
                 }
-            
+
                 let mut generic_scope = env.enter_scope();
                 for param in generic_params {
                     generic_scope.add_custom_type(
                         param.inner.clone(),
                         spanned(
                             TypeInfo::new(TypeKind::GenericParam(param.inner.clone())),
-                            param.span
-                        )
+                            param.span,
+                        ),
                     );
                 }
+
                 let mut implemented_methods = HashSet::new();
-                let mut implemented_interfaces = HashSet::new();
                 for (interface_name, methods) in implementations {
                     env.add_interface_impl(interface_name.clone(), ti.clone());
-                    implemented_interfaces.insert(interface_name.clone());
                     let mut interface_env = generic_scope.enter_scope();
                     for m in methods {
                         if implemented_methods.contains(&m.inner.name) {
                             return Err(spanned(
                                 format_smolstr!("Method {} is defined multiple times", m.inner.name),
-                                m.span
-                            ))
+                                m.span,
+                            ));
                         }
                         let mut inner_scope = interface_env.enter_scope();
                         inner_scope.add_var_type("self".into(), ti.clone());
-                        let expected_type = m.inner.return_type.clone()
+
+                        let expected_type = m
+                            .inner
+                            .return_type
+                            .clone()
                             .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
-                        if m.inner.generic_params.len() == 0 {
+
+                        if m.inner.generic_params.is_empty() {
+                            // Non‑generic method
                             let mut flat_params = Vec::new();
                             for (n, p_type) in &m.inner.params {
-                                let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
+                                let flattened =
+                                    flatten_type(p_type, &mut inner_scope)?.into_owned();
                                 inner_scope.add_var_type(n.1.clone(), flattened.clone());
-                                flat_params.push((n.clone(), flattened))
+                                flat_params.push((n.clone(), flattened));
                             }
-                            let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                            let expected_type =
+                                flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                             inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
                             inner_scope.add_var_type(
                                 name.clone(),
                                 spanned(
                                     TypeInfo::new(TypeKind::Fun {
-                                        params: flat_params.clone(), 
+                                        params: flat_params.clone(),
                                         return_type: Box::new(expected_type.clone()),
-                                        generic_params: generic_params.clone()
+                                        generic_params: generic_params.clone(),
                                     }),
-                                    ti.span.clone()
-                                )
+                                    ti.span.clone(),
+                                ),
                             );
+
                             let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
                             if method_result.1.inner != expected_type.inner {
                                 return Err(spanned(
@@ -262,20 +295,19 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                                         expected_type.inner,
                                         method_result.1.inner
                                     ),
-                                    expected_type.span
-                                ))
+                                    expected_type.span,
+                                ));
                             }
+
                             let fun_type = spanned(
-                                TypeInfo::new(
-                                    TypeKind::Fun {
-                                        params: flat_params, 
-                                        return_type: Box::new(method_result.1.clone()),
-                                        generic_params: Vec::new()
-                                    }
-                                ),
-                                ti.span
+                                TypeInfo::new(TypeKind::Fun {
+                                    params: flat_params,
+                                    return_type: Box::new(method_result.1.clone()),
+                                    generic_params: Vec::new(),
+                                }),
+                                ti.span,
                             );
-                            
+
                             env.insert_method(
                                 ti.inner.id(),
                                 (
@@ -283,70 +315,78 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                                     (
                                         fun_type.clone(),
                                         spanned(
-                                            ir::Expr::Fun { 
-                                                params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                                body: Box::new(method_result.0)
+                                            ir::Expr::Fun {
+                                                params: m
+                                                    .inner
+                                                    .params
+                                                    .iter()
+                                                    .map(|(e, _)| e.clone())
+                                                    .collect(),
+                                                body: Box::new(method_result.0),
                                             },
-                                            m.span
-                                        )
-                                    )
-                                )
+                                            m.span,
+                                        ),
+                                    ),
+                                ),
                             );
                             implemented_methods.insert(m.inner.name.clone());
                         } else {
-                            // Register generic params in the inner scope so they can be referenced
+                            // Generic method
                             for generic in generic_params {
                                 inner_scope.add_custom_type(
                                     generic.inner.clone(),
                                     spanned(
                                         TypeInfo::new(TypeKind::GenericParam(generic.inner.clone())),
-                                        generic.span
-                                    )
+                                        generic.span,
+                                    ),
                                 );
                             }
-            
-                            // Flatten parameter types with generics in scope and add them to the inner scope
+
                             let mut flat_params = Vec::new();
                             for (n, p_type) in &m.inner.params {
-                                let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
+                                let flattened =
+                                    flatten_type(p_type, &mut inner_scope)?.into_owned();
                                 inner_scope.add_var_type(n.1.clone(), flattened.clone());
                                 flat_params.push((n.clone(), flattened));
                             }
-            
-                            let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+
+                            let expected_flat =
+                                flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                             inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
-            
+
                             inner_scope.add_var_type(
                                 name.clone(),
                                 spanned(
                                     TypeInfo::new(TypeKind::Fun {
                                         params: flat_params.clone(),
                                         return_type: Box::new(expected_flat.clone()),
-                                        generic_params: generic_params.clone()
+                                        generic_params: generic_params.clone(),
                                     }),
-                                    ti.span.clone()
-                                )
+                                    ti.span.clone(),
+                                ),
                             );
-            
+
                             let method_result = lower_expr(&m.inner.body, &mut inner_scope)?;
                             if method_result.1.inner != expected_flat.inner {
                                 return Err(spanned(
                                     format_smolstr!(
-                                        "Function return type mismatch: expected {:?}, got {:?}", 
-                                        expected_flat.inner, 
+                                        "Function return type mismatch: expected {:?}, got {:?}",
+                                        expected_flat.inner,
                                         method_result.1.inner
                                     ),
-                                    expected_flat.span
-                                ))
+                                    expected_flat.span,
+                                ));
                             }
+
                             let fun_type = spanned(
                                 TypeInfo::new(TypeKind::Fun {
-                                    params: flat_params.clone(),
+                                    params: flat_params,
                                     return_type: Box::new(method_result.1.clone()),
-                                    generic_params: generic_params.clone()
+                                    generic_params: generic_params.clone(),
                                 }),
-                                ti.span
+                                ti.span,
                             );
+
                             env.insert_method(
                                 ti.inner.id(),
                                 (
@@ -354,30 +394,31 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
                                     (
                                         fun_type.clone(),
                                         spanned(
-                                            ir::Expr::Fun { 
-                                                params: m.inner.params.iter().map(|(e, _)| e.clone()).collect(), 
-                                                body: Box::new(method_result.0)
+                                            ir::Expr::Fun {
+                                                params: m
+                                                    .inner
+                                                    .params
+                                                    .iter()
+                                                    .map(|(e, _)| e.clone())
+                                                    .collect(),
+                                                body: Box::new(method_result.0),
                                             },
-                                            m.span
-                                        )
-                                    )
-                                )
+                                            m.span,
+                                        ),
+                                    ),
+                                ),
                             );
                             implemented_methods.insert(m.inner.name.clone());
                         }
                     }
                 }
-            },
-        }   
+            }
+        }
     }
-    
-    rest.reverse();
-    
-    //processing the rest
-    loop {
-        if rest.is_empty() {break}
-        let st = rest.pop().unwrap();
-        let result = process_statement(&st, env, path)?;
+
+    // Process the remaining statements in order
+    for st in &rest {
+        let result = process_statement(st, env, path)?;
         if result.export && let Some(name) = result.name {
             if let Some(ti) = result.var_type {
                 var_exports.insert(name.clone(), ti);
@@ -388,10 +429,10 @@ pub fn hoist(statements: &Vec<Spanned<Statement>>, env: &mut TypeEnv, path: &str
         }
         lowered_statements.push(result.lowered_statement.unwrap());
     }
-    
+
     let reg = GlobalRegistry;
     insert_type_module(&reg, var_exports.clone(), type_exports.clone(), env.clone(), path);
-    
+
     Ok((lowered_statements, var_exports, type_exports))
 }
 
