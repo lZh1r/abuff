@@ -2126,10 +2126,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     expr.span
                 ),
                 spanned(
-                    TypeInfo::new_with_id(
-                        TypeKind::Return(Box::new(result.1.clone())),
-                        result.1.inner.id()
-                    ),
+                    TypeInfo::new_return(result.1.inner),
                     result.1.span
                 )
             ))
@@ -2555,13 +2552,8 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             expr.span
                         ),
                         spanned(
-                            TypeInfo::new(
-                                TypeKind::Return(
-                                    Box::new(spanned(
-                                        TypeInfo::void(),
-                                        Span::from(0..0)
-                                    ))
-                                )
+                            TypeInfo::new_return(
+                                TypeInfo::void()
                             ),
                             expr.span
                         )
@@ -2574,13 +2566,8 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             expr.span
                         ),
                         spanned(
-                            TypeInfo::new(
-                                TypeKind::Return(
-                                    Box::new(spanned(
-                                        TypeInfo::void(),
-                                        Span::from(0..0)
-                                    ))
-                                )
+                            TypeInfo::new_return(
+                                TypeInfo::void()
                             ),
                             expr.span
                         )

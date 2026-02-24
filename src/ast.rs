@@ -195,6 +195,9 @@ impl TypeInfo {
     pub fn new_with_id(kind: TypeKind, id: u32) -> Self {
         Self { kind, id: id }
     }
+    pub fn new_return(inner: TypeInfo) -> Self {
+        Self { kind: inner.kind().clone(), id: inner.id}
+    }
     pub fn kind(&self) -> &TypeKind {
         &self.kind
     }
