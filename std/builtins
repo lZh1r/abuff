@@ -135,4 +135,11 @@ export enum Result<T> {
             .Err(_) -> true
         }
     }
+    
+    fun unwrap(): T {
+        match self {
+            .Ok(value) -> value,
+            .Err(_) -> panic "Called unwrap on Err"
+        }
+    }
 };
