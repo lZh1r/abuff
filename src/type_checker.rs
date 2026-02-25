@@ -20,7 +20,7 @@ enum FunctionStatement<'a> {
         name: &'a SmolStr,
         generic_params: &'a Vec<Spanned<SmolStr>>,
         interfaces: &'a Vec<Spanned<SmolStr>>,
-        implementations: &'a HashMap<SmolStr, Vec<Spanned<Method>>>
+        implementations: &'a HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>
     }
 }
 
@@ -247,7 +247,7 @@ pub fn hoist(
                 for (interface_name, methods) in implementations {
                     env.add_interface_impl(interface_name.clone(), ti.clone());
                     let mut interface_env = generic_scope.enter_scope();
-                    for m in methods {
+                    for (is_static, m) in methods {
                         if implemented_methods.contains(&m.inner.name) {
                             return Err(spanned(
                                 format_smolstr!("Method {} is defined multiple times", m.inner.name),
@@ -255,7 +255,9 @@ pub fn hoist(
                             ));
                         }
                         let mut inner_scope = interface_env.enter_scope();
-                        inner_scope.add_var_type("self".into(), ti.clone());
+                        if !is_static {
+                            inner_scope.add_var_type("self".into(), ti.clone());
+                        }
 
                         let expected_type = m
                             .inner
@@ -272,11 +274,10 @@ pub fn hoist(
                                 inner_scope.add_var_type(n.1.clone(), flattened.clone());
                                 flat_params.push((n.clone(), flattened));
                             }
-                            let expected_type =
-                                flatten_type(&expected_type, &mut inner_scope)?.into_owned();
+                            let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                             inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
                             inner_scope.add_var_type(
-                                name.clone(),
+                                m.inner.name.clone(),
                                 spanned(
                                     TypeInfo::new(TypeKind::Fun {
                                         params: flat_params.clone(),
@@ -302,33 +303,61 @@ pub fn hoist(
                             let fun_type = spanned(
                                 TypeInfo::new(TypeKind::Fun {
                                     params: flat_params,
-                                    return_type: Box::new(method_result.1.clone()),
+                                    return_type: Box::new(expected_type.clone()),
                                     generic_params: Vec::new(),
                                 }),
                                 ti.span,
                             );
 
-                            env.insert_method(
-                                ti.inner.id(),
-                                (
-                                    m.inner.name.clone(),
-                                    (
-                                        fun_type.clone(),
-                                        spanned(
-                                            ir::Expr::Fun {
-                                                params: m
-                                                    .inner
-                                                    .params
-                                                    .iter()
-                                                    .map(|(e, _)| e.clone())
-                                                    .collect(),
-                                                body: Box::new(method_result.0),
-                                            },
-                                            m.span,
+                            match is_static {
+                                true => {
+                                    env.insert_static_method(
+                                        ti.inner.id(),
+                                        (
+                                            m.inner.name.clone(),
+                                            (
+                                                fun_type.clone(),
+                                                spanned(
+                                                    ir::Expr::Fun {
+                                                        params: m
+                                                            .inner
+                                                            .params
+                                                            .iter()
+                                                            .map(|(e, _)| e.clone())
+                                                            .collect(),
+                                                        body: Box::new(method_result.0),
+                                                    },
+                                                    m.span,
+                                                ),
+                                            ),
                                         ),
-                                    ),
-                                ),
-                            );
+                                    );
+                                },
+                                false => {
+                                    env.insert_method(
+                                        ti.inner.id(),
+                                        (
+                                            m.inner.name.clone(),
+                                            (
+                                                fun_type.clone(),
+                                                spanned(
+                                                    ir::Expr::Fun {
+                                                        params: m
+                                                            .inner
+                                                            .params
+                                                            .iter()
+                                                            .map(|(e, _)| e.clone())
+                                                            .collect(),
+                                                        body: Box::new(method_result.0),
+                                                    },
+                                                    m.span,
+                                                ),
+                                            ),
+                                        ),
+                                    );
+                                },
+                            }
+                            
                             implemented_methods.insert(m.inner.name.clone());
                         } else {
                             // Generic method
@@ -353,7 +382,7 @@ pub fn hoist(
                             let expected_flat =
                                 flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                             inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
-
+                            
                             inner_scope.add_var_type(
                                 name.clone(),
                                 spanned(
@@ -377,37 +406,65 @@ pub fn hoist(
                                     expected_flat.span,
                                 ));
                             }
+                            println!("{}", method_result.1.inner.id());
 
                             let fun_type = spanned(
                                 TypeInfo::new(TypeKind::Fun {
                                     params: flat_params,
-                                    return_type: Box::new(method_result.1.clone()),
+                                    return_type: Box::new(expected_flat.clone()),
                                     generic_params: generic_params.clone(),
                                 }),
                                 ti.span,
                             );
 
-                            env.insert_method(
-                                ti.inner.id(),
-                                (
-                                    m.inner.name.clone(),
-                                    (
-                                        fun_type.clone(),
-                                        spanned(
-                                            ir::Expr::Fun {
-                                                params: m
-                                                    .inner
-                                                    .params
-                                                    .iter()
-                                                    .map(|(e, _)| e.clone())
-                                                    .collect(),
-                                                body: Box::new(method_result.0),
-                                            },
-                                            m.span,
+                            match is_static {
+                                true => {
+                                    env.insert_static_method(
+                                        ti.inner.id(),
+                                        (
+                                            m.inner.name.clone(),
+                                            (
+                                                fun_type.clone(),
+                                                spanned(
+                                                    ir::Expr::Fun {
+                                                        params: m
+                                                            .inner
+                                                            .params
+                                                            .iter()
+                                                            .map(|(e, _)| e.clone())
+                                                            .collect(),
+                                                        body: Box::new(method_result.0),
+                                                    },
+                                                    m.span,
+                                                ),
+                                            ),
                                         ),
-                                    ),
-                                ),
-                            );
+                                    );
+                                },
+                                false => {
+                                    env.insert_method(
+                                        ti.inner.id(),
+                                        (
+                                            m.inner.name.clone(),
+                                            (
+                                                fun_type.clone(),
+                                                spanned(
+                                                    ir::Expr::Fun {
+                                                        params: m
+                                                            .inner
+                                                            .params
+                                                            .iter()
+                                                            .map(|(e, _)| e.clone())
+                                                            .collect(),
+                                                        body: Box::new(method_result.0),
+                                                    },
+                                                    m.span,
+                                                ),
+                                            ),
+                                        ),
+                                    );
+                                },
+                            }
                             implemented_methods.insert(m.inner.name.clone());
                         }
                     }
@@ -1005,11 +1062,11 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
             }).collect();
             let new_return_type = Box::new(substitute_generic_params(return_type, generic_arg_map));
             spanned(
-                TypeInfo::new(TypeKind::Fun {
+                TypeInfo::new_with_id(TypeKind::Fun {
                     params: new_params,
                     return_type: new_return_type,
                     generic_params: generic_params.clone()
-                }),
+                }, type_info.inner.id()),
                 type_info.span
             )
         },
@@ -1017,10 +1074,16 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
             let new_entries = entries.iter().map(|(name, ti)| {
                 (name.clone(), substitute_generic_params(ti, generic_arg_map))
             }).collect();
-            spanned(TypeInfo::new(TypeKind::Record(new_entries)), type_info.span)
+            spanned(TypeInfo::new_with_id(TypeKind::Record(new_entries), type_info.inner.id()), type_info.span)
         },
         TypeKind::Array(ti) => {
-            spanned(TypeInfo::new(TypeKind::Array(Box::new(substitute_generic_params(ti, generic_arg_map)))), type_info.span)
+            spanned(
+                TypeInfo::new_with_id(
+                    TypeKind::Array(Box::new(substitute_generic_params(ti, generic_arg_map))),
+                    type_info.inner.id()
+                ),
+                type_info.span
+            )
         },
         TypeKind::EnumInstance { enum_name, variants, generic_args } => {
             let new_args = generic_args.iter()
@@ -1252,13 +1315,19 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                 // Helper to replace a Custom type with a GenericParam when appropriate
                 fn replace_custom_with_generic(
                     ti: Spanned<TypeInfo>,
-                    generic_names: &std::collections::HashSet<SmolStr>,
+                    generic_names: &HashSet<SmolStr>,
                 ) -> Spanned<TypeInfo> {
                     match ti.inner.kind() {
                         TypeKind::Custom { generic_args, name }
                             if generic_args.is_empty() && generic_names.contains(name) =>
                         {
-                            spanned(TypeInfo::new(TypeKind::GenericParam(name.clone())), ti.span)
+                            spanned(
+                                TypeInfo::new_with_id(
+                                    TypeKind::GenericParam(name.clone()),
+                                    ti.inner.id()
+                                ),
+                                ti.span
+                            )
                         }
                         _ => ti,
                     }
@@ -1774,7 +1843,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         arg_types.push(arg_result.1.clone());
                         lowered_args.push(arg_result.0);
                     }
-            
+    
                     let mut generic_arg_map = HashMap::new();
                     if generic_params.len() > 0 
                     && generic_args.len() == 0 
@@ -1802,7 +1871,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             generic_arg_map.insert(param.inner.clone(), arg.clone());
                         }
                     }
-            
+    
                     let substituted_fun = substitute_generic_params(&fun_result.1, &generic_arg_map);
                     let substituted_params = match substituted_fun.inner.kind() {
                         TypeKind::Fun { params, .. } => params.clone(),
@@ -2345,7 +2414,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     )),
                 }
             }
-            
+    
             fn check_branch_type(
                 expected_type: &mut TypeInfo,
                 branch_type: &Spanned<TypeInfo>,
@@ -2378,7 +2447,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 }
                 Ok(())
             }
-            
+    
             fn process_enum_branch(
                 branches: &Vec<(Spanned<MatchArm>, Spanned<Expr>)>,
                 expected_type: &mut TypeInfo,
@@ -2537,7 +2606,23 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     ))
                 },
             }
-            
+        },
+        Expr::StaticMethod { target, method } => {
+            let target_type = match env.resolve_type(&target.inner) {
+                Some(ti) => ti,
+                None => return Err(spanned(
+                    format_smolstr!("Cannot resolve type {}", target.inner),
+                    target.span
+                )),
+            };
+            let (ti, lowered_expr) = match env.get_static_method(target_type.inner.id(), &method.inner) {
+                Some((ti, e)) => (ti, e),
+                None => return Err(spanned(
+                    format_smolstr!("Type {:?} does not have a static method {}", target_type.inner, method.inner),
+                    method.span
+                )),
+            };
+            Ok((lowered_expr, ti))
         },
     }
 }

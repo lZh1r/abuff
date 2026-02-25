@@ -73,6 +73,8 @@ pub struct TypeScope {
     parent: Option<TypeEnv>,
     interface_implementations: HashMap<SmolStr, Vec<Spanned<TypeInfo>>>, //which types implement what
     method_map: HashMap<u32, HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>>, //for getting type signatures of specific method implementations
+    static_method_map: HashMap<u32, HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>>,
+    
 }
 
 #[derive(Debug, Clone)]
@@ -85,7 +87,8 @@ impl TypeEnv {
             custom_types: HashMap::new(),
             parent: None,
             interface_implementations: HashMap::new(),
-            method_map: HashMap::new()
+            method_map: HashMap::new(),
+            static_method_map: HashMap::new()
         })))
     }
     
@@ -125,7 +128,8 @@ impl TypeEnv {
                 custom_types: HashMap::new(),
                 interface_implementations: HashMap::new(), 
                 method_map: HashMap::new(),
-                parent: Some(self.clone())
+                parent: Some(self.clone()),
+                static_method_map: HashMap::new()
             }))
         )
     }
@@ -184,6 +188,33 @@ impl TypeEnv {
                 let scope = env.0.read().unwrap();
                 parent = scope.parent.clone();
                 scope.method_map
+                    .get(&id)
+                    .and_then(|m| m.get(name).cloned())
+            };
+        
+            if let Some(m) = method {
+                return Some(m);
+            }
+        
+            current = parent;
+        }
+
+        None
+    }
+    
+    pub fn insert_static_method(&mut self, type_id: u32, method: (SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>))) {
+        let mut scope = self.0.write().unwrap();
+        scope.static_method_map.entry(type_id).or_default().insert(method.0, method.1);
+    }
+
+    pub fn get_static_method(&self, id: u32, name: &str) -> Option<(Spanned<TypeInfo>, Spanned<ir::Expr>)> {
+        let mut current = Some(self.clone());
+        while let Some(env) = current {
+            let parent;
+            let method = {
+                let scope = env.0.read().unwrap();
+                parent = scope.parent.clone();
+                scope.static_method_map
                     .get(&id)
                     .and_then(|m| m.get(name).cloned())
             };

@@ -68,7 +68,8 @@ pub enum Expr {
     Continue,
     Return(Box<Spanned<Expr>>),
     Panic(Option<Box<Spanned<Expr>>>),
-    Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>}
+    Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>},
+    StaticMethod {target: Spanned<SmolStr>, method: Spanned<SmolStr>}
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,7 +96,7 @@ pub enum Statement {
         name: SmolStr, 
         type_info: Spanned<TypeInfo>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: HashMap<SmolStr, Vec<Spanned<Method>>>,
+        implementation: HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>,
         interfaces: Vec<Spanned<SmolStr>>
     },
     Expr(Spanned<Expr>),
@@ -116,7 +117,7 @@ pub enum Statement {
         name: SmolStr, 
         variants: Vec<(SmolStr, Option<Spanned<TypeInfo>>)>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: HashMap<SmolStr, Vec<Spanned<Method>>>,
+        implementation: HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>,
         interfaces: Vec<Spanned<SmolStr>>
     },
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>, bool)>, path: Spanned<SmolStr>},

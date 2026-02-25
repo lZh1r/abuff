@@ -234,3 +234,42 @@ fn enum_with_methods_import() {
         _ => panic!()
     };
 }
+
+#[test]
+fn type_static_methods_import() {
+    let src = r#"
+        import {type G} from "tests/stubs/method";
+        let g = G::new("bb");
+        g.hello();
+        g
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "bb".to_string()),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn enum_static_methods_import() {
+    let src = r#"
+        import {H} from "tests/stubs/method";
+        let good = H::good();
+        good.isGood()
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Bool(b) => assert_eq!(b, true),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

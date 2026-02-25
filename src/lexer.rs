@@ -72,6 +72,12 @@ pub enum Token {
     #[token("impl")]
     Impl,
     
+    #[token("static")]
+    Static,
+    
+    #[token("::")]
+    ColonColon,
+    
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", |lex| SmolStr::new(lex.slice()))]
     Ident(SmolStr),
     

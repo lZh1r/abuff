@@ -2,6 +2,9 @@ export type G = String impl {
     fun hello() {
         print(self)
     }
+    static fun new(val: String): G {
+        val
+    }
 };
 
 export enum H {
@@ -13,5 +16,8 @@ export enum H {
             .Good(_) -> true,
             _ -> false
         }
+    }
+    static fun good(): H {
+        H.Good()
     }
 };
