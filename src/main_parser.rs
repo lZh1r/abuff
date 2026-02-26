@@ -1636,8 +1636,7 @@ impl<'a> Parser<'a> {
                                     }, Span::from(position..end_span.end)))
                                 }() {
                                     Ok(e) => expr = e,
-                                    Err(e) => {
-                                        println!("{e:?}");
+                                    Err(_) => {
                                         self.cursor = position;
                                         break;
                                     },
