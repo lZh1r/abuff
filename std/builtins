@@ -29,6 +29,16 @@
 /// ```
 export native fun print(...args: Any[]);
 
+native type Int impl {
+    fun hello() {
+        print(self)
+    }
+    static fun static_hello() {
+        print(3)
+    }
+    //native fun toString(): String;
+};
+
 /// Returns program's uptime in nanoseconds.
 /// Can be used for benchmarking performance:
 /// ```

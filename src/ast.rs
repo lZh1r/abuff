@@ -81,10 +81,24 @@ pub enum MatchArm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Method {
+pub enum Method {
+    Normal(NormalMethod),
+    Native(NativeMethod)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NormalMethod {
     pub name: SmolStr, 
     pub params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
     pub body: Spanned<Expr>,
+    pub return_type: Option<Spanned<TypeInfo>>,
+    pub generic_params: Vec<Spanned<SmolStr>>
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeMethod {
+    pub name: SmolStr, 
+    pub params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
     pub return_type: Option<Spanned<TypeInfo>>,
     pub generic_params: Vec<Spanned<SmolStr>>
 }
@@ -112,6 +126,12 @@ pub enum Statement {
         params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
         return_type: Option<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
+    },
+    NativeType {
+        name: SmolStr,
+        generic_params: Vec<Spanned<SmolStr>>,
+        implementation: HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>,
+        interfaces: Vec<Spanned<SmolStr>>
     },
     EnumDef {
         name: SmolStr, 
@@ -189,6 +209,9 @@ impl TypeInfo {
     }
     pub fn never() -> Self {
         Self { kind: TypeKind::Any, id: 9 }
+    }
+    pub fn array(inner: Spanned<TypeInfo>) -> Self {
+        Self { kind: TypeKind::Array(Box::new(inner)), id: 10 }
     }
     pub fn new(kind: TypeKind) -> Self {
         Self { kind, id: next_type_id() }

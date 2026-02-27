@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use smol_str::{SmolStr, format_smolstr};
 
 use crate::{
-    ast::{Expr, MatchArm, Method, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp},
+    ast::{Expr, MatchArm, Method, NativeMethod, NormalMethod, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp},
     lexer::Token,
 };
 
@@ -174,7 +174,7 @@ impl<'a> Parser<'a> {
             Token::Type => self.type_statement(),
             Token::Enum => self.enum_statement(),
             Token::Import => self.import_statement(),
-            Token::Native => self.native_fun_statement(),
+            Token::Native => self.native_statement(),
             Token::Export => {
                 // consume Export
                 let span = self.peek().unwrap().span;
@@ -347,7 +347,12 @@ impl<'a> Parser<'a> {
                     self.advance();
                     break
                 }
-                match &self.peek().ok_or(spanned("Unexpected EOF in impl block".into(), Span::from(0..0)))?.inner.clone() {
+                let is_static = self.check(&Token::Static);
+                if is_static { self.advance(); }
+                match &self.peek().ok_or(spanned(
+                    "Unexpected EOF in impl block".into(),
+                    Span::from(0..0)
+                ))?.inner.clone() {
                     Token::Ident(iface) => {
                         self.advance();
                         let mut methods = Vec::new();
@@ -358,64 +363,103 @@ impl<'a> Parser<'a> {
                                 break
                             }
                             let is_static = self.check(&Token::Static);
-                            let fun = self.fun_statement()?;
-                            let method = match fun.inner {
-                                Statement::Fun { name, params, body, return_type, generic_params } => {
-                                    spanned(
-                                        Method {
-                                            name: name,
-                                            params: params,
-                                            body: body,
-                                            return_type: return_type,
-                                            generic_params: generic_params,
+                            if is_static { self.advance(); }
+                            
+                            match &self.peek().ok_or(spanned(
+                                "Unexpected EOF in impl block".into(),
+                                Span::from(0..0)
+                            ))?.inner.clone() {
+                                Token::Fun => {
+                                    let fun = self.fun_statement()?;
+                                    let method = match fun.inner {
+                                        Statement::Fun { name, params, body, return_type, generic_params } => {
+                                            spanned(
+                                                Method::Normal(
+                                                    NormalMethod {
+                                                        name: name,
+                                                        params: params,
+                                                        body: body,
+                                                        return_type: return_type,
+                                                        generic_params: generic_params,
+                                                    }
+                                                ),
+                                                fun.span
+                                            )
                                         },
-                                        fun.span
-                                    )
+                                        _ => panic!()
+                                    };
+                                    methods.push((is_static, method));
                                 },
-                                _ => panic!()
-                            };
-                            methods.push((is_static, method));
+                                Token::Native => {
+                                    let native_fun = self.native_fun_statement()?;
+                                    let method = match native_fun.inner {
+                                        Statement::NativeFun { name, params, return_type, generic_params } => {
+                                            spanned(
+                                                Method::Native(
+                                                    NativeMethod {
+                                                        name: name,
+                                                        params: params,
+                                                        return_type: return_type,
+                                                        generic_params: generic_params,
+                                                    }
+                                                ),
+                                                native_fun.span
+                                            )
+                                        },
+                                        _ => panic!()
+                                    };
+                                    own_methods.push((is_static, method));
+                                },
+                                t => {
+                                    return Err(spanned(
+                                        format_smolstr!("Unexpected token: Expected identifier, got {t:?}"),
+                                        self.peek().unwrap().span
+                                    ))
+                                }
+                            }
                         }
                         implementation.insert(iface.clone(), methods);
-                    },
-                    Token::Static => {
-                        let start_span = self.advance().unwrap().span.start;
-                        let fun = self.fun_statement()?;
-                        let method = match fun.inner {
-                            Statement::Fun { name, params, body, return_type, generic_params } => {
-                                spanned(
-                                    Method {
-                                        name: name,
-                                        params: params,
-                                        body: body,
-                                        return_type: return_type,
-                                        generic_params: generic_params,
-                                    },
-                                    Span::from(start_span..fun.span.end)
-                                )
-                            },
-                            _ => panic!()
-                        };
-                        own_methods.push((true, method));
                     },
                     Token::Fun => {
                         let fun = self.fun_statement()?;
                         let method = match fun.inner {
                             Statement::Fun { name, params, body, return_type, generic_params } => {
                                 spanned(
-                                    Method {
-                                        name: name,
-                                        params: params,
-                                        body: body,
-                                        return_type: return_type,
-                                        generic_params: generic_params,
-                                    },
+                                    Method::Normal(
+                                        NormalMethod {
+                                            name: name,
+                                            params: params,
+                                            body: body,
+                                            return_type: return_type,
+                                            generic_params: generic_params,
+                                        }
+                                    ),
                                     fun.span
                                 )
                             },
                             _ => panic!()
                         };
-                        own_methods.push((false, method));
+                        own_methods.push((is_static, method));
+                    },
+                    Token::Native => {
+                        let native_fun = self.native_fun_statement()?;
+                        let method = match native_fun.inner {
+                            Statement::NativeFun { name, params, return_type, generic_params } => {
+                                spanned(
+                                    Method::Native(
+                                        NativeMethod {
+                                            name: name,
+                                            params: params,
+                                            return_type: return_type,
+                                            generic_params: generic_params,
+                                        }
+                                    ),
+                                    native_fun.span
+                                )
+                            },
+                            _ => panic!()
+                        };
+                        own_methods.push((is_static, method));
                     },
                     t => {
                         return Err(spanned(
@@ -439,6 +483,31 @@ impl<'a> Parser<'a> {
         let type_name = match ident_token.inner {
             Token::Ident(i) => i,
             t => return Err(spanned(format!("Expected identifier, got {t:?} instead").into(), ident_token.span))
+        };
+        
+        let type_generics = if self.check(&Token::Lt) {
+            let mut params = Vec::new();
+            let lt = self.advance().unwrap().clone();
+            loop {
+                let g = self.advance().ok_or(spanned("Unexpected EOF in generic params".into(), lt.span))?.clone();
+                match g.inner {
+                    Token::Ident(name) => params.push(spanned(name, g.span)),
+                    _ => return Err(spanned("Expected identifier in generic params".into(), g.span)),
+                }
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            
+            if !self.check(&Token::Gt) {
+                return Err(spanned("Expected > after generic params".into(), self.peek().unwrap().span));
+            }
+            self.advance();
+            params
+        } else {
+            Vec::new()
         };
         
         let mut interfaces = Vec::new();
@@ -472,31 +541,6 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        
-        let type_generics = if self.check(&Token::Lt) {
-            let mut params = Vec::new();
-            let lt = self.advance().unwrap().clone();
-            loop {
-                let g = self.advance().ok_or(spanned("Unexpected EOF in generic params".into(), lt.span))?.clone();
-                match g.inner {
-                    Token::Ident(name) => params.push(spanned(name, g.span)),
-                    _ => return Err(spanned("Expected identifier in generic params".into(), g.span)),
-                }
-                if self.check(&Token::Comma) {
-                    self.advance();
-                    continue;
-                }
-                break;
-            }
-            
-            if !self.check(&Token::Gt) {
-                return Err(spanned("Expected > after generic params".into(), self.peek().unwrap().span));
-            }
-            self.advance();
-            params
-        } else {
-            Vec::new()
-        };
         
         self.expect(&Token::Eq)?;
         let type_expr = self.parse_type()?;
@@ -728,6 +772,121 @@ impl<'a> Parser<'a> {
         
         Ok(spanned(
             Statement::Import { symbols: imports, path },
+            Span::from(start_span.start..end_span.end)
+        ))
+    }
+    
+    fn native_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
+        match self.peek_at(1).ok_or(spanned(
+            "Unexpected EOF in native statement".into(),
+            Span::from(0..0)
+        ))?.inner.clone() {
+            Token::Fun => {
+                self.native_fun_statement()
+            },
+            Token::Type => {
+                self.native_type_statement()
+            },
+            _ => Err(spanned(format_smolstr!("Unexpected token"), self.peek_at(1).unwrap().span))
+        }
+    }
+    
+    fn native_type_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
+        let start_span = self.advance().unwrap().span; //consume native
+        self.expect(&Token::Type)?;
+        
+        if self.peek().is_none() {
+            return Err(spanned("Unexpected EOF in type declaration".into(), start_span))
+        }
+        
+        let ident_token = self.advance().unwrap().clone();
+        let type_name = match ident_token.inner {
+            Token::Ident(i) => i,
+            t => return Err(spanned(format!("Expected identifier, got {t:?} instead").into(), ident_token.span))
+        };
+        
+        
+        
+        let type_generics = if self.check(&Token::Lt) {
+            let mut params = Vec::new();
+            let lt = self.advance().unwrap().clone();
+            loop {
+                let g = self.advance().ok_or(spanned("Unexpected EOF in generic params".into(), lt.span))?.clone();
+                match g.inner {
+                    Token::Ident(name) => params.push(spanned(name, g.span)),
+                    _ => return Err(spanned("Expected identifier in generic params".into(), g.span)),
+                }
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                }
+                break;
+            }
+            
+            if !self.check(&Token::Gt) {
+                return Err(spanned("Expected > after generic params".into(), self.peek().unwrap().span));
+            }
+            self.advance();
+            params
+        } else {
+            Vec::new()
+        };
+        
+        let mut interfaces = Vec::new();
+        if self.check(&Token::Colon) {
+            let start_span = self.advance().unwrap().span;
+            loop {
+                if self.check(&Token::Semicolon) || self.check(&Token::Impl) {
+                    break
+                } else {
+                    match self.advance() {
+                        Some(token) => {
+                            match &token.inner {
+                                Token::Ident(i) => {
+                                    interfaces.push(spanned(i.clone(), token.span));
+                                    if !self.check(&Token::Comma) {
+                                        break
+                                    }
+                                },
+                                t => return Err(
+                                    spanned(
+                                        format_smolstr!("Expected identifier, got {t:?} instead"),
+                                        token.span
+                                    )
+                                )
+                            }
+                        },
+                        None => {
+                            return Err(spanned("Unexpected EOF in type declaration".into(), start_span))
+                        },
+                    }
+                }
+            }
+        }
+        
+        let mut implementation = HashMap::new();
+        let mut own_methods = Vec::new();
+        
+        self.parse_methods(&mut implementation, &mut own_methods)?;
+        
+        let end_span = if self.check(&Token::Semicolon) {
+            self.advance().unwrap().span
+        } else {
+            return Err(spanned(
+                "Expected a semicolon at the end of the statement".into(),
+                self.peek().unwrap().span
+            ));
+        };
+        
+        implementation.insert("+self".into(), own_methods);
+        
+        Ok(spanned(
+            Statement::NativeType {
+                name: type_name,
+                generic_params: type_generics, 
+                implementation, 
+                interfaces 
+            },
             Span::from(start_span.start..end_span.end)
         ))
     }

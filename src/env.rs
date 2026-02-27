@@ -1,8 +1,8 @@
-use std::{collections::HashMap, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
+use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
 
 use smol_str::{SmolStr, ToSmolStr};
 
-use crate::{ast::{Span, Spanned, TypeInfo}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::register_fun};
+use crate::{ast::{Span, Spanned, TypeInfo, TypeKind}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun, register_type}};
 
 #[derive(Debug, Clone)]
 pub struct Scope {
@@ -71,7 +71,7 @@ pub struct TypeScope {
     variable_types: HashMap<SmolStr, Spanned<TypeInfo>>,
     custom_types: HashMap<SmolStr, Spanned<TypeInfo>>,
     parent: Option<TypeEnv>,
-    interface_implementations: HashMap<SmolStr, Vec<Spanned<TypeInfo>>>, //which types implement what
+    interface_implementations: HashMap<SmolStr, HashSet<u32>>, //interface name - typesthat implement it
     method_map: HashMap<u32, HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>>, //for getting type signatures of specific method implementations
     static_method_map: HashMap<u32, HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>>,
     
@@ -142,30 +142,30 @@ impl TypeEnv {
         self.0.write().unwrap().custom_types.insert(name, type_info);
     }
     
-    pub fn add_interface_impl(&mut self, iname: SmolStr, type_info: Spanned<TypeInfo>) -> () {
+    pub fn add_interface_impl(&mut self, iname: SmolStr, id: u32) -> () {
         let mut scope = self.0.write().unwrap();
 
         match scope.interface_implementations.get_mut(&iname) {
             Some(entry) => {
-                entry.push(type_info);
+                entry.insert(id);
             },
             None => {
-                scope.interface_implementations.insert(iname, vec![type_info]);
+                let mut set = HashSet::new();
+                set.insert(id);
+                scope.interface_implementations.insert(iname, set);
             },
         }
     }
 
-    pub fn is_interface_implemented(&mut self, iname: SmolStr, type_info: Spanned<TypeInfo>) -> bool {
+    pub fn is_interface_implemented(&mut self, iname: SmolStr, id: u32) -> bool {
         let mut current_env = Some(self.clone());
 
         while let Some(env) = current_env {
             let scope = env.0.read().unwrap();
 
             if let Some(impls) = scope.interface_implementations.get(&iname) {
-                for ti in impls {
-                    if ti.inner == type_info.inner {
-                        return true;
-                    }
+                if impls.contains(&id) {
+                    return true
                 }
             }
 
@@ -238,6 +238,27 @@ static PROCESS_START: OnceLock<Instant> = OnceLock::new();
 
 pub fn create_default_env() -> (Env, TypeEnv) {
     const BUILTINS_PATH: &str = "std/builtins";
+    
+    register_type(BUILTINS_PATH, "Array", TypeInfo::new_with_id(
+        TypeKind::TypeClosure { 
+            params: vec![Spanned{inner: "T".into(), span: Span::from(0..0)}],
+            body: Box::new(Spanned {
+                inner: TypeInfo::array(
+                    Spanned { 
+                        inner: TypeInfo::new(TypeKind::GenericParam("T".into())), 
+                        span: Span::from(0..0)
+                    }
+                ),
+                span: Span::from(0..0)
+            })
+        }, 
+        10
+    ));
+    
+    register_type(BUILTINS_PATH, "String", TypeInfo::string());
+    register_type(BUILTINS_PATH, "Int", TypeInfo::int());
+    register_type(BUILTINS_PATH, "Float", TypeInfo::float());
+    register_type(BUILTINS_PATH, "Char", TypeInfo::char());
     
     register_fun(BUILTINS_PATH, "print", |args| {
         let mut i = 0;
@@ -343,6 +364,47 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             }),
             (v1, v2) => Err(Spanned {
                 inner: format!("Incorrect arguments provided {v1} and {v2}, expected strings").into(),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "sort", |obj| {
+        if obj.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, but got {}", obj.len()).into(),
+                span: Span::from(0..0)
+            })
+        }
+        let val = obj.first().unwrap();
+        match val {
+            Value::Array(a) => {
+                if a.len() == 0 {
+                    return Ok(ControlFlow::Value(val.clone()))
+                }
+                let mut array = a.clone();
+                array.sort_by(|a, b| {
+                    match (a,b) {
+                        (Value::Int(a), Value::Int(b)) => {
+                            a.cmp(b)
+                        },
+                        (Value::U128(a), Value::U128(b)) => {
+                            a.cmp(b)
+                        },
+                        (Value::Float(a), Value::Float(b)) => {
+                            a.total_cmp(b)
+                        },
+                        (Value::String(a), Value::String(b)) => {
+                            a.cmp(b)
+                        },
+                        _ => panic!()
+                    }
+                });
+                
+                return Ok(ControlFlow::Value(Value::Array(array)))
+            },
+            v => Err(Spanned {
+                inner: format!("Cannot sort {v}").into(),
                 span: Span::from(0..0)
             })
         }
