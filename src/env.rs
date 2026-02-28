@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
 
-use smol_str::{SmolStr, ToSmolStr};
+use smol_str::{SmolStr, ToSmolStr, format_smolstr};
 
 use crate::{ast::{Span, Spanned, TypeInfo, TypeKind}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun, register_type}};
 
@@ -277,14 +277,8 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         Ok(ControlFlow::Value(Value::Int(instant.elapsed().as_nanos() as i64)))
     });
     
-    register_fun(BUILTINS_PATH, "len", |(obj, _)| {
-        if obj.len() != 1 {
-            return Err(Spanned {
-                inner: format!("Expected 1 argument, but got {}", obj.len()).into(),
-                span: Span::from(0..0)
-            })
-        }
-        match obj.first().unwrap() {
+    register_fun(BUILTINS_PATH, "len", |(_, this)| {
+        match *this.unwrap() {
             Value::Array(a) => Ok(ControlFlow::Value(Value::Int(a.len() as i64))),
             Value::String(s) => Ok(ControlFlow::Value(Value::Int(s.len() as i64))),
             v => Err(Spanned {
@@ -399,6 +393,122 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             },
             v => Err(Spanned {
                 inner: format!("Cannot sort {v}").into(),
+                span: Span::from(0..0)
+            })
+        }
+    });
+
+    register_fun(BUILTINS_PATH, "reverse", |(_, this)| {
+        let val = this.unwrap();
+        match *val {
+            Value::Array(ref a) => {
+                if a.len() == 0 {
+                    return Ok(ControlFlow::Value(*val.clone()))
+                }
+                let mut array = a.clone();
+                array.reverse();
+                return Ok(ControlFlow::Value(Value::Array(array)))
+            },
+            Value::String(s) => {
+                return Ok(ControlFlow::Value(Value::String(s.chars().rev().collect::<SmolStr>())))
+            },
+            v => Err(Spanned {
+                inner: format!("Cannot sort {v}").into(),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "charAt", |(args, this)| {
+        if args.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, got {}", args.len()).into(),
+                span: Span::from(0..0)
+            })
+        }
+        let this = this.unwrap();
+        match *this {
+            Value::String(s) => {
+                match args.first().unwrap() {
+                    Value::Int(index) => match s.chars().nth(*index as usize) {
+                        Some(c) => Ok(
+                            ControlFlow::Value(
+                                Value::EnumVariant { 
+                                    enum_name: "Option".into(),
+                                    variant: "Some".into(),
+                                    value: Box::new(Value::Char(c))
+                                }
+                            )
+                        ),
+                        None => Ok(
+                            ControlFlow::Value(
+                                Value::EnumVariant { 
+                                    enum_name: "Option".into(),
+                                    variant: "None".into(),
+                                    value: Box::new(Value::Void)
+                                }
+                            )
+                        ),
+                    },
+                    _ => panic!()
+                }
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "startsWith", |(args, this)| {
+        if args.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, got {}", args.len()).into(),
+                span: Span::from(0..0)
+            })
+        }
+        let this = this.unwrap();
+        match *this {
+            Value::String(string) => {
+                match args.first().unwrap() {
+                    Value::Char(c) => {
+                        Ok(ControlFlow::Value(Value::Bool(string.starts_with(*c))))
+                    },
+                    Value::String(s) => {
+                        Ok(ControlFlow::Value(Value::Bool(string.starts_with(s.as_str()))))
+                    },
+                    _ => panic!()
+                }
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "endsWith", |(args, this)| {
+        if args.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, got {}", args.len()).into(),
+                span: Span::from(0..0)
+            })
+        }
+        let this = this.unwrap();
+        match *this {
+            Value::String(string) => {
+                match args.first().unwrap() {
+                    Value::Char(c) => {
+                        Ok(ControlFlow::Value(Value::Bool(string.ends_with(*c))))
+                    },
+                    Value::String(s) => {
+                        Ok(ControlFlow::Value(Value::Bool(string.ends_with(s.as_str()))))
+                    },
+                    _ => panic!()
+                }
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
                 span: Span::from(0..0)
             })
         }

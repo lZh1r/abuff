@@ -29,10 +29,6 @@
 /// ```
 export native fun print(...args: Any[]);
 
-native type Array<T> impl {
-    native fun sort(): T[];
-};
-
 /// Returns program's uptime in nanoseconds.
 /// Can be used for benchmarking performance:
 /// ```
@@ -43,14 +39,6 @@ native type Array<T> impl {
 /// print(end - start);
 /// ```
 export native fun clock(): Int;
-
-/// Returns a length of an object (if applicable).
-/// Supports: strings, arrays.
-/// ```
-/// let a = [1,2,3];
-/// len(a); // 3
-/// ```
-export native fun len<T>(obj: T): Int;
 
 /// Attempts to read contents of a file into a string.
 export native fun readfile(path: String): Result<String>;
@@ -77,6 +65,9 @@ export enum Option<T> {
     Some: T,
     None
 } impl {
+    /// Converts this Option object into a Result object.
+    /// Some turns into Ok
+    /// None turns into Err
     fun intoResult(): Result<T> {
         match self {
             .Some(value) -> Result.Ok(value),
@@ -126,6 +117,16 @@ export enum Result<T> {
     Ok: T,
     Err: Error
 } impl {
+    /// Converts this Result object into an Option object.
+    /// Ok turns into Some
+    /// Err turns into None
+    fun intoOption(): Option<T> {
+        match self {
+            .Ok(value) -> Option.Some(value),
+            .Err(_) -> Option.None()
+        }
+    }
+
     fun isOk(): Bool {
         match self {
             .Ok(_) -> true,
@@ -146,4 +147,38 @@ export enum Result<T> {
             .Err(_) -> panic "Called unwrap on Err"
         }
     }
+};
+
+native type Array<T> impl {
+    /// Returns a sorted copy of an array.
+    /// Uses Rust's slice.sort_by() which has O(n * log(n)) time complexity.
+    native fun sort(): T[];
+    
+    /// Returns a reversed copy of an array.
+    native fun reverse(): T[];
+    
+    native fun len(): Int;
+    
+    fun isEmpty(): Bool {
+        self.len() == 0
+    }
+};
+
+native type String impl {
+    /// Returns an Option contatining a char if the provided index is within the string.
+    /// Otherwise returns None.
+    native fun charAt(index: Int): Option<Char>;
+    
+    /// Returns a reversed copy of a string.
+    native fun reverse(): String;
+    
+    native fun len(): Int;
+    
+    fun isEmpty(): Bool {
+        self.len() == 0
+    }
+    
+    native fun startsWith(pattern: String): Bool;
+    
+    native fun endsWith(pattern: String): Bool;
 };

@@ -52,7 +52,7 @@ fn test_simle_generic() {
 fn test_implicit_array_generic() {
     let src = r#"
         fun f<T>(x: T[]): Int {
-            len(x)
+            x.len()
         }
         f([3,5,6]) + f(["Hello"])
     "#;
@@ -74,7 +74,7 @@ fn test_implicit_array_generic() {
 fn test_array_generic() {
     let src = r#"
         fun f<T>(x: T[]): Int {
-            len<T[]>(x)
+            x.len()
         }
         f<Int>([3,5,6]) + f<String>(["Hello"])
     "#;
@@ -96,7 +96,7 @@ fn test_array_generic() {
 fn test_implicit_nested_array_generic() {
     let src = r#"
         fun f<T>(x: T[][]): Int {
-            len(x)
+            x.len()
         }
         f([[3,5,6], [1]])
     "#;
@@ -118,7 +118,7 @@ fn test_implicit_nested_array_generic() {
 fn test_nested_array_generic() {
     let src = r#"
         fun f<T>(x: T[][]): Int {
-            len<T[][]>(x)
+            x.len()
         }
         f<Int>([[3,5,6], [1]])
     "#;
