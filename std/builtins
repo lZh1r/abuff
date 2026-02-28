@@ -185,4 +185,7 @@ native type String impl {
     native fun toUpperCase(): String;
     
     native fun toLowerCase(): String;
+    
+    /// Returns a copy of a string with all leading and trailing whitespaces removed
+    native fun trim(): String;
 };

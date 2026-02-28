@@ -346,3 +346,23 @@ fn string_case_manipulation() {
         _ => panic!()
     };
 }
+
+#[test]
+fn string_trim() {
+    let src = r#"
+        let string = "\n\t   hello \t   \n\n";
+        string.trim()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "hello"),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

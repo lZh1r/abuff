@@ -540,6 +540,19 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
+    register_fun(BUILTINS_PATH, "trim", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::String(string) => {
+                Ok(ControlFlow::Value(Value::String(string.trim().into())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
     let registry = GlobalRegistry;
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),
