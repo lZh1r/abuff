@@ -1,6 +1,6 @@
 use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
 
-use smol_str::{SmolStr, ToSmolStr, format_smolstr};
+use smol_str::{SmolStr, StrExt, ToSmolStr, format_smolstr};
 
 use crate::{ast::{Span, Spanned, TypeInfo, TypeKind}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun, register_type}};
 
@@ -506,6 +506,32 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                     },
                     _ => panic!()
                 }
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "toUpperCase", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::String(string) => {
+                Ok(ControlFlow::Value(Value::String(string.to_uppercase_smolstr())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "toLowerCase", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::String(string) => {
+                Ok(ControlFlow::Value(Value::String(string.to_lowercase_smolstr())))
             },
             _ => Err(Spanned {
                 inner: format_smolstr!("{this:?} is not a string"),

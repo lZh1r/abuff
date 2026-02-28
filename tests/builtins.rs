@@ -324,3 +324,25 @@ fn ends_with_fail() {
         _ => panic!()
     };
 }
+
+#[test]
+fn string_case_manipulation() {
+    let src = r#"
+        let string = "Hello";
+        let string = string.toUpperCase();
+        assert(string == "HELLO", "toUpperCase is broken!");
+        string.toLowerCase()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "hello"),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

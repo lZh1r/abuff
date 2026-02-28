@@ -181,4 +181,8 @@ native type String impl {
     native fun startsWith(pattern: String): Bool;
     
     native fun endsWith(pattern: String): Bool;
+    
+    native fun toUpperCase(): String;
+    
+    native fun toLowerCase(): String;
 };
