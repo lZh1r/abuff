@@ -5,6 +5,7 @@ use smol_str::SmolStr;
 
 use crate::{ast::{Operation, Spanned, UnaryOp}, env::Env, native::NativeFun};
 
+#[allow(unpredictable_function_pointer_comparisons)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Bool(bool),
