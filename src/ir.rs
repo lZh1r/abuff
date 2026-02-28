@@ -20,7 +20,12 @@ pub enum Expr {
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>},
+    //helper for method calls
     Method {this: Box<Spanned<Expr>>, fun: Box<Spanned<Expr>>},
+    //helper for native method calls
+    NativeMethod {this: Box<Spanned<Expr>>, name: SmolStr, path: SmolStr, native_fun: NativeFun},
+    //needed to store native function information as an expression
+    NativeFun {name: SmolStr, path: SmolStr, native_fun: NativeFun},
     Call {fun: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>>},
     Record(HashMap<SmolStr, Spanned<Expr>>),
     Get(Box<Spanned<Expr>>, SmolStr),
@@ -73,7 +78,7 @@ pub enum Value {
     Array(Vec<Value>),
     Record(HashMap<SmolStr, Value>), 
     Closure { params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>, env: Env },
-    NativeFun {path: SmolStr, name: SmolStr, pointer: NativeFun},
+    NativeFun {path: SmolStr, name: SmolStr, pointer: NativeFun, this: Option<Box<Value>>},
     Null,
     Void,
     EnumVariant {enum_name: SmolStr, variant: SmolStr, value: Box<Value>}
@@ -108,7 +113,7 @@ impl fmt::Display for Value {
                 write!(f, "}}")
             },
             Value::Closure { params: _, body: _, env: _ } => write!(f, "closure"),
-            Value::NativeFun {path, name, pointer: _} => write!(f, "native function \"{name}\" from \"{path}\""),
+            Value::NativeFun {path, name, pointer: _, this: _} => write!(f, "native function \"{name}\" from \"{path}\""),
             Value::Null => write!(f, "null"),
             Value::Void => write!(f, "void"),
             Value::Array(values) => {

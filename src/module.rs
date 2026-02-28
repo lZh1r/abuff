@@ -337,7 +337,8 @@ pub fn run<R: ModuleRegistry>(statements: &[Spanned<ir::Statement>], env: &mut E
                                 let fn_val = Value::NativeFun { 
                                     path: SmolStr::new(str_path),
                                     name: name.clone(), 
-                                    pointer: ptr
+                                    pointer: ptr,
+                                    this: None,
                                 };
                                 value_exports.insert(name.clone(), fn_val.clone());
                                 env.add_variable(name.clone(), fn_val);

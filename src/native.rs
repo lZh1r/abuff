@@ -4,7 +4,8 @@ use smol_str::SmolStr;
 
 use crate::{ast::{Spanned, TypeInfo}, ir::{ControlFlow, Value}};
 
-pub type NativeFun = fn(&[Value]) -> Result<ControlFlow, Spanned<SmolStr>>;
+// (args, [this])
+pub type NativeFun = fn((&[Value], Option<Box<Value>>)) -> Result<ControlFlow, Spanned<SmolStr>>;
 
 static NATIVE_FUN_REGISTRY: OnceLock<Mutex<HashMap<(SmolStr, SmolStr), NativeFun>>> = OnceLock::new();
 static NATIVE_TYPE_REGISTRY: OnceLock<Mutex<HashMap<(SmolStr, SmolStr), TypeInfo>>> = OnceLock::new();

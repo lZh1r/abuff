@@ -95,3 +95,23 @@ fn methods() {
         _ => panic!()
     };
 }
+
+#[test]
+fn sort() {
+    let src = r#"
+        let array = [2, 1];
+        array.sort()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Array(a) => assert_eq!(a, vec![Value::Int(1), Value::Int(2)]),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

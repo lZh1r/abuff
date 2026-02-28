@@ -372,7 +372,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.clone();
                         inner_env.add_variable(alias.clone(), target.inner.clone());
-        
+
                         match eval_expr(condition, &mut inner_env)? {
                             ControlFlow::Value(Value::Bool(true)) => {
                                 Ok(Some(eval_expr(outcome, &mut inner_env)?))
@@ -398,7 +398,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                 span: pattern_expr.span
                             })
                         };
-        
+
                         if *target.inner == pattern_value {
                             Ok(Some(eval_expr(outcome, env)?))
                         } else {
@@ -459,6 +459,21 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             method_scope.add_variable("self".to_smolstr(), value);
             eval_expr(fun, &mut method_scope)
         },
+        Expr::NativeMethod { this, native_fun, name, path } => {
+            let value = match eval_expr(this, env)? {
+                ControlFlow::Value(value) => value,
+                _ => return Err(Spanned {
+                    inner: "Runtime Error: cannot call methods of a control flow expression".into(),
+                    span: this.span
+                })
+            };
+            Ok(ControlFlow::Value(Value::NativeFun { 
+                path: path.clone(),
+                name: name.clone(), 
+                pointer: native_fun.clone(),
+                this: Some(Box::new(value))
+            }))
+        },
         Expr::Panic(reason) => {
             match reason {
                 Some(e) => {
@@ -475,6 +490,9 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 None => Ok(ControlFlow::Panic(None)),
             }
         },
+        //SHOULD NOT BE USED AS A NORMAL EXPRESSION
+        // this is used to differentiate native methods from normal ones
+        Expr::NativeFun { name: _, path: _, native_fun: _ } => panic!(),
     }
 }
 
@@ -550,8 +568,8 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                         }),
                     }
                 },
-                Value::NativeFun {path: _, name: _, pointer} => {
-                    Ok(pointer(&args)?)
+                Value::NativeFun {path: _, name: _, pointer, this} => {
+                    Ok(pointer((&args, this))?)
                 }
                 _ => Err(Spanned {
                     inner: "Runtime error: This expression is not callable".into(),

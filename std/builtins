@@ -29,14 +29,8 @@
 /// ```
 export native fun print(...args: Any[]);
 
-native type Int impl {
-    fun hello() {
-        print(self)
-    }
-    static fun static_hello() {
-        print(3)
-    }
-    //native fun toString(): String;
+native type Array<T> impl {
+    native fun sort(): T[];
 };
 
 /// Returns program's uptime in nanoseconds.

@@ -260,7 +260,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
     register_type(BUILTINS_PATH, "Float", TypeInfo::float());
     register_type(BUILTINS_PATH, "Char", TypeInfo::char());
     
-    register_fun(BUILTINS_PATH, "print", |args| {
+    register_fun(BUILTINS_PATH, "print", |(args, _)| {
         let mut i = 0;
         let length = args.len();
         for a in args {
@@ -277,7 +277,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         Ok(ControlFlow::Value(Value::Int(instant.elapsed().as_nanos() as i64)))
     });
     
-    register_fun(BUILTINS_PATH, "len", |obj| {
+    register_fun(BUILTINS_PATH, "len", |(obj, _)| {
         if obj.len() != 1 {
             return Err(Spanned {
                 inner: format!("Expected 1 argument, but got {}", obj.len()).into(),
@@ -294,7 +294,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
         
-    register_fun(BUILTINS_PATH, "readfile", |obj| {
+    register_fun(BUILTINS_PATH, "readfile", |(obj, _)| {
         if obj.len() != 1 {
             return Err(Spanned {
                 inner: format!("Expected 1 argument, but got {}", obj.len()).into(),
@@ -330,7 +330,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
  
-    register_fun(BUILTINS_PATH, "writefile", |args| {
+    register_fun(BUILTINS_PATH, "writefile", |(args, _)| {
         if args.len() != 2 {
             return Err(Spanned {
                 inner: format!("Expected 2 arguments, got {}", args.len()).into(),
@@ -369,18 +369,12 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
-    register_fun(BUILTINS_PATH, "sort", |obj| {
-        if obj.len() != 1 {
-            return Err(Spanned {
-                inner: format!("Expected 1 argument, but got {}", obj.len()).into(),
-                span: Span::from(0..0)
-            })
-        }
-        let val = obj.first().unwrap();
-        match val {
-            Value::Array(a) => {
+    register_fun(BUILTINS_PATH, "sort", |(_, this)| {
+        let val = this.unwrap();
+        match *val {
+            Value::Array(ref a) => {
                 if a.len() == 0 {
-                    return Ok(ControlFlow::Value(val.clone()))
+                    return Ok(ControlFlow::Value(*val.clone()))
                 }
                 let mut array = a.clone();
                 array.sort_by(|a, b| {

@@ -487,7 +487,8 @@ pub fn hoist(
                                         span: method.span
                                     })
                                 }
-                                let mut inner_scope = env.enter_scope();
+                                let native_fun = get_native_fun(path, m.name.as_str()).unwrap();
+                                let mut inner_scope = interface_env.enter_scope();
                                 let r_type = m.return_type.clone().unwrap_or(spanned(
                                     TypeInfo::void(),
                                     Span::from(0..0)
@@ -519,7 +520,11 @@ pub fn hoist(
                                                     (
                                                         fun_type.clone(),
                                                         spanned(
-                                                            ir::Expr::Var(m.name.clone()),
+                                                            ir::Expr::NativeFun {
+                                                                name: m.name.clone(),
+                                                                path: path.into(),
+                                                                native_fun,
+                                                            },
                                                             method.span,
                                                         ),
                                                     ),
@@ -534,7 +539,11 @@ pub fn hoist(
                                                     (
                                                         fun_type.clone(),
                                                         spanned(
-                                                            ir::Expr::Var(m.name.clone()),
+                                                            ir::Expr::NativeFun {
+                                                                name: m.name.clone(),
+                                                                path: path.into(),
+                                                                native_fun,
+                                                            },
                                                             method.span,
                                                         ),
                                                     ),
@@ -2158,19 +2167,40 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             let mut target_result = lower_expr(target, env)?;
             target_result.1 = flatten_type(&target_result.1, env)?.into_owned();
             if let Some((method_type, method_expr)) = env.get_method(target_result.1.inner.id(), field) {
-                Ok((
-                    spanned(
-                        ir::Expr::Method { 
-                            this: Box::new(target_result.0),
-                            fun: Box::new(method_expr)
-                        },
-                        expr.span.clone()
-                    ),
-                    spanned(
-                        method_type.inner,
-                        expr.span
-                    )
-                ))
+                match method_expr.inner {
+                    ir::Expr::NativeFun { name, path, native_fun } => {
+                        Ok((
+                            spanned(
+                                ir::Expr::NativeMethod { 
+                                    this: Box::new(target_result.0),
+                                    name, 
+                                    path,
+                                    native_fun
+                                },
+                                expr.span.clone()
+                            ),
+                            spanned(
+                                method_type.inner,
+                                expr.span
+                            )
+                        ))
+                    },
+                    _ => {
+                        Ok((
+                            spanned(
+                                ir::Expr::Method { 
+                                    this: Box::new(target_result.0),
+                                    fun: Box::new(method_expr)
+                                },
+                                expr.span.clone()
+                            ),
+                            spanned(
+                                method_type.inner,
+                                expr.span
+                            )
+                        ))
+                    }
+                }
             } else {
                 match target_result.1.inner.kind() {
                     TypeKind::Record(fields) => {
