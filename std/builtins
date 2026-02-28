@@ -89,6 +89,7 @@ export enum Option<T> {
         }
     }
     
+    /// Assumes that the Option object cotains some value and returns it; otherwise, panics.
     fun unwrap(): T {
         match self {
             .Some(value) -> value,
@@ -109,6 +110,7 @@ export fun None<T>(): Option<T> {
     Option.None()
 }
 
+/// The default type for errors.
 export type Error = {
     message: String
 };
@@ -141,6 +143,7 @@ export enum Result<T> {
         }
     }
     
+    /// Assumes that the Result object is Ok and returns its value; panics if it contains an error.
     fun unwrap(): T {
         match self {
             .Ok(value) -> value,
@@ -157,8 +160,10 @@ native type Array<T> impl {
     /// Returns a reversed copy of an array.
     native fun reverse(): T[];
     
+    /// Returns the number of elements in an array.
     native fun len(): Int;
     
+    /// Returns true if an array is empty.
     fun isEmpty(): Bool {
         self.len() == 0
     }
@@ -172,20 +177,26 @@ native type String impl {
     /// Returns a reversed copy of a string.
     native fun reverse(): String;
     
+    /// Returns the length of an underlying char slice.
     native fun len(): Int;
     
+    /// Returns true if a string is empty (length = 0).
     fun isEmpty(): Bool {
         self.len() == 0
     }
     
+    //TODO: allow pattern to be a char.
     native fun startsWith(pattern: String): Bool;
     
+    //TODO: allow pattern to be a char.
     native fun endsWith(pattern: String): Bool;
     
+    /// Returns an upper case copy of a string.
     native fun toUpperCase(): String;
     
+    /// Returns a lower case copy of a string.
     native fun toLowerCase(): String;
     
-    /// Returns a copy of a string with all leading and trailing whitespaces removed
+    /// Returns a copy of a string with all leading and trailing whitespaces removed.
     native fun trim(): String;
 };
