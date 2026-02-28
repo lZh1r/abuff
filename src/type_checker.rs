@@ -321,50 +321,34 @@ pub fn hoist(
                                         }),
                                         ti.span,
                                     );
-        
+                                    let method_info = (
+                                        m.name.clone(),
+                                        (
+                                            fun_type.clone(),
+                                            spanned(
+                                                ir::Expr::Fun {
+                                                    params: m
+                                                        .params
+                                                        .iter()
+                                                        .map(|(e, _)| e.clone())
+                                                        .collect(),
+                                                    body: Box::new(method_result.0),
+                                                },
+                                                method.span,
+                                            ),
+                                        ),
+                                    );
                                     match is_static {
                                         true => {
                                             env.insert_static_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::Fun {
-                                                                params: m
-                                                                    .params
-                                                                    .iter()
-                                                                    .map(|(e, _)| e.clone())
-                                                                    .collect(),
-                                                                body: Box::new(method_result.0),
-                                                            },
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info,
                                             );
                                         },
                                         false => {
                                             env.insert_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::Fun {
-                                                                params: m
-                                                                    .params
-                                                                    .iter()
-                                                                    .map(|(e, _)| e.clone())
-                                                                    .collect(),
-                                                                body: Box::new(method_result.0),
-                                                            },
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info,
                                             );
                                         },
                                     }
@@ -428,49 +412,35 @@ pub fn hoist(
                                         ti.span,
                                     );
         
+                                    let method_info = (
+                                        m.name.clone(),
+                                        (
+                                            fun_type.clone(),
+                                            spanned(
+                                                ir::Expr::Fun {
+                                                    params: m
+                                                        .params
+                                                        .iter()
+                                                        .map(|(e, _)| e.clone())
+                                                        .collect(),
+                                                    body: Box::new(method_result.0),
+                                                },
+                                                method.span,
+                                            ),
+                                        ),
+                                    );
+                                    
                                     match is_static {
                                         true => {
                                             env.insert_static_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::Fun {
-                                                                params: m
-                                                                    .params
-                                                                    .iter()
-                                                                    .map(|(e, _)| e.clone())
-                                                                    .collect(),
-                                                                body: Box::new(method_result.0),
-                                                            },
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info,
                                             );
                                         },
                                         false => {
                                             env.insert_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::Fun {
-                                                                params: m
-                                                                    .params
-                                                                    .iter()
-                                                                    .map(|(e, _)| e.clone())
-                                                                    .collect(),
-                                                                body: Box::new(method_result.0),
-                                                            },
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info
                                             );
                                         },
                                     }
@@ -582,35 +552,29 @@ pub fn hoist(
                                         method.span
                                     );
                                     env.add_var_type(name.clone(), fun_type.clone());
+                                    
+                                    let method_info = (
+                                        m.name.clone(),
+                                        (
+                                            fun_type.clone(),
+                                            spanned(
+                                                ir::Expr::Var(m.name.clone()),
+                                                method.span,
+                                            ),
+                                        ),
+                                    );
+                                    
                                     match is_static {
                                         true => {
                                             env.insert_static_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::Var(m.name.clone()),
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info,
                                             );
                                         },
                                         false => {
                                             env.insert_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::Var(m.name.clone()),
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info,
                                             );
                                         },
                                     }
