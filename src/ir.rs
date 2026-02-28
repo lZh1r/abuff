@@ -141,6 +141,7 @@ impl PartialEq for Value {
             (Value::Record(a), Value::Record(b)) => a == b, 
             (Value::Array(a), Value::Array(b)) => a == b,
             (Value::Char(a), Value::Char(b)) => a == b,
+            (Value::String(a), Value::String(b)) => a == b,
             (Value::Void, Value::Void) => true,
             (Value::Null, Value::Null) => true,
             (Value::Closure { .. }, Value::Closure { .. }) => false,
