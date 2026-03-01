@@ -1646,7 +1646,6 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             let left_result = lower_expr(left, env)?;
             let right_result = lower_expr(right, env)?;
             match operation {
-                Operation::Add
                 | Operation::Subtract 
                 | Operation::Multiply
                 | Operation::Divide
@@ -1655,6 +1654,43 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         TypeKind::Any 
                         | TypeKind::Float 
                         | TypeKind::Int => {
+                            if left_result.1.inner != right_result.1.inner {
+                                return Err(spanned(
+                                    format_smolstr!(
+                                        "Type Mismatch: Expeccted {:?}, got {:?}",
+                                        left_result.1.inner, 
+                                        right_result.1.inner
+                                    ), 
+                                    left.span
+                                ))
+                            }
+                            Ok((
+                                spanned(
+                                    ir::Expr::Binary { 
+                                        left: Box::new(left_result.0),
+                                        operation: operation.clone(),
+                                        right: Box::new(right_result.0)
+                                    },
+                                    expr.span
+                                ),
+                                spanned(
+                                    left_result.1.inner,
+                                    expr.span
+                                )
+                            ))
+                        },
+                        _ => return Err(spanned(
+                            format!("Cannot apply {:?} to {:?}", operation, left_result.1.inner).into(), 
+                            left.span
+                        ))
+                    }
+                },
+                Operation::Add => {
+                    match left_result.1.inner.kind() {
+                        TypeKind::Any 
+                        | TypeKind::Float 
+                        | TypeKind::Int
+                        | TypeKind::String => {
                             if left_result.1.inner != right_result.1.inner {
                                 return Err(spanned(
                                     format_smolstr!(
