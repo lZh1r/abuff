@@ -363,6 +363,72 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
+
+    
+    register_fun(BUILTINS_PATH, "get", |(args, this)| {
+        if args.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, got {}", args.len()).into(),
+                span: Span::from(0..0)
+            })
+        }
+        let index = match args.first().unwrap() {
+            Value::Int(i) => i,
+            _ => panic!()
+        };
+        let this = this.unwrap();
+        match *this {
+            Value::String(s) => {
+                match s.chars().nth(*index as usize) {
+                    Some(c) => Ok(
+                        ControlFlow::Value(
+                            Value::EnumVariant { 
+                                enum_name: "Option".into(),
+                                variant: "Some".into(),
+                                value: Box::new(Value::Char(c))
+                            }
+                        )
+                    ),
+                    None => Ok(
+                        ControlFlow::Value(
+                            Value::EnumVariant { 
+                                enum_name: "Option".into(),
+                                variant: "None".into(),
+                                value: Box::new(Value::Void)
+                            }
+                        )
+                    )
+                }
+            },
+            Value::Array(a) => {
+                match a.get(*index as usize) {
+                    Some(v) => Ok(
+                        ControlFlow::Value(
+                            Value::EnumVariant { 
+                                enum_name: "Option".into(),
+                                variant: "Some".into(),
+                                value: Box::new(v.clone())
+                            }
+                        )
+                    ),
+                    None => Ok(
+                        ControlFlow::Value(
+                            Value::EnumVariant { 
+                                enum_name: "Option".into(),
+                                variant: "None".into(),
+                                value: Box::new(Value::Void)
+                            }
+                        )
+                    ),
+                }
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
     register_fun(BUILTINS_PATH, "sort", |(_, this)| {
         let val = this.unwrap();
         match *val {

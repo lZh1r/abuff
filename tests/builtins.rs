@@ -178,10 +178,58 @@ fn string_is_empty() {
 }
 
 #[test]
-fn char_at_success() {
+fn array_get_success() {
+    let src = r#"
+        let arr = [1,2,3];
+        arr.get(0)
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::EnumVariant { enum_name, variant, value } => {
+                    assert_eq!(enum_name, "Option".to_string());
+                    assert_eq!(variant, "Some".to_string());
+                    assert_eq!(*value, Value::Int(1));
+                },
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn array_get_failure() {
+    let src = r#"
+        let arr = [];
+        arr.get(0)
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::EnumVariant { enum_name, variant, value } => {
+                    assert_eq!(enum_name, "Option".to_string());
+                    assert_eq!(variant, "None".to_string());
+                    assert_eq!(*value, Value::Void);
+                },
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn string_get_success() {
     let src = r#"
         let str = "hello";
-        str.charAt(0)
+        str.get(0)
     "#;
     
     let res = run_typed(src.to_string());
@@ -202,10 +250,10 @@ fn char_at_success() {
 }
 
 #[test]
-fn char_at_failure() {
+fn string_get_failure() {
     let src = r#"
         let str = "hello";
-        str.charAt(8)
+        str.get(8)
     "#;
     
     let res = run_typed(src.to_string());

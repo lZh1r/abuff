@@ -167,12 +167,16 @@ native type Array<T> impl {
     fun isEmpty(): Bool {
         self.len() == 0
     }
+    
+    /// Returns a value at index if it is within the array's boundaries;
+    /// otherwise, returns None
+    native fun get(index: Int): Option<T>;
 };
 
 native type String impl {
-    /// Returns an Option contatining a char if the provided index is within the string.
-    /// Otherwise returns None.
-    native fun charAt(index: Int): Option<Char>;
+    /// Returns an Option contatining a char if the provided index is within the string;
+    /// otherwise, returns None.
+    native fun get(index: Int): Option<Char>;
     
     /// Returns a reversed copy of a string.
     native fun reverse(): String;
