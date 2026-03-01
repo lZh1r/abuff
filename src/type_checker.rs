@@ -481,43 +481,32 @@ pub fn hoist(
                                         method.span
                                     );
                                     env.add_var_type(name.clone(), fun_type.clone());
+                                    
+                                    let method_info = (
+                                        m.name.clone(),
+                                        (
+                                            fun_type.clone(),
+                                            spanned(
+                                                ir::Expr::NativeFun {
+                                                    name: m.name.clone(),
+                                                    path: path.into(),
+                                                    native_fun,
+                                                },
+                                                method.span,
+                                            ),
+                                        ),
+                                    );
                                     match is_static {
                                         true => {
                                             env.insert_static_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::NativeFun {
-                                                                name: m.name.clone(),
-                                                                path: path.into(),
-                                                                native_fun,
-                                                            },
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info,
                                             );
                                         },
                                         false => {
                                             env.insert_method(
                                                 ti.inner.id(),
-                                                (
-                                                    m.name.clone(),
-                                                    (
-                                                        fun_type.clone(),
-                                                        spanned(
-                                                            ir::Expr::NativeFun {
-                                                                name: m.name.clone(),
-                                                                path: path.into(),
-                                                                native_fun,
-                                                            },
-                                                            method.span,
-                                                        ),
-                                                    ),
-                                                ),
+                                                method_info,
                                             );
                                         },
                                     }
@@ -1992,6 +1981,8 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                 generic_arg_map.insert(p_name, ti);
                             }
                         }
+                    } else if generic_params.len() == 0 {
+                        
                     } else {
                         if generic_params.len() != generic_args.len() {
                             return Err(spanned(
