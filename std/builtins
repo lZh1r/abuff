@@ -205,6 +205,7 @@ native type String impl {
     native fun trim(): String;
 };
 
+/// A charecter type representing a Unicode scalar value
 native type Char impl {
     native fun isAlphabetic(): Bool;
     native fun isNumeric(): Bool;
@@ -222,5 +223,15 @@ native type Char impl {
     native fun isUpperCase(): Bool;
     
     /// Returns a new string containing this char
+    native fun toString(): String;
+};
+
+/// 64 bit integer type
+native type Int impl {
+    native fun toString(): String;
+};
+
+/// 64 bit float type
+native type Float impl {
     native fun toString(): String;
 };

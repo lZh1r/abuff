@@ -369,6 +369,12 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             Value::Char(char) => {
                 Ok(ControlFlow::Value(Value::String(char.to_smolstr())))
             },
+            Value::Int(i) => {
+                Ok(ControlFlow::Value(Value::String(i.to_smolstr())))
+            },
+            Value::Float(f) => {
+                Ok(ControlFlow::Value(Value::String(f.to_smolstr())))
+            }
             _ => Err(Spanned {
                 inner: format_smolstr!("{this:?} is not a char"),
                 span: Span::from(0..0)

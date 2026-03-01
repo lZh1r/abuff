@@ -441,9 +441,9 @@ fn char_is_checks() {
 }
 
 #[test]
-fn char_to_string() {
+fn to_string() {
     let src = r#"
-        'h'.toString()
+        'h'.toString() + 3.toString() + 4.4.toString()
     "#;
     
     let res = run_typed(src.to_string());
@@ -451,7 +451,7 @@ fn char_to_string() {
     match res.unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::String(s) => assert_eq!(s, "h"),
+                Value::String(s) => assert_eq!(s, "h34.4"),
                 _ => panic!()
             }
         }
