@@ -363,7 +363,18 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
-
+    register_fun(BUILTINS_PATH, "toString", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Char(char) => {
+                Ok(ControlFlow::Value(Value::String(char.to_smolstr())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a char"),
+                span: Span::from(0..0)
+            })
+        }
+    });
     
     register_fun(BUILTINS_PATH, "get", |(args, this)| {
         if args.len() != 1 {
@@ -485,47 +496,6 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
-    register_fun(BUILTINS_PATH, "charAt", |(args, this)| {
-        if args.len() != 1 {
-            return Err(Spanned {
-                inner: format!("Expected 1 argument, got {}", args.len()).into(),
-                span: Span::from(0..0)
-            })
-        }
-        let this = this.unwrap();
-        match *this {
-            Value::String(s) => {
-                match args.first().unwrap() {
-                    Value::Int(index) => match s.chars().nth(*index as usize) {
-                        Some(c) => Ok(
-                            ControlFlow::Value(
-                                Value::EnumVariant { 
-                                    enum_name: "Option".into(),
-                                    variant: "Some".into(),
-                                    value: Box::new(Value::Char(c))
-                                }
-                            )
-                        ),
-                        None => Ok(
-                            ControlFlow::Value(
-                                Value::EnumVariant { 
-                                    enum_name: "Option".into(),
-                                    variant: "None".into(),
-                                    value: Box::new(Value::Void)
-                                }
-                            )
-                        ),
-                    },
-                    _ => panic!()
-                }
-            },
-            _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
-                span: Span::from(0..0)
-            })
-        }
-    });
-    
     register_fun(BUILTINS_PATH, "startsWith", |(args, this)| {
         if args.len() != 1 {
             return Err(Spanned {
@@ -614,6 +584,84 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             },
             _ => Err(Spanned {
                 inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "isAlphabetic", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Char(char) => {
+                Ok(ControlFlow::Value(Value::Bool(char.is_alphabetic())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a char"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "isNumeric", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Char(char) => {
+                Ok(ControlFlow::Value(Value::Bool(char.is_numeric())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a char"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "isAlphanumeric", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Char(char) => {
+                Ok(ControlFlow::Value(Value::Bool(char.is_alphanumeric())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a char"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "isWhitespace", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Char(char) => {
+                Ok(ControlFlow::Value(Value::Bool(char.is_whitespace())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a char"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "isUpperCase", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Char(char) => {
+                Ok(ControlFlow::Value(Value::Bool(char.is_uppercase())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a char"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "isLowerCase", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Char(char) => {
+                Ok(ControlFlow::Value(Value::Bool(char.is_lowercase())))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a char"),
                 span: Span::from(0..0)
             })
         }

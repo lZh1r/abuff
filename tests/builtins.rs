@@ -414,3 +414,47 @@ fn string_trim() {
         _ => panic!()
     };
 }
+
+#[test]
+fn char_is_checks() {
+    let src = r#"
+        assert('a'.isAlphabetic() && !'2'.isAlphabetic(), "isAlphabetic is broken!");
+        assert('b'.isAlphanumeric() && '2'.isAlphanumeric() && !'!'.isAlphanumeric(), "isAlphanumeric is broken!");
+        assert('9'.isNumeric() && !'c'.isNumeric(), "isNumeric is broken!");
+        assert('z'.isLowerCase() && !'G'.isLowerCase(), "isLowerCase is broken!");
+        assert('L'.isUpperCase() && !'a'.isUpperCase(), "isUpperCase is broken!");
+        assert(!'c'.isWhitespace(), "isWhitespace is broken!");
+        ' '.isWhitespace()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Bool(a) => assert_eq!(a, true),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn char_to_string() {
+    let src = r#"
+        'h'.toString()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "h"),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

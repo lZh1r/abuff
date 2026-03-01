@@ -204,3 +204,23 @@ native type String impl {
     /// Returns a copy of a string with all leading and trailing whitespaces removed.
     native fun trim(): String;
 };
+
+native type Char impl {
+    native fun isAlphabetic(): Bool;
+    native fun isNumeric(): Bool;
+    
+    /// Checks whether the char is either alphabetic or numeric
+    native fun isAlphanumeric(): Bool;
+    
+    /// Checks whether the char is a whitespace
+    native fun isWhitespace(): Bool;
+    
+    /// Checks wheter the char is lowercase
+    native fun isLowerCase(): Bool;
+    
+    /// Checks wheter the char is uppercase
+    native fun isUpperCase(): Bool;
+    
+    /// Returns a new string containing this char
+    native fun toString(): String;
+};
