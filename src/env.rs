@@ -673,6 +673,142 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
+    register_fun(BUILTINS_PATH, "abs", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Int(i) => {
+                Ok(ControlFlow::Value(Value::Int(i.abs())))
+            },
+            Value::Float(f) => {
+                Ok(ControlFlow::Value(Value::Float(f.abs())))
+            }
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a number"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "clamp", |(args, this)| {
+        if args.len() != 2 {panic!()}
+        let this = this.unwrap();
+        match *this {
+            Value::Int(i) => {
+                match (args.first().unwrap(), args.last().unwrap()) {
+                    (Value::Int(min), Value::Int(max)) => {
+                        Ok(ControlFlow::Value(Value::Int(i.clamp(*min, *max))))
+                    }
+                    _ => panic!()
+                }
+            },
+            Value::Float(f) => {
+                match (args.first().unwrap(), args.last().unwrap()) {
+                    (Value::Float(min), Value::Float(max)) => {
+                        Ok(ControlFlow::Value(Value::Float(f.clamp(*min, *max))))
+                    }
+                    _ => panic!()
+                }
+            }
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a float"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "max", |(args, this)| {
+        if args.len() != 1 {panic!()}
+        let this = this.unwrap();
+        match *this {
+            Value::Int(i) => {
+                match args.first().unwrap() {
+                    Value::Int(another) => {
+                        Ok(ControlFlow::Value(Value::Int(i.max(*another))))
+                    }
+                    _ => panic!()
+                }
+            },
+            Value::Float(f) => {
+                match args.first().unwrap() {
+                    Value::Float(another) => {
+                        Ok(ControlFlow::Value(Value::Float(f.max(*another))))
+                    }
+                    _ => panic!()
+                }
+            }
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a float"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "min", |(args, this)| {
+        if args.len() != 1 {panic!()}
+        let this = this.unwrap();
+        match *this {
+            Value::Int(i) => {
+                match args.first().unwrap() {
+                    Value::Int(another) => {
+                        Ok(ControlFlow::Value(Value::Int(i.min(*another))))
+                    }
+                    _ => panic!()
+                }
+            },
+            Value::Float(f) => {
+                match args.first().unwrap() {
+                    Value::Float(another) => {
+                        Ok(ControlFlow::Value(Value::Float(f.min(*another))))
+                    }
+                    _ => panic!()
+                }
+            }
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a float"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "round", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Float(f) => {
+                Ok(ControlFlow::Value(Value::Float(f.round())))
+            }
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a float"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "floor", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Float(f) => {
+                Ok(ControlFlow::Value(Value::Float(f.floor())))
+            }
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a float"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
+    register_fun(BUILTINS_PATH, "ceil", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Float(f) => {
+                Ok(ControlFlow::Value(Value::Float(f.ceil())))
+            }
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a float"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
     let registry = GlobalRegistry;
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),

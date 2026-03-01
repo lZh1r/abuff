@@ -229,9 +229,27 @@ native type Char impl {
 /// 64 bit integer type
 native type Int impl {
     native fun toString(): String;
+    
+    native fun abs(): Int;
+    
+    native fun clamp(min: Int, max: Int): Int;
+    
+    native fun max(another: Int): Int;
+    native fun min(another: Int): Int;
 };
 
 /// 64 bit float type
 native type Float impl {
     native fun toString(): String;
+    
+    native fun abs(): Float;
+    
+    native fun clamp(min: Float, max: Float): Float;
+    
+    native fun max(another: Float): Float;
+    native fun min(another: Float): Float;
+    
+    native fun round(): Float;
+    native fun floor(): Float;
+    native fun ceil(): Float;
 };

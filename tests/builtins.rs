@@ -458,3 +458,60 @@ fn to_string() {
         _ => panic!()
     };
 }
+
+#[test]
+fn float_rounding() {
+    let src = r#"
+        (-9.0).abs() + 2.6.round() + 1.7.floor() + (-2.8).ceil()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Float(f) => assert_eq!(f, 11.0),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn float_max_min() {
+    let src = r#"
+        (8.2.max(4.0) + (-90.6).clamp(1.6, 999999.0) + 912.0.min(0.2)).round()
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Float(f) => assert_eq!(f, 10.0),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn int_max_min() {
+    let src = r#"
+        8.max(4) + (-90).clamp(1, 999999) + 912.min(1)
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 10),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
