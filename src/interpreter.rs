@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use smol_str::{SmolStr, ToSmolStr};
+use smol_str::{SmolStr, ToSmolStr, format_smolstr};
 
 use crate::{ast::Spanned, ast::Operation, env::Env, ir::{ControlFlow, Expr, MatchArm, Statement, Value}};
 
@@ -11,7 +11,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         Expr::Var(v) => {
             let result = env.get(v);
             match result {
-                Some(value) => Ok(ControlFlow::Value(value)),
+                Some(value) => Ok(ControlFlow::Value(value.0)),
                 _ => Err(Spanned {
                     inner: format!("Runtime error: Cannot resolve {v}").into(),
                     span: expr.span
@@ -80,14 +80,25 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                         ControlFlow::Value(v) => v,
                         cf => return Ok(cf),
                     };
-                    env.set_variable(v.clone(), new_value);
+                    match env.set_variable(v.clone(), new_value) {
+                        Ok(_) => (),
+                        Err(e) => return Err(Spanned { inner: e, span: target.span }),
+                    };
                     Ok(ControlFlow::Value(Value::Void))
                 },
                 Expr::Index(target, index) => {
                     match &target.inner {
                         Expr::Var(var) => {
                             match env.get(var) {
-                                Some(v) => {
+                                Some((v, mutable)) => {
+                                    if !mutable {
+                                        return Err(
+                                            Spanned { 
+                                                inner: format_smolstr!("Runtime Error: Variable {var} is not mutable"), 
+                                                span: target.span
+                                            }
+                                        )
+                                    }
                                     match v {
                                         Value::Array(elements) => {
                                             let index = match eval_expr(index, env)? {
@@ -116,7 +127,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                                 ControlFlow::Return(v) | ControlFlow::Value(v) => {
                                                     let mut new_array = elements.clone();
                                                     new_array[index] = v;
-                                                    env.set_variable(var.clone(), Value::Array(new_array));
+                                                    env.set_variable(var.clone(), Value::Array(new_array)).unwrap();
                                                     Ok(ControlFlow::Value(Value::Void))
                                                 }
                                                 _ => Err(Spanned {
@@ -328,7 +339,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         },
         Expr::EnumConstructor { enum_name, variant, value } => {
             match env.get(enum_name) {
-                Some(v) => match v {
+                Some((v, _)) => match v {
                     Value::Record(hash_map) => {
                         match hash_map.get(variant) {
                             Some(_) => Ok(ControlFlow::Value(Value::EnumVariant { 
@@ -371,7 +382,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 match &pattern.inner {
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.clone();
-                        inner_env.add_variable(alias.clone(), target.inner.clone());
+                        inner_env.add_variable(alias.clone(), target.inner.clone(), false);
 
                         match eval_expr(condition, &mut inner_env)? {
                             ControlFlow::Value(Value::Bool(true)) => {
@@ -407,7 +418,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     },
                     MatchArm::Default(alias) => {
                         let mut inner_env = env.clone();
-                        inner_env.add_variable(alias.clone(), target.inner.clone());
+                        inner_env.add_variable(alias.clone(), target.inner.clone(), false);
                         Ok(Some(eval_expr(outcome, &mut inner_env)?))
                     },
                     MatchArm::EnumConstructor { enum_name, variant, alias } => {
@@ -415,7 +426,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             Value::EnumVariant { enum_name: target_enum, variant: target_variant, value } => {
                                 if enum_name == target_enum && variant == target_variant {
                                     let mut inner_env = env.clone();
-                                    inner_env.add_variable(alias.clone(), *value.clone());
+                                    inner_env.add_variable(alias.clone(), *value.clone(), false);
                                     Ok(Some(eval_expr(outcome, &mut inner_env)?))
                                 } else {
                                     Ok(None)
@@ -456,7 +467,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     span: this.span
                 })
             };
-            method_scope.add_variable("self".to_smolstr(), value);
+            method_scope.add_variable("self".to_smolstr(), value, false);
             eval_expr(fun, &mut method_scope)
         },
         Expr::NativeMethod { this, native_fun, name, path } => {
@@ -500,9 +511,9 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
     let mut new_scope = env.enter_scope();
     for statement in stmts {
         match &statement.inner {
-            Statement::Let { name, expr } => {
+            Statement::Let { name, expr, mutable } => {
                 match eval_expr(expr, &mut new_scope)? {
-                    ControlFlow::Value(v) => new_scope.add_variable(name.clone(), v),
+                    ControlFlow::Value(v) => new_scope.add_variable(name.clone(), v, mutable.clone()),
                     cf => return Ok(cf),
                 }
             },
@@ -543,17 +554,21 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                         if param.last().unwrap().0 {
                             for ((is_spread, name), arg) in param.iter().zip(args.iter()) {
                                 if *is_spread {break}
-                                new_scope.add_variable(name.clone(), arg.clone());
+                                new_scope.add_variable(name.clone(), arg.clone(), false);
                             }
                             let spread_args = &args[param.len() - 1..];
                             let mut zipped_args = Vec::new();
                             for a in spread_args {
                                 zipped_args.push(a.clone());
                             }
-                            new_scope.add_variable(param.last().unwrap().1.clone(), Value::Array(zipped_args));
+                            new_scope.add_variable(
+                                param.last().unwrap().1.clone(),
+                                Value::Array(zipped_args), 
+                                false
+                            );
                         } else {
                             for ((_, name), arg) in param.iter().zip(args.iter()) {
-                                new_scope.add_variable(name.clone(), arg.clone());
+                                new_scope.add_variable(name.clone(), arg.clone(), false);
                             }
                         }
                     }

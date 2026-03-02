@@ -248,7 +248,12 @@ pub struct NativeMethod {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    Let {name: SmolStr, expr: Spanned<Expr>, type_info: Option<Spanned<TypeInfo>>},
+    Let {
+        name: SmolStr, 
+        expr: Spanned<Expr>,
+        type_info: Option<Spanned<TypeInfo>>,
+        mutable: bool
+    },
     TypeDef {
         name: SmolStr, 
         type_info: Spanned<TypeInfo>,

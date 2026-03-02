@@ -6,7 +6,7 @@ use crate::{ast::{Span, Spanned, TypeInfo, TypeKind}, error::build_report, ir::{
 
 #[derive(Debug, Clone)]
 pub struct Scope {
-    values: HashMap<SmolStr, Value>,
+    values: HashMap<SmolStr, (Value, bool)>,
     parent: Option<Env>,
 }
 
@@ -21,7 +21,7 @@ impl Env {
         })))
     }
     
-    pub fn get(&self, name: &str) -> Option<Value> {
+    pub fn get(&self, name: &str) -> Option<(Value, bool)> {
         let scope = self.0.read().unwrap();
         
         if let Some(val) = scope.values.get(name) {
@@ -43,21 +43,24 @@ impl Env {
         )
     }
     
-    pub fn add_variable(&mut self, name: SmolStr, value: Value) -> () {
-        self.0.write().unwrap().values.insert(name, value);
+    pub fn add_variable(&mut self, name: SmolStr, value: Value, mutable: bool) -> () {
+        self.0.write().unwrap().values.insert(name, (value, mutable));
     }
     
-    pub fn set_variable(&mut self, name: SmolStr, value: Value) -> Option<()> {
+    pub fn set_variable(&mut self, name: SmolStr, value: Value) -> Result<(), SmolStr> {
         let mut scope = self.0.write().unwrap();
         
-        if let Some(_) = scope.values.get(&name) {
-            scope.values.insert(name, value);
-            return Some(());
+        if let Some(val) = scope.values.get(&name) {
+            if !val.1 {
+                return Err(format_smolstr!("Variable {name} is not mutable"))
+            }
+            scope.values.insert(name, (value, true));
+            return Ok(());
         }
         
         match &mut scope.parent {
             Some(parent) => parent.set_variable(name, value),
-            None => None
+            None => panic!()
         }
     }
     
@@ -78,7 +81,7 @@ pub struct MethodInfo {
 
 #[derive(Debug, Clone)]
 pub struct TypeScope {
-    variable_types: HashMap<SmolStr, Spanned<TypeInfo>>,
+    variable_types: HashMap<SmolStr, (Spanned<TypeInfo>, bool)>,
     custom_types: HashMap<SmolStr, Spanned<TypeInfo>>,
     parent: Option<TypeEnv>,
     interface_implementations: HashMap<SmolStr, HashSet<u32>>, //interface name - typesthat implement it
@@ -102,11 +105,8 @@ impl TypeEnv {
         })))
     }
     
-    pub fn get_var_type(&self, name: &str) -> Option<Spanned<TypeInfo>> {
+    pub fn get_var_type(&self, name: &str) -> Option<(Spanned<TypeInfo>, bool)> {
         let scope = self.0.read().unwrap();
-        
-        // println!("Resolving type of {name}");
-        // println!("Scope var types: {}", scope.variable_types.keys());
         
         if let Some(type_info) = scope.variable_types.get(name) {
             return Some(type_info.clone());
@@ -144,8 +144,8 @@ impl TypeEnv {
         )
     }
     
-    pub fn add_var_type(&mut self, name: SmolStr, type_info: Spanned<TypeInfo>) -> () {
-        self.0.write().unwrap().variable_types.insert(name, type_info);
+    pub fn add_var_type(&mut self, name: SmolStr, type_info: Spanned<TypeInfo>, mutable: bool) -> () {
+        self.0.write().unwrap().variable_types.insert(name, (type_info, mutable));
     }
     
     pub fn add_custom_type(&mut self, name: SmolStr, type_info: Spanned<TypeInfo>) -> () {

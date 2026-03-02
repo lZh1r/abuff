@@ -81,8 +81,8 @@ fn test_comment_handling() {
 #[test]
 fn test_factorial() {
     let src = r#"
-        let n = 5;
-        let acc = 1;
+        let mut n = 5;
+        let mut acc = 1;
         while (n > 0) {
             acc = acc * n;
             n = n - 1;
@@ -145,7 +145,7 @@ fn test_array_indexing() {
 #[test]
 fn test_array_mutation() {
     let src = r#"
-        let a = [ 1 , 2 , 3 ];
+        let mut a = [ 1 , 2 , 3 ];
         a[2] = 4;
         a[2]
     "#;

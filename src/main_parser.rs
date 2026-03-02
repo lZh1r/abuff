@@ -197,6 +197,10 @@ impl<'a> Parser<'a> {
     
     fn let_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume let
+        let mutable = if self.check(&Token::Mut) {
+            self.advance();
+            true
+        } else {false};
         if self.peek().is_none() {
             return Err(spanned("Unexpected EOF in let declaration".into(), start_span))
         }
@@ -227,7 +231,7 @@ impl<'a> Parser<'a> {
         };
         
         Ok(spanned(
-            Statement::Let { name: var_name, expr: var_expr, type_info: var_type },
+            Statement::Let { name: var_name, expr: var_expr, type_info: var_type, mutable },
             Span::from(start_span.start..end_span.end)
         ))
     }

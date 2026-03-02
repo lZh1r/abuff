@@ -11,6 +11,9 @@ use crate::ast::{Span, Spanned};
 pub enum Token {
     #[token("let")]
     Let,
+    
+    #[token("mut")]
+    Mut,
         
     #[token("fun")]
     Fun,

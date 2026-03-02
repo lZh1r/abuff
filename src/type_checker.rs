@@ -270,7 +270,7 @@ pub fn hoist(
                                 }
                                 let mut inner_scope = interface_env.enter_scope();
                                 if !is_static {
-                                    inner_scope.add_var_type("self".into(), ti.clone());
+                                    inner_scope.add_var_type("self".into(), ti.clone(), false);
                                 }
         
                                 let expected_type = m
@@ -307,11 +307,11 @@ pub fn hoist(
                                     for (n, p_type) in &m.params {
                                         let flattened =
                                             flatten_type(p_type, &mut inner_scope)?.into_owned();
-                                        inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                                        inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
                                         flat_params.push((n.clone(), flattened));
                                     }
                                     let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                                    inner_scope.add_var_type("+return".into(), expected_type.clone(), false);
                                     inner_scope.add_var_type(
                                         m.name.clone(),
                                         spanned(
@@ -322,6 +322,7 @@ pub fn hoist(
                                             }),
                                             ti.span.clone(),
                                         ),
+                                        false
                                     );
         
                                     let method_result = lower_expr(&m.body, &mut inner_scope)?;
@@ -394,13 +395,13 @@ pub fn hoist(
                                     for (n, p_type) in &m.params {
                                         let flattened =
                                             flatten_type(p_type, &mut inner_scope)?.into_owned();
-                                        inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                                        inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
                                         flat_params.push((n.clone(), flattened));
                                     }
         
                                     let expected_flat =
                                         flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+                                    inner_scope.add_var_type("+return".into(), expected_flat.clone(), false);
                                     
                                     inner_scope.add_var_type(
                                         name.clone(),
@@ -412,6 +413,7 @@ pub fn hoist(
                                             }),
                                             ti.span.clone(),
                                         ),
+                                        false
                                     );
         
                                     let method_result = lower_expr(&m.body, &mut inner_scope)?;
@@ -528,7 +530,7 @@ pub fn hoist(
                                         }),
                                         method.span
                                     );
-                                    env.add_var_type(name.clone(), fun_type.clone());
+                                    env.add_var_type(name.clone(), fun_type.clone(), false);
                                     
                                     let method_info = (
                                         m.name.clone(),
@@ -590,7 +592,7 @@ pub fn hoist(
                                         }),
                                         method.span
                                     );
-                                    env.add_var_type(name.clone(), fun_type.clone());
+                                    env.add_var_type(name.clone(), fun_type.clone(), false);
                                     
                                     let method_info = (
                                         m.name.clone(),
@@ -657,7 +659,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
     Spanned<SmolStr>
 > {
     match &statement.inner {
-        Statement::Let { name, expr, type_info } => {
+        Statement::Let { name, expr, type_info, mutable } => {
             let expr_result = lower_expr(expr, env)?;
             let expected_type = if let Some(ti) = type_info {
                 let expected_type = flatten_type(ti, env)?;
@@ -675,7 +677,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             } else {
                 expr_result.1.clone()
             };
-            env.add_var_type(name.clone(), expected_type.clone());
+            env.add_var_type(name.clone(), expected_type.clone(), mutable.clone());
             Ok(LoweringResult { 
                 name: Some(name.clone()),
                 var_type: Some(expected_type), 
@@ -684,7 +686,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 lowered_statement: Some(spanned(
                     ir::Statement::Let { 
                         name: name.clone(),
-                        expr: expr_result.0
+                        expr: expr_result.0,
+                        mutable: mutable.clone()
                     },
                     statement.span
                 ))
@@ -743,11 +746,11 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
                     let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
-                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
                     flat_params.push((n.clone(), flattened))
                 }
                 let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone(), false);
                 inner_scope.add_var_type(
                     name.clone(),
                     spanned(
@@ -757,7 +760,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             generic_params: generic_params.clone()
                         }),
                         statement.span
-                    )
+                    ),
+                    false
                 );
                 let body_result = lower_expr(body, &mut inner_scope)?;
                 if body_result.1.inner != expected_type.inner {
@@ -780,7 +784,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     ),
                     statement.span
                 );
-                env.add_var_type(name.clone(), fun_type.clone());
+                env.add_var_type(name.clone(), fun_type.clone(), false);
                 Ok(LoweringResult { 
                     name: Some(name.clone()),
                     var_type: Some(fun_type), 
@@ -795,7 +799,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                     body: Box::new(body_result.0)
                                 },
                                 body.span
-                            )
+                            ),
+                            mutable: false
                         }, 
                         statement.span
                     ))
@@ -816,12 +821,12 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 let mut flat_params = Vec::new();
                 for (n, p_type) in params {
                     let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
                     flat_params.push((n.clone(), flattened));
                 }
 
                 let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+                inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone(), false);
 
                 let fun_type = spanned(
                     TypeInfo::new(TypeKind::Fun {
@@ -834,7 +839,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
 
                 inner_scope.add_var_type(
                     name.clone(),
-                    fun_type.clone()
+                    fun_type.clone(),
+                    false
                 );
 
                 let body_result = lower_expr(body, &mut inner_scope)?;
@@ -848,7 +854,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         expected_flat.span
                     ))
                 }
-                env.add_var_type(name.clone(), fun_type.clone());
+                env.add_var_type(name.clone(), fun_type.clone(), false);
                 Ok(LoweringResult { 
                     name: Some(name.clone()),
                     var_type: Some(fun_type), 
@@ -863,7 +869,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                     body: Box::new(body_result.0)
                                 },
                                 body.span
-                            )
+                            ),
+                            mutable: false
                         }, 
                         statement.span
                     ))
@@ -896,7 +903,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     }),
                     statement.span
                 );
-                env.add_var_type(name.clone(), fun_type.clone());
+                env.add_var_type(name.clone(), fun_type.clone(), false);
                 Ok(LoweringResult { 
                     name: Some(name.clone()),
                     var_type: Some(fun_type), 
@@ -937,7 +944,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     }),
                     statement.span
                 );
-                env.add_var_type(name.clone(), fun_type.clone());
+                env.add_var_type(name.clone(), fun_type.clone(), false);
                 Ok(LoweringResult { 
                     name: Some(name.clone()),
                     var_type: Some(fun_type), 
@@ -1090,7 +1097,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             );
     
             env.add_custom_type(name.clone(), enum_type.clone());
-            env.add_var_type(name.clone(), enum_var.clone());
+            env.add_var_type(name.clone(), enum_var.clone(), false);
     
             Ok(LoweringResult { 
                 name: Some(name.clone()),
@@ -1103,7 +1110,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         expr: Spanned {
                             inner: ir::Expr::Record(record_exprs),
                             span: statement.span
-                        }
+                        },
+                        mutable: false
                     },
                     statement.span
                 ))
@@ -1129,7 +1137,8 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         }
                         env.add_var_type(
                             alias.clone().unwrap_or(symbol.inner.clone()),
-                            var_type.unwrap().clone()
+                            var_type.unwrap().clone(),
+                            false
                         );
                     },
                     true => {
@@ -1647,7 +1656,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             };
             Ok((
                 spanned(ir::Expr::Var(name.clone()), expr.span),
-                var_type
+                var_type.0
             ))
         },
         Expr::Array(spanneds) => {
@@ -1985,12 +1994,12 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 let mut lower_params = Vec::new();
                 for (n, p_type) in params {
                     let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
                     flat_params.push((n.clone(), flattened));
                     lower_params.push(n.clone());
                 }
                 let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone());
+                inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone(), false);
                 let body_result = lower_expr(body, &mut inner_scope)?;
                 let actual_type = flatten_type(&body_result.1, env)?;
                 if actual_type.inner != expected_type.inner {
@@ -2024,13 +2033,13 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 let mut lower_params = Vec::new();
                 for (n, p_type) in params {
                     let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-                    inner_scope.add_var_type(n.1.clone(), flattened.clone());
+                    inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
                     flat_params.push((n.clone(), flattened));
                     lower_params.push(n.clone());
                 }
 
                 let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
-                inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone());
+                inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone(), false);
                 let body_result = lower_expr(body, &mut inner_scope)?;
                 if body_result.1.inner != expected_flat.inner {
                     return Err(spanned(
@@ -2309,19 +2318,37 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     value.span
                 ))
             }
-            Ok((
-                spanned(
-                    ir::Expr::Assign {
-                        target: Box::new(target_result.0),
-                        value: Box::new(value_result.0)
-                    },
-                    expr.span.clone()
-                ),
-                spanned(
-                    TypeInfo::void(),
-                    expr.span
-                )
-            ))
+            match &target_result.0.inner {
+                ir::Expr::Var(var) => {
+                    if !env.get_var_type(var).unwrap().1 {
+                        return Err(spanned(
+                            format_smolstr!("Variable {var} is not mutable"),
+                            target.span
+                        ))
+                    }
+                    Ok((
+                        spanned(
+                            ir::Expr::Assign {
+                                target: Box::new(target_result.0),
+                                value: Box::new(value_result.0)
+                            },
+                            expr.span.clone()
+                        ),
+                        spanned(
+                            TypeInfo::void(),
+                            expr.span
+                        )
+                    ))
+                },
+                ir::Expr::Index(target, value) => {
+                    todo!()
+                },
+                t => Err(Spanned {
+                    inner: format_smolstr!("Cannot assign to {t:?}"),
+                    span: target_result.0.span
+                })
+            }
+            
         },
         Expr::Unary(unary_op, e) => {
             let expr_result = lower_expr(e, env)?;
@@ -2467,10 +2494,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 match &pattern.inner {
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.enter_scope();
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            target.clone(),
-                            Span::from(0..0)
-                        ));
+                        inner_env.add_var_type(
+                            alias.clone(),
+                            spanned(
+                                target.clone(),
+                                Span::from(0..0)
+                            ),
+                            false
+                        );
                         let cond_result = lower_expr(condition, &mut inner_env)?;
                         match cond_result.1.inner.kind() {
                             TypeKind::Bool => (),
@@ -2506,10 +2537,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     },
                     MatchArm::Default(alias) => {
                         let mut inner_env = env.enter_scope();
-                        inner_env.add_var_type(alias.clone(), spanned(
-                            target.clone(),
-                            Span::from(0..0)
-                        ));
+                        inner_env.add_var_type(
+                            alias.clone(),
+                            spanned(
+                                target.clone(),
+                                Span::from(0..0)
+                            ),
+                            false
+                        );
                         let branch_result = lower_expr(branch, &mut inner_env)?;
                         let lowered_pattern = spanned(
                             ir::MatchArm::Default(alias.clone()),
@@ -2581,6 +2616,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         inner_env.add_var_type(
                             alias.clone(),
                             spanned(TypeInfo::new_with_id(kind, enum_type_id), Span::from(0..0)),
+                            false
                         );
 
                         let branch_result = lower_expr(branch, &mut inner_env)?;
@@ -2638,6 +2674,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                     inner_scope.add_var_type(
                                         alias.clone(),
                                         substitute_generic_params(&resolved_type, &generic_map),
+                                        false
                                     );
 
                                     let branch_result = lower_expr(branch, &mut inner_scope)?;
