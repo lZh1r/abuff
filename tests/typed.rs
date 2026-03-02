@@ -173,7 +173,10 @@ fn test_spread_params() {
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::Array(i) => assert_eq!(i, vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+                Value::Array(i) => assert_eq!(
+                    i.read().unwrap().clone(),
+                    vec![Value::Int(1), Value::Int(2), Value::Int(3)]
+                ),
                 _ => panic!()
             }
         }

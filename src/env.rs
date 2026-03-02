@@ -289,7 +289,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
     
     register_fun(BUILTINS_PATH, "len", |(_, this)| {
         match *this.unwrap() {
-            Value::Array(a) => Ok(ControlFlow::Value(Value::Int(a.len() as i64))),
+            Value::Array(a) => Ok(ControlFlow::Value(Value::Int(a.read().unwrap().len() as i64))),
             Value::String(s) => Ok(ControlFlow::Value(Value::Int(s.len() as i64))),
             v => Err(Spanned {
                 inner: format!("Cannot measure length of {v}").into(),
@@ -322,7 +322,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                         Ok(ControlFlow::Value(Value::EnumVariant{
                             enum_name: "Result".into(),
                             variant: "Err".into(),
-                            value: Box::new(Value::Record(map))
+                            value: Box::new(Value::Record(Arc::new(RwLock::new(map))))
                         }))
                     }
                 }
@@ -354,7 +354,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             },
             Value::Array(a) => {
-                Ok(ControlFlow::Value(Value::Bool(a.contains(args.first().unwrap()))))
+                Ok(ControlFlow::Value(Value::Bool(a.read().unwrap().contains(args.first().unwrap()))))
             },
             _ => Err(Spanned {
                 inner: format_smolstr!("{this} is not a string"),
@@ -385,7 +385,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                         Ok(ControlFlow::Value(Value::EnumVariant{
                             enum_name: "Result".into(),
                             variant: "Err".into(),
-                            value: Box::new(Value::Record(map))
+                            value: Box::new(Value::Record(Arc::new(RwLock::new(map))))
                         }))
                     }
                 }
@@ -456,7 +456,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             },
             Value::Array(a) => {
-                match a.get(*index as usize) {
+                match a.read().unwrap().get(*index as usize) {
                     Some(v) => Ok(
                         ControlFlow::Value(
                             Value::EnumVariant { 
@@ -488,10 +488,10 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         let val = this.unwrap();
         match *val {
             Value::Array(ref a) => {
-                if a.len() == 0 {
+                if a.read().unwrap().len() == 0 {
                     return Ok(ControlFlow::Value(*val.clone()))
                 }
-                let mut array = a.clone();
+                let mut array = a.read().unwrap().clone();
                 array.sort_by(|a, b| {
                     match (a,b) {
                         (Value::Int(a), Value::Int(b)) => {
@@ -510,7 +510,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                     }
                 });
                 
-                return Ok(ControlFlow::Value(Value::Array(array)))
+                return Ok(ControlFlow::Value(Value::Array(Arc::new(RwLock::new(array)))))
             },
             v => Err(Spanned {
                 inner: format!("Cannot sort {v}").into(),
@@ -523,12 +523,12 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         let val = this.unwrap();
         match *val {
             Value::Array(ref a) => {
-                if a.len() == 0 {
+                if a.read().unwrap().len() == 0 {
                     return Ok(ControlFlow::Value(*val.clone()))
                 }
-                let mut array = a.clone();
+                let mut array = a.read().unwrap().clone();
                 array.reverse();
-                return Ok(ControlFlow::Value(Value::Array(array)))
+                return Ok(ControlFlow::Value(Value::Array(Arc::new(RwLock::new(array)))))
             },
             Value::String(s) => {
                 return Ok(ControlFlow::Value(Value::String(s.chars().rev().collect::<SmolStr>())))

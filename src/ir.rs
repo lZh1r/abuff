@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashMap};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smol_str::SmolStr;
 
@@ -76,8 +76,8 @@ pub enum Value {
     Bool(bool),
     String(SmolStr),
     Char(char),
-    Array(Vec<Value>),
-    Record(HashMap<SmolStr, Value>), 
+    Array(Arc<RwLock<Vec<Value>>>),
+    Record(Arc<RwLock<HashMap<SmolStr, Value>>>), 
     Closure { params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>, env: Env },
     NativeFun {path: SmolStr, name: SmolStr, pointer: NativeFun, this: Option<Box<Value>>},
     Null,
@@ -95,6 +95,7 @@ impl fmt::Display for Value {
             Value::String(s) => write!(f, "\"{s}\""),
             Value::Char(c) => write!(f, "{c}"),
             Value::Record(hash_map) => {
+                let hash_map = hash_map.read().unwrap();
                 let mut entries: Vec<_> = hash_map.iter().collect();
                 entries.sort_by_key(|(k, _)| *k);
     
@@ -119,7 +120,7 @@ impl fmt::Display for Value {
             Value::Void => write!(f, "void"),
             Value::Array(values) => {
                 write!(f, "[")?;
-                for (i, v) in values.iter().enumerate() {
+                for (i, v) in values.read().unwrap().iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
@@ -138,8 +139,8 @@ impl PartialEq for Value {
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Record(a), Value::Record(b)) => a == b, 
-            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Record(a), Value::Record(b)) => *a.read().unwrap() == *b.read().unwrap(), 
+            (Value::Array(a), Value::Array(b)) => *a.read().unwrap() == *b.read().unwrap(),
             (Value::Char(a), Value::Char(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Void, Value::Void) => true,

@@ -109,7 +109,10 @@ fn sort() {
     match res.unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::Array(a) => assert_eq!(a, vec![Value::Int(1), Value::Int(2)]),
+                Value::Array(a) => assert_eq!(
+                    *a.read().unwrap(),
+                    vec![Value::Int(1), Value::Int(2)]
+                ),
                 _ => panic!()
             }
         }
@@ -129,7 +132,10 @@ fn array_reverse() {
     match res.unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::Array(a) => assert_eq!(a, vec![Value::Int(3), Value::Int(2), Value::Int(1)]),
+                Value::Array(a) => assert_eq!(
+                    *a.read().unwrap(), 
+                    vec![Value::Int(3), Value::Int(2), Value::Int(1)]
+                ),
                 _ => panic!()
             }
         }

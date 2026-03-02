@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smol_str::{SmolStr, ToSmolStr, format_smolstr};
 
@@ -51,16 +51,18 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 };
                 result.insert(field_name.clone(), field_value);
             }
-            Ok(ControlFlow::Value(Value::Record(result)))
+            Ok(ControlFlow::Value(Value::Record(Arc::new(RwLock::new(result)))))
         },
         Expr::Get(record_expr, field_name) => {
             match eval_expr(record_expr, env)? {
                 ControlFlow::Value(v) => match &v {
                     Value::Record(field_map) => {
-                        match field_map.get(field_name) {
+                        match field_map.read().unwrap().get(field_name) {
                             Some(value) => Ok(ControlFlow::Value(value.clone())),
                             None => Err(Spanned {
-                                inner: format!("Runtime error: Property {field_name} does not exist on {v}").into(),
+                                inner: format_smolstr!(
+                                    "Runtime error: Property {field_name} does not exist on {v}"
+                                ),
                                 span: expr.span
                             }),
                         }
@@ -89,91 +91,125 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 Expr::Index(target, index) => {
                     match &target.inner {
                         Expr::Var(var) => {
-                            match env.get(var) {
-                                Some((v, mutable)) => {
-                                    if !mutable {
-                                        return Err(
-                                            Spanned { 
-                                                inner: format_smolstr!("Runtime Error: Variable {var} is not mutable"), 
-                                                span: target.span
-                                            }
-                                        )
-                                    }
-                                    match v {
-                                        Value::Array(elements) => {
-                                            let index = match eval_expr(index, env)? {
-                                                ControlFlow::Value(value) | ControlFlow::Return(value) => {
-                                                    match value {
-                                                        Value::Int(i) => i as usize,
-                                                        _ => return Err(Spanned {
-                                                            inner: format!("Runtime Error: Cannot index by {value}").into(),
-                                                            span: index.span
-                                                        })
-                                                    }
-                                                },
-                                                _ => return Err(Spanned {
-                                                    inner: format!("Runtime Error: Cannot use a control flow statement as an index").into(),
-                                                    span: index.span
-                                                })
-                                            };
-                                            if elements.get(index).is_none() {
-                                                return Err(Spanned {
-                                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", elements.len()).into(),
-                                                    span: target.span
-                                                })
-                                            }
-                                            match eval_expr(value, env)? {
-                                                //TODO: make some rc refcell things to avoid deep copy
-                                                ControlFlow::Return(v) | ControlFlow::Value(v) => {
-                                                    let mut new_array = elements.clone();
-                                                    new_array[index] = v;
-                                                    env.set_variable(var.clone(), Value::Array(new_array)).unwrap();
-                                                    Ok(ControlFlow::Value(Value::Void))
-                                                }
-                                                _ => Err(Spanned {
-                                                    inner: format!("Runtime Error: Cannot assign a control flow statement to a value").into(),
-                                                    span: target.span
-                                                })
-                                            }
-                                        },
-                                        _ => Err(Spanned {
-                                            inner: format!("Runtime Error: Cannot index {v}").into(),
-                                            span: target.span
-                                        })
-                                    }
-                                },
-                                None => Err(Spanned {
+                            let variable = env.get(var);
+                            if variable.is_none() {
+                                return Err(Spanned {
                                     inner: format!("Runtime Error: Cannot resolve {var}").into(),
                                     span: target.span
                                 })
                             }
-                        },
-                        Expr::Array(elements) => {
-                            let index = match eval_expr(index, env)? {
-                                ControlFlow::Value(value) | ControlFlow::Return(value) => {
-                                    match value {
-                                        Value::Int(i) => i as usize,
+                            let (v, mutable) = variable.unwrap();
+                            if !mutable {
+                                return Err(
+                                    Spanned { 
+                                        inner: format_smolstr!(
+                                            "Runtime Error: Variable {var} is not mutable"
+                                        ), 
+                                        span: target.span
+                                    }
+                                )
+                            }
+                            match v {
+                                Value::Array(elements) => {
+                                    let index = match eval_expr(index, env)? {
+                                        ControlFlow::Value(value) | ControlFlow::Return(value) => {
+                                            match value {
+                                                Value::Int(i) => i as usize,
+                                                _ => return Err(Spanned {
+                                                    inner: format!("Runtime Error: Cannot index by {value}").into(),
+                                                    span: index.span
+                                                })
+                                            }
+                                        },
                                         _ => return Err(Spanned {
-                                            inner: format!("Runtime Error: Cannot index by {value}").into(),
+                                            inner: format!("Runtime Error: Cannot use a control flow statement as an index").into(),
                                             span: index.span
+                                        })
+                                    };
+                                    if elements.read().unwrap().get(index).is_none() {
+                                        return Err(Spanned {
+                                            inner: format_smolstr!(
+                                                "Runtime Error: Index {index} is out of bounds for length {}", 
+                                                elements.read().unwrap().len()
+                                            ),
+                                            span: target.span
+                                        })
+                                    }
+                                    match eval_expr(value, env)? {
+                                        ControlFlow::Value(v) => {
+                                            let mut new_array = elements.write().unwrap();
+                                            new_array[index] = v;
+                                            Ok(ControlFlow::Value(Value::Void))
+                                        }
+                                        _ => Err(Spanned {
+                                            inner: format!("Runtime Error: Cannot assign a control flow statement to a value").into(),
+                                            span: target.span
                                         })
                                     }
                                 },
-                                _ => return Err(Spanned {
-                                    inner: format!("Runtime Error: Cannot use a control flow statement as an index").into(),
-                                    span: index.span
-                                })
-                            };
-                            if elements.get(index).is_none() {
-                                return Err(Spanned {
-                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", elements.len()).into(),
+                                _ => Err(Spanned {
+                                    inner: format!("Runtime Error: Cannot index {v}").into(),
                                     span: target.span
                                 })
                             }
-                            Ok(ControlFlow::Value(Value::Void))
                         },
                         _ => Err(Spanned {
                             inner: format!("Runtime Error: Cannot index {:?}", target.inner).into(),
+                            span: target.span
+                        })
+                    }
+                },
+                Expr::Get(target, field) => {
+                    match &target.inner {
+                        Expr::Var(var) => {
+                            let variable = env.get(var);
+                            if variable.is_none() {
+                                return Err(Spanned {
+                                    inner: format!("Runtime Error: Cannot resolve {var}").into(),
+                                    span: target.span
+                                })
+                            }
+                            let (v, mutable) = variable.unwrap();
+                            if !mutable {
+                                return Err(
+                                    Spanned { 
+                                        inner: format_smolstr!(
+                                            "Runtime Error: Variable {var} is not mutable"
+                                        ), 
+                                        span: target.span
+                                    }
+                                )
+                            }
+                            match &v {
+                                Value::Record(record) => {
+                                    if !record.read().unwrap().contains_key(field) {
+                                        return Err(Spanned {
+                                            inner: format_smolstr!(
+                                                "Runtime Error: Record {v} does not have a field {field}",
+                                            ), 
+                                            span: expr.span
+                                        })
+                                    }
+                                    match eval_expr(value, env)? {
+                                        ControlFlow::Value(v) => {
+                                            let mut new_array = record.write().unwrap();
+                                            new_array.insert(field.clone(), v);
+                                            Ok(ControlFlow::Value(Value::Void))
+                                        }
+                                        _ => Err(Spanned {
+                                            inner: format!("Runtime Error: Cannot assign a control flow statement to a value").into(),
+                                            span: target.span
+                                        })
+                                    }
+                                },
+                                _ => Err(Spanned {
+                                    inner: format!("Runtime Error: Cannot access {v}").into(),
+                                    span: target.span
+                                })
+                            }
+                        },
+                        _ => Err(Spanned {
+                            inner: format!("Runtime Error: Cannot access {:?}", target.inner).into(),
                             span: target.span
                         })
                     }
@@ -295,7 +331,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                 }
             }
-            Ok(ControlFlow::Value(Value::Array(values)))
+            Ok(ControlFlow::Value(Value::Array(Arc::new(RwLock::new(values)))))
         },
         Expr::Index(target, index) => {
             match eval_expr(target, env)? {
@@ -317,10 +353,13 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                     span: index.span
                                 })
                             };
-                            match entries.get(index.clone() as usize) {
+                            match entries.read().unwrap().get(index.clone() as usize) {
                                 Some(v) => Ok(ControlFlow::Value(v.clone())),
                                 None => Err(Spanned {
-                                    inner: format!("Runtime Error: Index {index} is out of bounds for length {}", entries.len()).into(),
+                                    inner: format_smolstr!(
+                                        "Runtime Error: Index {index} is out of bounds for length {}",
+                                        entries.read().unwrap().len()
+                                    ),
                                     span: expr.span
                                 }),
                             }
@@ -341,7 +380,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             match env.get(enum_name) {
                 Some((v, _)) => match v {
                     Value::Record(hash_map) => {
-                        match hash_map.get(variant) {
+                        match hash_map.read().unwrap().get(variant) {
                             Some(_) => Ok(ControlFlow::Value(Value::EnumVariant { 
                                 enum_name: enum_name.clone(),
                                 variant: variant.clone(), 
@@ -563,7 +602,7 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                             }
                             new_scope.add_variable(
                                 param.last().unwrap().1.clone(),
-                                Value::Array(zipped_args), 
+                                Value::Array(Arc::new(RwLock::new(zipped_args))), 
                                 false
                             );
                         } else {
