@@ -106,7 +106,7 @@ impl TypeEnv {
         let scope = self.0.read().unwrap();
         
         // println!("Resolving type of {name}");
-        // println!("Scope var types: {:?}", scope.variable_types.keys());
+        // println!("Scope var types: {}", scope.variable_types.keys());
         
         if let Some(type_info) = scope.variable_types.get(name) {
             return Some(type_info.clone());
@@ -357,7 +357,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Bool(a.contains(args.first().unwrap()))))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
+                inner: format_smolstr!("{this} is not a string"),
                 span: Span::from(0..0)
             })
         }
@@ -414,7 +414,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::String(f.to_smolstr())))
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a char"),
+                inner: format_smolstr!("{this} is not a char"),
                 span: Span::from(0..0)
             })
         }
@@ -478,7 +478,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
+                inner: format_smolstr!("{this} is not a string"),
                 span: Span::from(0..0)
             })
         }
@@ -561,7 +561,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
+                inner: format_smolstr!("{this} is not a string"),
                 span: Span::from(0..0)
             })
         }
@@ -588,7 +588,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
+                inner: format_smolstr!("{this} is not a string"),
                 span: Span::from(0..0)
             })
         }
@@ -601,7 +601,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::String(string.to_uppercase_smolstr())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
+                inner: format_smolstr!("{this} is not a string"),
                 span: Span::from(0..0)
             })
         }
@@ -614,7 +614,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::String(string.to_lowercase_smolstr())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
+                inner: format_smolstr!("{this} is not a string"),
                 span: Span::from(0..0)
             })
         }
@@ -627,7 +627,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::String(string.trim().into())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a string"),
+                inner: format_smolstr!("{this} is not a string"),
                 span: Span::from(0..0)
             })
         }
@@ -640,7 +640,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Bool(char.is_alphabetic())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a char"),
+                inner: format_smolstr!("{this} is not a char"),
                 span: Span::from(0..0)
             })
         }
@@ -653,7 +653,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Bool(char.is_numeric())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a char"),
+                inner: format_smolstr!("{this} is not a char"),
                 span: Span::from(0..0)
             })
         }
@@ -666,7 +666,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Bool(char.is_alphanumeric())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a char"),
+                inner: format_smolstr!("{this} is not a char"),
                 span: Span::from(0..0)
             })
         }
@@ -679,7 +679,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Bool(char.is_whitespace())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a char"),
+                inner: format_smolstr!("{this} is not a char"),
                 span: Span::from(0..0)
             })
         }
@@ -692,7 +692,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Bool(char.is_uppercase())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a char"),
+                inner: format_smolstr!("{this} is not a char"),
                 span: Span::from(0..0)
             })
         }
@@ -705,7 +705,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Bool(char.is_lowercase())))
             },
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a char"),
+                inner: format_smolstr!("{this} is not a char"),
                 span: Span::from(0..0)
             })
         }
@@ -721,7 +721,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Float(f.abs())))
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a number"),
+                inner: format_smolstr!("{this} is not a number"),
                 span: Span::from(0..0)
             })
         }
@@ -748,7 +748,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a float"),
+                inner: format_smolstr!("{this} is not a float"),
                 span: Span::from(0..0)
             })
         }
@@ -775,7 +775,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a float"),
+                inner: format_smolstr!("{this} is not a float"),
                 span: Span::from(0..0)
             })
         }
@@ -802,7 +802,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 }
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a float"),
+                inner: format_smolstr!("{this} is not a float"),
                 span: Span::from(0..0)
             })
         }
@@ -815,7 +815,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Float(f.round())))
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a float"),
+                inner: format_smolstr!("{this} is not a float"),
                 span: Span::from(0..0)
             })
         }
@@ -828,7 +828,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Float(f.floor())))
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a float"),
+                inner: format_smolstr!("{this} is not a float"),
                 span: Span::from(0..0)
             })
         }
@@ -841,7 +841,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 Ok(ControlFlow::Value(Value::Float(f.ceil())))
             }
             _ => Err(Spanned {
-                inner: format_smolstr!("{this:?} is not a float"),
+                inner: format_smolstr!("{this} is not a float"),
                 span: Span::from(0..0)
             })
         }

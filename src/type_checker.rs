@@ -328,7 +328,7 @@ pub fn hoist(
                                     if method_result.1.inner != expected_type.inner {
                                         return Err(spanned(
                                             format_smolstr!(
-                                                "Function return type mismatch: expected {:?}, got {:?}",
+                                                "Function return type mismatch: expected {}, got {}",
                                                 expected_type.inner,
                                                 method_result.1.inner
                                             ),
@@ -418,7 +418,7 @@ pub fn hoist(
                                     if method_result.1.inner != expected_flat.inner {
                                         return Err(spanned(
                                             format_smolstr!(
-                                                "Function return type mismatch: expected {:?}, got {:?}",
+                                                "Function return type mismatch: expected {}, got {}",
                                                 expected_flat.inner,
                                                 method_result.1.inner
                                             ),
@@ -664,7 +664,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 if expected_type.inner != expr_result.1.inner {
                     return Err(spanned(
                         format_smolstr!(
-                            "Type mismatch in let declaration: expected {:?}, got {:?}",
+                            "Type mismatch in let declaration: expected {}, got {}",
                             expected_type.inner,
                             expr_result.1.inner
                         ),
@@ -763,7 +763,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 if body_result.1.inner != expected_type.inner {
                     return Err(spanned(
                         format_smolstr!(
-                            "Function return type mismatch: expected {:?}, got {:?}",
+                            "Function return type mismatch: expected {}, got {}",
                             expected_type.inner,
                             body_result.1.inner
                         ),
@@ -841,7 +841,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 if body_result.1.inner != expected_flat.inner {
                     return Err(spanned(
                         format_smolstr!(
-                            "Function return type mismatch: expected {:?}, got {:?}",
+                            "Function return type mismatch: expected {}, got {}",
                             expected_flat.inner,
                             body_result.1.inner
                         ),
@@ -1661,7 +1661,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     } else {
                         return Err(spanned(
                             format_smolstr!(
-                                "Array Element Type Mismatch: Expected {:?}, got {:?}",
+                                "Array Element Type Mismatch: Expected {}, got {}",
                                 expected_type.inner, 
                                 result.1.inner
                             ),
@@ -1686,7 +1686,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 TypeKind::Array(element_type) => {
                     if index_result.1.inner != TypeInfo::int() {
                         return Err(spanned(
-                            format_smolstr!("Cannot use {:?} to index arrays", index_result.1.inner),
+                            format_smolstr!("Cannot use {} to index arrays", index_result.1.inner),
                             index.span
                         ))
                     }
@@ -1702,7 +1702,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     ))
                 },
                 _ => Err(spanned(
-                    format_smolstr!("Cannot index {:?}", target_result.1.inner),
+                    format_smolstr!("Cannot index {}", target_result.1.inner),
                     target.span
                 ))
             }
@@ -1722,7 +1722,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             if left_result.1.inner != right_result.1.inner {
                                 return Err(spanned(
                                     format_smolstr!(
-                                        "Type Mismatch: Expeccted {:?}, got {:?}",
+                                        "Type Mismatch: Expeccted {}, got {}",
                                         left_result.1.inner, 
                                         right_result.1.inner
                                     ), 
@@ -1745,7 +1745,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             ))
                         },
                         _ => return Err(spanned(
-                            format!("Cannot apply {:?} to {:?}", operation, left_result.1.inner).into(), 
+                            format!("Cannot apply {:?} to {}", operation, left_result.1.inner).into(), 
                             left.span
                         ))
                     }
@@ -1759,7 +1759,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             if left_result.1.inner != right_result.1.inner {
                                 return Err(spanned(
                                     format_smolstr!(
-                                        "Type Mismatch: Expeccted {:?}, got {:?}",
+                                        "Type Mismatch: Expeccted {}, got {}",
                                         left_result.1.inner, 
                                         right_result.1.inner
                                     ), 
@@ -1782,7 +1782,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             ))
                         },
                         _ => return Err(spanned(
-                            format!("Cannot apply {:?} to {:?}", operation, left_result.1.inner).into(), 
+                            format!("Cannot apply {:?} to {}", operation, left_result.1.inner).into(), 
                             left.span
                         ))
                     }
@@ -1798,7 +1798,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             if left_result.1.inner != right_result.1.inner {
                                 return Err(spanned(
                                     format_smolstr!(
-                                        "Type Mismatch: Expeccted {:?}, got {:?}",
+                                        "Type Mismatch: Expeccted {}, got {}",
                                         left_result.1.inner, 
                                         right_result.1.inner
                                     ), 
@@ -1821,7 +1821,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             ))
                         },
                         _ => return Err(spanned(
-                            format_smolstr!("Cannot apply {:?} to {:?}", operation, left_result.1.inner), 
+                            format_smolstr!("Cannot apply {:?} to {}", operation, left_result.1.inner), 
                             left.span
                         ))
                     }
@@ -1830,7 +1830,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     if left_result.1.inner != right_result.1.inner {
                         return Err(spanned(
                             format_smolstr!(
-                                "Cannot compare {:?} to {:?}", 
+                                "Cannot compare {} to {}", 
                                 left_result.1.inner, 
                                 right_result.1.inner
                             ),
@@ -1870,7 +1870,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         )),
                         (a, b) => Err(spanned(
                             format_smolstr!(
-                                "{:?} requires both sides to be Bool, got: {:?}, {:?}", 
+                                "{:?} requires both sides to be Bool, got: {}, {}", 
                                 operation, 
                                 a, 
                                 b
@@ -1917,7 +1917,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             if left_result.1.inner != right_result.1.inner {
                                 return Err(spanned(
                                     format_smolstr!(
-                                        "Type Mismatch: Expected {:?}, got {:?}",
+                                        "Type Mismatch: Expected {}, got {}",
                                         left_result.1.inner,
                                         right_result.1.inner
                                     ), 
@@ -1941,7 +1941,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         },
                         _ => return Err(spanned(
                             format_smolstr!(
-                                "Cannot apply {:?} to {:?}", 
+                                "Cannot apply {:?} to {}", 
                                 operation, 
                                 left_result.1.inner
                             ), 
@@ -1995,7 +1995,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 let actual_type = flatten_type(&body_result.1, env)?;
                 if actual_type.inner != expected_type.inner {
                     return Err(spanned(
-                        format_smolstr!("Function return type mismatch: expected {:?}, got {:?}", expected_type.inner, actual_type.inner),
+                        format_smolstr!("Function return type mismatch: expected {}, got {}", expected_type.inner, actual_type.inner),
                         expected_type.span
                     ))
                 }
@@ -2034,7 +2034,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 let body_result = lower_expr(body, &mut inner_scope)?;
                 if body_result.1.inner != expected_flat.inner {
                     return Err(spanned(
-                        format_smolstr!("Function return type mismatch: expected {:?}, got {:?}", expected_flat.inner, body_result.1.inner),
+                        format_smolstr!("Function return type mismatch: expected {}, got {}", expected_flat.inner, body_result.1.inner),
                         expected_flat.span
                     ))
                 }
@@ -2147,7 +2147,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             if arg_type.inner != p_type.inner {
                                 return Err(spanned(
                                     format_smolstr!(
-                                        "Argument type mismatch: expected {:?}, got {:?}",
+                                        "Argument type mismatch: expected {}, got {}",
                                         p_type.inner,
                                         arg_type.inner
                                     ),
@@ -2160,14 +2160,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         let spread_type = match temp.inner.kind() {
                             TypeKind::Array(inner_type) => inner_type.clone(),
                             o => return Err(spanned(
-                                format_smolstr!("Spread parameter should be an array: found {:?} instead", o),
+                                format_smolstr!("Spread parameter should be an array: found {} instead", o),
                                 temp.span
                             ))
                         };
                         for (arg, arg_type) in spread_args.iter().zip(arg_types.iter().skip(substituted_params.len()-1)) {
                             if arg_type.inner != spread_type.inner {
                                 return Err(spanned(
-                                    format_smolstr!("Argument type mismatch: expected {:?}, got {:?}", spread_type.inner, arg_type.inner),
+                                    format_smolstr!("Argument type mismatch: expected {}, got {}", spread_type.inner, arg_type.inner),
                                     arg.span
                                 ))
                             }
@@ -2182,7 +2182,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         for ((_, p_type), arg_type) in substituted_params.iter().zip(arg_types.iter()) {
                             if arg_type.inner != p_type.inner {
                                 return Err(spanned(
-                                    format_smolstr!("Argument type mismatch: expected {:?}, got {:?}", p_type.inner, arg_type.inner),
+                                    format_smolstr!("Argument type mismatch: expected {}, got {}", p_type.inner, arg_type.inner),
                                     expr.span
                                 ))
                             }
@@ -2201,7 +2201,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     ))
                 },
                 ti => Err(spanned(
-                    format_smolstr!("Type {:?} is not callable", ti),
+                    format_smolstr!("Type {} is not callable", ti),
                     expr.span
                 ))
             }
@@ -2280,7 +2280,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         }
                         Err(spanned(
                             format_smolstr!(
-                                "Type {:?} does not have property {field}",
+                                "Type {} does not have property {field}",
                                 target_result.1.inner
                             ),
                             target.span
@@ -2288,7 +2288,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     },
                     _ => Err(spanned(
                         format_smolstr!(
-                            "Type {:?} does not have property {field}",
+                            "Type {} does not have property {field}",
                             target_result.1.inner
                         ),
                         target.span
@@ -2302,7 +2302,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             if target_result.1.inner != value_result.1.inner {
                 return Err(spanned(
                     format_smolstr!(
-                        "Cannot assign {:?} to {:?}", 
+                        "Cannot assign {} to {}", 
                         value_result.1.inner, 
                         target_result.1.inner
                     ),
@@ -2343,7 +2343,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     expr_result.1
                 )),
                 _ => Err(spanned(
-                    format_smolstr!("Cannot apply {:?} to {:?}", unary_op, expr_result.1.inner),
+                    format_smolstr!("Cannot apply {:?} to {}", unary_op, expr_result.1.inner),
                     e.span
                 ))
             }
@@ -2366,7 +2366,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 if result.1.inner != body_result.1.inner {
                     return Err(spanned(
                         format!(
-                            "If condition branches have incompatible types: expected {:?}, got {:?}",
+                            "If condition branches have incompatible types: expected {}, got {}",
                             body_result.1.inner,
                             result.1.inner
                         ).into(),
@@ -2475,7 +2475,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         match cond_result.1.inner.kind() {
                             TypeKind::Bool => (),
                             _ => return Err(spanned(
-                                format_smolstr!("Match guard condition should return a Bool, found {:?} instead", cond_result.1.inner),
+                                format_smolstr!("Match guard condition should return a Bool, found {} instead", cond_result.1.inner),
                                 condition.span
                             ))
                         }
@@ -2493,7 +2493,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         let pattern_result = lower_expr(e, env)?;
                         if &pattern_result.1.inner != target {
                             return Err(spanned(
-                                format_smolstr!("Type mismatch in match branch: expected {:?}, got {:?}", target, pattern_result.1.inner),
+                                format_smolstr!("Type mismatch in match branch: expected {}, got {}", target, pattern_result.1.inner),
                                 e.span
                             ))
                         }
@@ -2682,7 +2682,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
                     return Err(spanned(
                         format_smolstr!(
-                            "Match branches cannot have different return types: expected {:?}, got {:?}",
+                            "Match branches cannot have different return types: expected {}, got {}",
                             expected_type,
                             branch_type.inner
                         ),
@@ -2881,7 +2881,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     }
                 },
                 None => return Err(spanned(
-                    format_smolstr!("Type {:?} does not have a static method {}", target_type.inner, method.inner),
+                    format_smolstr!("Type {} does not have a static method {}", target_type.inner, method.inner),
                     method.span
                 )),
             };

@@ -37,6 +37,149 @@ impl Display for Spanned<SmolStr> {
     }
 }
 
+impl Display for Spanned<TypeInfo> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl Display for TypeInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.kind())
+    }
+}
+
+impl Display for TypeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeKind::Int => write!(f, "Int"),
+            TypeKind::Float => write!(f, "Float"),
+            TypeKind::String => write!(f, "String"),
+            TypeKind::Char => write!(f, "Char"),
+            TypeKind::Bool => write!(f, "Bool"),
+            TypeKind::Void => write!(f, "Void"),
+            TypeKind::Null => write!(f, "Null"),
+            TypeKind::Never => write!(f, "Never"),
+            TypeKind::Unknown => write!(f, "Unknown"),
+            TypeKind::Any => write!(f, "Any"),
+            TypeKind::Fun { params, return_type, generic_params } => {
+                // function generic parameters
+                if !generic_params.is_empty() {
+                    write!(f, "<")?;
+                    for (i, gp) in generic_params.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", gp)?;
+                    }
+                    write!(f, ">(")?;
+                } else {
+                    write!(f, "fn(")?;
+                }
+
+                // function parameters
+                for (i, ((_, name), typ)) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", name, typ)?;
+                }
+
+                // return type
+                write!(f, ") -> {}", return_type)
+            },
+            TypeKind::Record(hash_map) => {
+                let mut entries: Vec<_> = hash_map.iter().collect();
+                entries.sort_by_key(|(k, _)| *k);
+
+                write!(f, "{{")?;
+                for (i, (key, val)) in entries.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    } else {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{}: {}", key, val)?;
+                }
+
+                if !entries.is_empty() {
+                    write!(f, " ")?;
+                }
+                write!(f, "}}")
+            },
+            TypeKind::Custom { name, generic_args } => {
+                write!(f, "{}", name)?;
+                if !generic_args.is_empty() {
+                    write!(f, "<")?;
+                    for (i, v) in generic_args.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", v)?;
+                    }
+                    write!(f, ">")?;
+                }
+                Ok(())
+            },
+            TypeKind::GenericParam(smol_str) => write!(f, "{}", smol_str),
+            TypeKind::Array(spanned) => write!(f, "{}[]", spanned),
+            TypeKind::Enum { name, variants: _, generic_params } => {
+                write!(f, "enum {}", name)?;
+                if !generic_params.is_empty() {
+                    write!(f, "<")?;
+                    for (i, gp) in generic_params.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", gp)?;
+                    }
+                    write!(f, ">")?;
+                }
+                Ok(())
+            },
+            TypeKind::EnumInstance { enum_name, variants: _, generic_args } => {
+                write!(f, "{}", enum_name)?;
+                if !generic_args.is_empty() {
+                    write!(f, "<")?;
+                    for (i, arg) in generic_args.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", arg)?;
+                    }
+                    write!(f, ">")?;
+                }
+                Ok(())
+            },
+            TypeKind::EnumVariant { enum_name, variant, generic_args } => {
+                write!(f, "{}::{}", enum_name, variant)?;
+                if !generic_args.is_empty() {
+                    write!(f, "<")?;
+                    for (i, arg) in generic_args.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", arg)?;
+                    }
+                    write!(f, ">")?;
+                }
+                Ok(())
+            },
+            TypeKind::TypeClosure { params, body } => {
+                write!(f, "type <")?;
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", p)?;
+                }
+                write!(f, "> = {}", body)
+            },
+            TypeKind::Return(spanned) => write!(f, "{}", spanned),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     Bool(bool),
