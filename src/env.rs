@@ -855,58 +855,6 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         },
     };
     get_module_envs(&registry, BUILTINS_PATH).unwrap()
-    
-    // type_env.add_var_type("debug".to_string(), Spanned { 
-    //     inner: TypeInfo::Fun { 
-    //         args: vec![("args".to_string(), spanned(TypeInfo::Any))], 
-    //         return_type: Box::new(spanned(TypeInfo::Void))
-    //     },
-    //     span: SimpleSpan::from(0..0)
-    // });
-    // env.add_variable("debug".to_string(), Value::NativeFun(ir::NativeFun { 
-    //     name: "debug".to_string(),
-    //     max_args: None,
-    //     function: Arc::new(Box::new(
-    //         |args: Vec<Value>| {
-    //             let length = args.len();
-    //             let mut i = 0;
-    //             for a in args {
-    //                 print!("{a:?}");
-    //                 i += 1;
-    //                 if i < length {
-    //                     print!(", ")
-    //                 }
-    //             };
-    //             println!();
-    //             Ok(Value::Void)
-    //         }
-    //     ))
-    // }));
-    
-    // type_env.add_var_type("input".to_string(), Spanned { 
-    //     inner: TypeInfo::Fun { 
-    //         args: Vec::new(),
-    //         return_type: Box::new(spanned(TypeInfo::String)) 
-    //     },
-    //     span: SimpleSpan::from(0..0)
-    // });
-    // env.add_variable("input".to_string(), Value::NativeFun(ir::NativeFun { 
-    //     name: "input".to_string(),
-    //     max_args: Some(0),
-    //     function: Arc::new(Box::new(
-    //         |_| {
-    //             let mut buffer = String::new();
-    //             let input_string = std::io::stdin().read_line(&mut buffer);
-                
-    //             buffer.pop(); // \n gets added at the ebd of the buffer, so we need to pop it
-                
-    //             match input_string {
-    //                 Ok(_) => Ok(Value::String(buffer)),
-    //                 Err(_) => Err("Input failed".to_string()),
-    //             }
-    //         }
-    //     ))
-    // }));
 }
 
 pub static DEFAULT_ENVS: OnceLock<(Env, TypeEnv)> = OnceLock::new();

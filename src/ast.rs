@@ -427,28 +427,6 @@ impl PartialEq for TypeKind {
             (TypeKind::GenericParam(a), TypeKind::GenericParam(b)) => a == b,
             (TypeKind::GenericParam(a), TypeKind::Custom { name, generic_args })
             | (TypeKind::Custom { name, generic_args }, TypeKind::GenericParam(a)) => a == name && generic_args.len() == 0,
-            // (TypeInfo::EnumInstance{ enum_name, variants: _, generic_args }, TypeInfo::Custom { name, generic_args: g1 })
-            // | (TypeInfo::Custom { name, generic_args: g1 }, TypeInfo::EnumInstance{ enum_name, variants: _, generic_args }) => {
-            //     enum_name == name && {
-            //         for (ti1, ti2) in generic_args.iter().zip(g1.iter()) {
-            //             if ti1.inner != ti2.inner {
-            //                 return false
-            //             }
-            //         }
-            //         true
-            //     }
-            // },
-            // (TypeInfo::EnumVariant{ enum_name, variant: _, generic_args }, TypeInfo::Custom { name, generic_args: g1 })
-            // | (TypeInfo::Custom { name, generic_args: g1 }, TypeInfo::EnumVariant{ enum_name, variant: _, generic_args }) => {
-            //     enum_name == name && {
-            //         for (ti1, ti2) in generic_args.iter().zip(g1.iter()) {
-            //             if *ti1 != ti2.inner {
-            //                 return false
-            //             }
-            //         }
-            //         true
-            //     }
-            // },
             (TypeKind::Return(a), TypeKind::Return(b)) => a == b,
             (TypeKind::Return(a), b) | (b, TypeKind::Return(a)) => a.inner.kind() == b,
             (TypeKind::Any, _) | (_, TypeKind::Any) => true,
