@@ -67,13 +67,23 @@ impl Env {
 }
 
 #[derive(Debug, Clone)]
+pub struct MethodInfo {
+    //type signature of
+    pub type_info: Spanned<TypeInfo>,
+    //used later when executing
+    pub lowered: Spanned<ir::Expr>, 
+    //a raw generic type which will be compared to "this" type to deduce values for generic params
+    pub type_template: Option<Spanned<TypeInfo>>
+}
+
+#[derive(Debug, Clone)]
 pub struct TypeScope {
     variable_types: HashMap<SmolStr, Spanned<TypeInfo>>,
     custom_types: HashMap<SmolStr, Spanned<TypeInfo>>,
     parent: Option<TypeEnv>,
     interface_implementations: HashMap<SmolStr, HashSet<u32>>, //interface name - typesthat implement it
-    method_map: HashMap<u32, HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>>, //for getting type signatures of specific method implementations
-    static_method_map: HashMap<u32, HashMap<SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>)>>,
+    method_map: HashMap<u32, HashMap<SmolStr, MethodInfo>>, //for getting type signatures of specific method implementations
+    static_method_map: HashMap<u32, HashMap<SmolStr, MethodInfo>>,
     
 }
 
@@ -175,12 +185,12 @@ impl TypeEnv {
         false
     }
     
-    pub fn insert_method(&mut self, type_id: u32, method: (SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>))) {
+    pub fn insert_method(&mut self, type_id: u32, method: (SmolStr, MethodInfo)) {
         let mut scope = self.0.write().unwrap();
         scope.method_map.entry(type_id).or_default().insert(method.0, method.1);
     }
 
-    pub fn get_method(&self, id: u32, name: &str) -> Option<(Spanned<TypeInfo>, Spanned<ir::Expr>)> {
+    pub fn get_method(&self, id: u32, name: &str) -> Option<MethodInfo> {
         let mut current = Some(self.clone());
         while let Some(env) = current {
             let parent;
@@ -202,12 +212,12 @@ impl TypeEnv {
         None
     }
     
-    pub fn insert_static_method(&mut self, type_id: u32, method: (SmolStr, (Spanned<TypeInfo>, Spanned<ir::Expr>))) {
+    pub fn insert_static_method(&mut self, type_id: u32, method: (SmolStr, MethodInfo)) {
         let mut scope = self.0.write().unwrap();
         scope.static_method_map.entry(type_id).or_default().insert(method.0, method.1);
     }
 
-    pub fn get_static_method(&self, id: u32, name: &str) -> Option<(Spanned<TypeInfo>, Spanned<ir::Expr>)> {
+    pub fn get_static_method(&self, id: u32, name: &str) -> Option<MethodInfo> {
         let mut current = Some(self.clone());
         while let Some(env) = current {
             let parent;
@@ -323,7 +333,35 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             })
         }
     });
- 
+    register_fun(BUILTINS_PATH, "contains", |(args, this)| {
+        if args.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, got {}", args.len()).into(),
+                span: Span::from(0..0)
+            })
+        }
+        let this = this.unwrap();
+        match *this {
+            Value::String(string) => {
+                match args.first().unwrap() {
+                    Value::String(s) => {
+                        Ok(ControlFlow::Value(Value::Bool(string.contains(s.as_str()))))
+                    },
+                    Value::Char(c) => {
+                        Ok(ControlFlow::Value(Value::Bool(string.contains(*c))))
+                    },
+                    _ => panic!()
+                }
+            },
+            Value::Array(a) => {
+                Ok(ControlFlow::Value(Value::Bool(a.contains(args.first().unwrap()))))
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this:?} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
     register_fun(BUILTINS_PATH, "writefile", |(args, _)| {
         if args.len() != 2 {
             return Err(Spanned {

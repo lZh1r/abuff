@@ -226,6 +226,27 @@ fn array_get_failure() {
 }
 
 #[test]
+fn array_contains() {
+    let src = r#"
+        let arr = [1, 3];
+        assert(arr.contains(1), "contains doesn't work!");
+        arr.contains(2)
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Bool(a) => assert_eq!(a, false),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
 fn string_get_success() {
     let src = r#"
         let str = "hello";

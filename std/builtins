@@ -171,6 +171,8 @@ native type Array<T> impl {
     /// Returns a value at index if it is within the array's boundaries;
     /// otherwise, returns None
     native fun get(index: Int): Option<T>;
+    
+    native fun contains(element: T): Bool;
 };
 
 native type String impl {
@@ -203,6 +205,9 @@ native type String impl {
     
     /// Returns a copy of a string with all leading and trailing whitespaces removed.
     native fun trim(): String;
+    
+    //TODO: allow pattern to be a char.
+    native fun contains(pattern: String): Bool;
 };
 
 /// A charecter type representing a Unicode scalar value

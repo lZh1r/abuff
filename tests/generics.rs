@@ -322,3 +322,26 @@ fn test_generic_fun_type() {
         _ => panic!()
     };
 }
+
+#[test]
+fn method_generic_override() {
+    let src = r#"
+        type A<T> = {a: T} impl {
+            static fun new<T>(val: T): A<T> {
+                {a: val}
+            }
+        };
+        let a = A::new<String>("test");
+        a.a
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "test".to_string()),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

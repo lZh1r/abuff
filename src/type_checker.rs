@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{Expr, MatchArm, Method, Operation, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp}, env::TypeEnv, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::{get_native_fun, get_native_type}};
+use crate::{ast::{Expr, MatchArm, Method, Operation, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp}, env::{MethodInfo, TypeEnv}, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::{get_native_fun, get_native_type}};
 
 struct LoweringResult {
     name: Option<SmolStr>,
@@ -278,6 +278,29 @@ pub fn hoist(
                                     .clone()
                                     .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
         
+                                let type_template = {
+                                    match ti.inner.kind() {
+                                        TypeKind::TypeClosure { params, body } => {
+                                            Some(spanned(
+                                                TypeInfo::new_with_id(
+                                                    TypeKind::TypeClosure { 
+                                                        params: params
+                                                            .iter()
+                                                            .cloned()
+                                                            .filter(
+                                                                |elem| !m.generic_params.contains(elem)
+                                                            ).collect(),
+                                                        body: body.clone()
+                                                    },
+                                                    ti.inner.id()
+                                                ),
+                                                ti.span
+                                            ))
+                                        },
+                                        _ => None
+                                    }
+                                };
+                                
                                 if m.generic_params.is_empty() {
                                     // Non‑generic method
                                     let mut flat_params = Vec::new();
@@ -323,9 +346,8 @@ pub fn hoist(
                                     );
                                     let method_info = (
                                         m.name.clone(),
-                                        (
-                                            fun_type.clone(),
-                                            spanned(
+                                        MethodInfo {
+                                            lowered: spanned(
                                                 ir::Expr::Fun {
                                                     params: m
                                                         .params
@@ -336,7 +358,9 @@ pub fn hoist(
                                                 },
                                                 method.span,
                                             ),
-                                        ),
+                                            type_info: fun_type,
+                                            type_template
+                                        }
                                     );
                                     match is_static {
                                         true => {
@@ -401,7 +425,6 @@ pub fn hoist(
                                             expected_flat.span,
                                         ));
                                     }
-                                    println!("{}", method_result.1.inner.id());
         
                                     let fun_type = spanned(
                                         TypeInfo::new(TypeKind::Fun {
@@ -414,9 +437,8 @@ pub fn hoist(
         
                                     let method_info = (
                                         m.name.clone(),
-                                        (
-                                            fun_type.clone(),
-                                            spanned(
+                                        MethodInfo {
+                                            lowered: spanned(
                                                 ir::Expr::Fun {
                                                     params: m
                                                         .params
@@ -427,7 +449,9 @@ pub fn hoist(
                                                 },
                                                 method.span,
                                             ),
-                                        ),
+                                            type_info: fun_type,
+                                            type_template
+                                        }
                                     );
                                     
                                     match is_static {
@@ -463,6 +487,30 @@ pub fn hoist(
                                     TypeInfo::void(),
                                     Span::from(0..0)
                                 ));
+                                
+                                let type_template = {
+                                    match ti.inner.kind() {
+                                        TypeKind::TypeClosure { params, body } => {
+                                            Some(spanned(
+                                                TypeInfo::new_with_id(
+                                                    TypeKind::TypeClosure { 
+                                                        params: params
+                                                            .iter()
+                                                            .cloned()
+                                                            .filter(
+                                                                |elem| !m.generic_params.contains(elem)
+                                                            ).collect(),
+                                                        body: body.clone()
+                                                    },
+                                                    ti.inner.id()
+                                                ),
+                                                ti.span
+                                            ))
+                                        },
+                                        _ => None
+                                    }
+                                };
+                                
                                 if m.generic_params.len() == 0 {
                                     let mut flat_params = Vec::new();
                                     for (n, p_type) in &m.params {
@@ -484,9 +532,8 @@ pub fn hoist(
                                     
                                     let method_info = (
                                         m.name.clone(),
-                                        (
-                                            fun_type.clone(),
-                                            spanned(
+                                        MethodInfo {
+                                            lowered: spanned(
                                                 ir::Expr::NativeFun {
                                                     name: m.name.clone(),
                                                     path: path.into(),
@@ -494,8 +541,11 @@ pub fn hoist(
                                                 },
                                                 method.span,
                                             ),
-                                        ),
+                                            type_info: fun_type,
+                                            type_template
+                                        }
                                     );
+                                    
                                     match is_static {
                                         true => {
                                             env.insert_static_method(
@@ -544,13 +594,18 @@ pub fn hoist(
                                     
                                     let method_info = (
                                         m.name.clone(),
-                                        (
-                                            fun_type.clone(),
-                                            spanned(
-                                                ir::Expr::Var(m.name.clone()),
+                                        MethodInfo {
+                                            lowered: spanned(
+                                                ir::Expr::NativeFun {
+                                                    name: m.name.clone(),
+                                                    path: path.into(),
+                                                    native_fun,
+                                                },
                                                 method.span,
                                             ),
-                                        ),
+                                            type_info: fun_type,
+                                            type_template
+                                        }
                                     );
                                     
                                     match is_static {
@@ -1243,15 +1298,15 @@ fn substitute_generic_params(type_info: &Spanned<TypeInfo>, generic_arg_map: &Ha
 fn collect_generic_params(
     generic_type: (&Spanned<TypeInfo>, bool), //bool is for handling variadics
     concrete_type: &Spanned<TypeInfo>,
-) -> Vec<(SmolStr, Spanned<TypeInfo>)> {
+) -> HashMap<SmolStr, Spanned<TypeInfo>> {
     fn walk(
         gener: (&Spanned<TypeInfo>, bool),
         con: &Spanned<TypeInfo>,
-        out: &mut Vec<(SmolStr, Spanned<TypeInfo>)>,
+        out: &mut HashMap<SmolStr, Spanned<TypeInfo>>,
     ) {
         match (gener.0.inner.kind(), con.inner.kind()) {
             (TypeKind::GenericParam(name), _) => {
-                out.push((name.clone(), con.clone()));
+                out.insert(name.clone(), con.clone());
             },
             (
                 TypeKind::Fun { params: gen_params, return_type: gen_ret, ..},
@@ -1288,7 +1343,7 @@ fn collect_generic_params(
         }
     }
 
-    let mut result = Vec::new();
+    let mut result = HashMap::new();
     walk(generic_type, concrete_type, &mut result);
     result
 }
@@ -1322,7 +1377,11 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                 TypeKind::Fun { params, return_type, generic_params } => {
                     if generic_params.len() != generic_args.len() {
                         return Err(spanned(
-                            format!("A wrong number of generic args provided: expected: {}, got {}", generic_params.len(), generic_args.len()).into(),
+                            format_smolstr!(
+                                "A wrong number of generic args provided: expected: {}, got {}",
+                                generic_params.len(),
+                                generic_args.len()
+                            ),
                             resolved_type.span
                         ))
                     }
@@ -1346,7 +1405,11 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                 TypeKind::Enum { name, variants, generic_params } => {
                     if generic_params.len() != generic_args.len() {
                         return Err(spanned(
-                            format!("A wrong number of generic args provided: expected: {}, got {}", generic_params.len(), generic_args.len()).into(),
+                            format_smolstr!(
+                                "A wrong number of generic args provided: expected: {}, got {}",
+                                generic_params.len(),
+                                generic_args.len()
+                            ),
                             resolved_type.span
                         ))
                     }
@@ -1367,7 +1430,6 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                                 )
                             );
                         }
-                        
                     } else if params.len() != generic_args.len() {
                         return Err(spanned(
                             format_smolstr!(
@@ -1394,7 +1456,10 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                 _ => {
                     if generic_args.len() != 0 {
                         return Err(spanned(
-                            format!("Too many generic arguments provided: expected: 0, got {}", generic_args.len()).into(),
+                            format_smolstr!(
+                                "Too many generic arguments provided: expected: 0, got {}",
+                                generic_args.len()
+                            ),
                             type_info.span
                         ))
                     }
@@ -2157,8 +2222,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
         Expr::Get(target, field) => {
             let mut target_result = lower_expr(target, env)?;
             target_result.1 = flatten_type(&target_result.1, env)?.into_owned();
-            if let Some((method_type, method_expr)) = env.get_method(target_result.1.inner.id(), field) {
-                match method_expr.inner {
+            if let Some(method_info) = env.get_method(target_result.1.inner.id(), field) {
+                let ti = if let Some(template) = method_info.type_template {
+                    let generic_map = compare_types(&template, &target_result.1);
+                    substitute_generic_params(&method_info.type_info, &generic_map)
+                } else {
+                    method_info.type_info
+                };
+                match method_info.lowered.inner {
                     ir::Expr::NativeFun { name, path, native_fun } => {
                         Ok((
                             spanned(
@@ -2171,7 +2242,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                 expr.span.clone()
                             ),
                             spanned(
-                                method_type.inner,
+                                ti.inner,
                                 expr.span
                             )
                         ))
@@ -2181,12 +2252,12 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             spanned(
                                 ir::Expr::Method { 
                                     this: Box::new(target_result.0),
-                                    fun: Box::new(method_expr)
+                                    fun: Box::new(method_info.lowered)
                                 },
                                 expr.span.clone()
                             ),
                             spanned(
-                                method_type.inner,
+                                ti.inner,
                                 expr.span
                             )
                         ))
@@ -2800,7 +2871,15 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 )),
             };
             let (ti, lowered_expr) = match env.get_static_method(target_type.inner.id(), &method.inner) {
-                Some((ti, e)) => (ti, e),
+                Some(method_info) => {
+                    if method_info.type_template.is_some() {
+                        let type_template = method_info.type_template.unwrap();
+                        let generic_map = compare_types(&type_template, &target_type);
+                        (substitute_generic_params(&method_info.type_info, &generic_map), method_info.lowered)
+                    } else {
+                        (method_info.type_info, method_info.lowered)
+                    }
+                },
                 None => return Err(spanned(
                     format_smolstr!("Type {:?} does not have a static method {}", target_type.inner, method.inner),
                     method.span
@@ -2809,4 +2888,111 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             Ok((lowered_expr, ti))
         },
     }
+}
+
+///Compares a generic template with its instance to collect a hashmap of all generic param substitutions
+fn compare_types(
+    generic_type: &Spanned<TypeInfo>,
+    instantiated: &Spanned<TypeInfo>,
+) -> HashMap<SmolStr, Spanned<TypeInfo>> {
+    let mut map = HashMap::new();
+
+    // The first argument must be a TypeClosure; otherwise return an empty map.
+    let closure_params = if let TypeKind::TypeClosure { params, .. } = generic_type.inner.kind() {
+        params.clone()
+    } else {
+        return map;
+    };
+
+    fn walk(
+        generic: &Spanned<TypeInfo>,
+        instance: &Spanned<TypeInfo>,
+        map: &mut HashMap<SmolStr, Spanned<TypeInfo>>,
+        closure_params: &Vec<SmolStr>,
+    ) {
+        match (generic.inner.kind(), instance.inner.kind()) {
+            (TypeKind::GenericParam(name), _) => {
+                // Only insert a substitution if the generic param is listed in the closure's params.
+                if closure_params.contains(name) {
+                    map.insert(name.clone(), instance.clone());
+                }
+            }
+
+            (TypeKind::Array(gen_inner), TypeKind::Array(inst_inner)) => {
+                walk(gen_inner, inst_inner, map, closure_params);
+            }
+
+            (
+                TypeKind::Fun {
+                    params: gen_params,
+                    return_type: gen_ret,
+                    ..
+                },
+                TypeKind::Fun {
+                    params: inst_params,
+                    return_type: inst_ret,
+                    ..
+                },
+            ) => {
+                for ((_, gen_p_ty), (_, inst_p_ty)) in
+                    gen_params.iter().zip(inst_params.iter())
+                {
+                    walk(gen_p_ty, inst_p_ty, map, closure_params);
+                }
+                walk(gen_ret, inst_ret, map, closure_params);
+            }
+
+            (TypeKind::Record(gen_fields), TypeKind::Record(inst_fields)) => {
+                for (field_name, gen_field_ty) in gen_fields.iter() {
+                    if let Some(inst_field_ty) = inst_fields.get(field_name) {
+                        walk(gen_field_ty, inst_field_ty, map, closure_params);
+                    }
+                }
+            }
+
+            (
+                TypeKind::EnumInstance {
+                    generic_args: gen_args,
+                    ..
+                },
+                TypeKind::EnumInstance {
+                    generic_args: inst_args,
+                    ..
+                },
+            ) => {
+                for (gen_arg, inst_arg) in gen_args.iter().zip(inst_args.iter()) {
+                    walk(gen_arg, inst_arg, map, closure_params);
+                }
+            }
+
+            (
+                TypeKind::EnumVariant {
+                    generic_args: gen_args,
+                    ..
+                },
+                TypeKind::EnumVariant {
+                    generic_args: inst_args,
+                    ..
+                },
+            ) => {
+                for (gen_arg, inst_arg) in gen_args.iter().zip(inst_args.iter()) {
+                    walk(gen_arg, inst_arg, map, closure_params);
+                }
+            }
+
+            (TypeKind::TypeClosure { body, params: _ }, _) => {
+                // Recurse into the closure body.
+                walk(body, instance, map, closure_params);
+            }
+
+            _ => {}
+        }
+    }
+
+    // Start walking from the closure body against the instantiated type.
+    if let TypeKind::TypeClosure { body, .. } = generic_type.inner.kind() {
+        walk(body, instantiated, &mut map, &closure_params.into_iter().map(|spanned| spanned.inner).collect());
+    }
+
+    map
 }
