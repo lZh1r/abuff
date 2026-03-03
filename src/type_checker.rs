@@ -677,6 +677,26 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             } else {
                 expr_result.1.clone()
             };
+            
+            let mut_result = check_mutability(&expr_result.0, env);
+            match mut_result {
+                Ok(is_mut) => {
+                    if is_mut != *mutable {
+                        match is_mut {
+                            true => return Err(spanned(
+                                "Cannot assign an immutable reference to a mutable variable".into(),
+                                expr_result.0.span
+                            )),
+                            false => return Err(spanned(
+                                "Cannot assign a mutable reference to an immutable variable".into(),
+                                expr_result.0.span
+                            )),
+                        }
+                    }
+                },
+                Err(_) => (),
+            }
+            
             env.add_var_type(name.clone(), expected_type.clone(), mutable.clone());
             Ok(LoweringResult { 
                 name: Some(name.clone()),
@@ -2315,31 +2335,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 ))
             }
             
-            fn check_mutability(expr: &Spanned<ir::Expr>, env: &TypeEnv) -> Result<(), Spanned<SmolStr>> {
-                match &expr.inner {
-                    ir::Expr::Var(var) => {
-                        if !env.get_var_type(var).unwrap().1 {
-                            return Err(spanned(
-                                format_smolstr!("Variable {var} is not mutable"),
-                                expr.span
-                            ))
-                        }
-                        Ok(())
-                    },
-                    ir::Expr::Index(target, _) => {
-                        check_mutability(&*target, env)
-                    },
-                    ir::Expr::Get(target, _) => {
-                        check_mutability(&*target, env)
-                    },
-                    t => Err(Spanned {
-                        inner: format_smolstr!("Cannot assign to {t:?}"),
-                        span: expr.span
-                    })
-                }
-            }
+            let is_mutable = check_mutability(&target_result.0, env)?;
             
-            check_mutability(&target_result.0, env)?;
+            if !is_mutable {
+                return Err(spanned(
+                    "Cannot assign to an immutable variable".into(),
+                    expr.span
+                ))
+            }
             
             Ok((
                 spanned(
@@ -3037,4 +3040,22 @@ fn compare_types(
     }
 
     map
+}
+
+fn check_mutability(expr: &Spanned<ir::Expr>, env: &TypeEnv) -> Result<bool, Spanned<SmolStr>> {
+    match &expr.inner {
+        ir::Expr::Var(var) => {
+            Ok(env.get_var_type(var).unwrap().1)
+        },
+        ir::Expr::Index(target, _) => {
+            check_mutability(&*target, env)
+        },
+        ir::Expr::Get(target, _) => {
+            check_mutability(&*target, env)
+        },
+        t => Err(Spanned {
+            inner: format_smolstr!("{t:?} is not a variable"),
+            span: expr.span
+        })
+    }
 }

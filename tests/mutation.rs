@@ -182,7 +182,6 @@ fn mixed_nested_mutation() {
     };
 }
 
-//should not pass
 #[test]
 fn shared_reference_mutation() {
     let src = r#"
@@ -192,13 +191,12 @@ fn shared_reference_mutation() {
         b[0]
     "#;
     
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 2),
-                _ => panic!()
+    match run_typed(src.to_string()) {
+        Err(e) => {
+            if !(e.inner == "Cannot assign an immutable reference to a mutable variable") {
+                panic!()
             }
-        }
+        },
         _ => panic!()
     };
 }
