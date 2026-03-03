@@ -2318,92 +2318,46 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     value.span
                 ))
             }
-            match &target_result.0.inner {
-                ir::Expr::Var(var) => {
-                    if !env.get_var_type(var).unwrap().1 {
-                        return Err(spanned(
-                            format_smolstr!("Variable {var} is not mutable"),
-                            target.span
-                        ))
-                    }
-                    Ok((
-                        spanned(
-                            ir::Expr::Assign {
-                                target: Box::new(target_result.0),
-                                value: Box::new(value_result.0)
-                            },
-                            expr.span.clone()
-                        ),
-                        spanned(
-                            TypeInfo::void(),
-                            expr.span
-                        )
-                    ))
-                },
-                ir::Expr::Index(target, _) => {
-                    match &target.inner {
-                        ir::Expr::Var(var) => {
-                            if !env.get_var_type(var.as_str()).unwrap().1 {
-                                return Err(spanned(
-                                    format_smolstr!("Variable {var} is not mutable"),
-                                    target.span
-                                ))
-                            }
-                            Ok((
-                                spanned(
-                                    ir::Expr::Assign {
-                                        target: Box::new(target_result.0),
-                                        value: Box::new(value_result.0)
-                                    },
-                                    expr.span.clone()
-                                ),
-                                spanned(
-                                    TypeInfo::void(),
-                                    expr.span
-                                )
+            
+            fn check_mutability(expr: &Spanned<ir::Expr>, env: &TypeEnv) -> Result<(), Spanned<SmolStr>> {
+                match &expr.inner {
+                    ir::Expr::Var(var) => {
+                        if !env.get_var_type(var).unwrap().1 {
+                            return Err(spanned(
+                                format_smolstr!("Variable {var} is not mutable"),
+                                expr.span
                             ))
-                        },
-                        _ => Err(spanned(
-                            "Cannot assign to that".into(),
-                            target.span
-                        ))
-                    }
-                },
-                ir::Expr::Get(target, _) => {
-                    match &target.inner {
-                        ir::Expr::Var(var) => {
-                            if !env.get_var_type(var.as_str()).unwrap().1 {
-                                return Err(spanned(
-                                    format_smolstr!("Variable {var} is not mutable"),
-                                    target.span
-                                ))
-                            }
-                            Ok((
-                                spanned(
-                                    ir::Expr::Assign {
-                                        target: Box::new(target_result.0),
-                                        value: Box::new(value_result.0)
-                                    },
-                                    expr.span.clone()
-                                ),
-                                spanned(
-                                    TypeInfo::void(),
-                                    expr.span
-                                )
-                            ))
-                        },
-                        _ => Err(spanned(
-                            "Cannot assign to that".into(),
-                            target.span
-                        ))
-                    }
-                },
-                t => Err(Spanned {
-                    inner: format_smolstr!("Cannot assign to {t:?}"),
-                    span: target_result.0.span
-                })
+                        }
+                        Ok(())
+                    },
+                    ir::Expr::Index(target, _) => {
+                        check_mutability(&*target, env)
+                    },
+                    ir::Expr::Get(target, _) => {
+                        check_mutability(&*target, env)
+                    },
+                    t => Err(Spanned {
+                        inner: format_smolstr!("Cannot assign to {t:?}"),
+                        span: expr.span
+                    })
+                }
             }
             
+            check_mutability(&target_result.0, env)?;
+            
+            Ok((
+                spanned(
+                    ir::Expr::Assign {
+                        target: Box::new(target_result.0),
+                        value: Box::new(value_result.0)
+                    },
+                    expr.span.clone()
+                ),
+                spanned(
+                    TypeInfo::void(),
+                    expr.span
+                )
+            ))
         },
         Expr::Unary(unary_op, e) => {
             let expr_result = lower_expr(e, env)?;

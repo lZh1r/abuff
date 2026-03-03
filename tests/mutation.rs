@@ -113,6 +113,75 @@ fn record_immut() {
     };
 }
 
+#[test]
+fn nested_array_mutation() {
+    let src = r#"
+        let mut a = [[[[1]]]];
+        a[0][0][0][0] = 2;
+        a[0][0][0][0]
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 2),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn nested_record_mutation() {
+    let src = r#"
+        let mut a = {
+            b: {
+                c: {
+                    d: 1
+                }
+            }
+        };
+        a.b.c.d = 4;
+        a.b.c.d
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 4),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn mixed_nested_mutation() {
+    let src = r#"
+        let mut a = {
+            b: {
+                c: [{
+                    d: 1
+                }]
+            }
+        };
+        a.b.c[0].d = 5;
+        a.b.c[0].d
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 5),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
 //should not pass
 #[test]
 fn shared_reference_mutation() {
