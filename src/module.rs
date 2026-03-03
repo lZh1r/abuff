@@ -259,9 +259,9 @@ pub fn run<R: ModuleRegistry>(
     let mut value_exports = HashMap::new();
     for statement in statements {
         match statement.inner.clone() {
-            ir::Statement::Let { name, expr, mutable } => {
+            ir::Statement::Let { name, expr } => {
                 match eval_expr(&expr, env)? {
-                    ControlFlow::Value(v) => env.add_variable(name.clone(), v, mutable),
+                    ControlFlow::Value(v) => env.add_variable(name.clone(), v),
                     cf => {
                         registry.insert_runtime_module(RuntimeModule { 
                             path: module_path.clone(), 
@@ -295,7 +295,7 @@ pub fn run<R: ModuleRegistry>(
                         for (name, alias) in symbols {
                             let actual_name = alias.clone().unwrap_or(name.inner.clone());
                             if map.contains_key(&name.inner) {
-                                env.add_variable(actual_name, map.get(&name.inner).unwrap().clone(), false);
+                                env.add_variable(actual_name, map.get(&name.inner).unwrap().clone());
                             } else {
                                 return Err(Spanned {
                                     inner: format_smolstr!(
@@ -313,10 +313,10 @@ pub fn run<R: ModuleRegistry>(
             },
             ir::Statement::Export(spanned) => {
                 match &spanned.inner {
-                    ir::Statement::Let { name, expr, mutable } => {
+                    ir::Statement::Let { name, expr } => {
                         match eval_expr(&expr, env)? {
                             ControlFlow::Value(v) => {
-                                env.add_variable(name.clone(), v.clone(), mutable.clone());
+                                env.add_variable(name.clone(), v.clone());
                                 value_exports.insert(name.clone(), v);
                             },
                             cf => {
@@ -350,7 +350,7 @@ pub fn run<R: ModuleRegistry>(
                                     this: None,
                                 };
                                 value_exports.insert(name.clone(), fn_val.clone());
-                                env.add_variable(name.clone(), fn_val, false);
+                                env.add_variable(name.clone(), fn_val);
                             },
                             None => return Err(Spanned {
                                 inner: format_smolstr!(

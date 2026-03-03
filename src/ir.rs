@@ -52,7 +52,7 @@ pub enum MatchArm {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    Let{name: SmolStr, expr: Spanned<Expr>, mutable: bool},
+    Let{name: SmolStr, expr: Spanned<Expr>},
     Expr(Spanned<Expr>),
     NativeFun(SmolStr),
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>)>, path: Spanned<SmolStr>},

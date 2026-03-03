@@ -686,8 +686,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 lowered_statement: Some(spanned(
                     ir::Statement::Let { 
                         name: name.clone(),
-                        expr: expr_result.0,
-                        mutable: mutable.clone()
+                        expr: expr_result.0
                     },
                     statement.span
                 ))
@@ -799,8 +798,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                     body: Box::new(body_result.0)
                                 },
                                 body.span
-                            ),
-                            mutable: false
+                            )
                         }, 
                         statement.span
                     ))
@@ -869,8 +867,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                                     body: Box::new(body_result.0)
                                 },
                                 body.span
-                            ),
-                            mutable: false
+                            )
                         }, 
                         statement.span
                     ))
@@ -1110,8 +1107,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                         expr: Spanned {
                             inner: ir::Expr::Record(record_exprs),
                             span: statement.span
-                        },
-                        mutable: false
+                        }
                     },
                     statement.span
                 ))

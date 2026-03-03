@@ -11,7 +11,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         Expr::Var(v) => {
             let result = env.get(v);
             match result {
-                Some(value) => Ok(ControlFlow::Value(value.0)),
+                Some(value) => Ok(ControlFlow::Value(value)),
                 _ => Err(Spanned {
                     inner: format!("Runtime error: Cannot resolve {v}").into(),
                     span: expr.span
@@ -110,7 +110,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             }
 
             let (var_name, path) = get_target_path(target)?;
-            let (mut current_val, _) = env.get(&var_name).ok_or_else(|| Spanned {
+            let mut current_val = env.get(&var_name).ok_or_else(|| Spanned {
                 inner: format!("Runtime error: Variable {var_name} not found").into(),
                 span: target.span
             })?;
@@ -175,10 +175,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             }
 
             update_value(&mut current_val, &path, val, env, target.span)?;
-            env.set_variable(var_name, current_val).map_err(|e| Spanned {
-                inner: e,
-                span: target.span
-            })?;
+            env.set_variable(var_name, current_val);
             Ok(ControlFlow::Value(Value::Void))
         },
         Expr::Unary(op, inner_expr) => {
@@ -339,7 +336,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         },
         Expr::EnumConstructor { enum_name, variant, value } => {
             match env.get(enum_name) {
-                Some((v, _)) => match v {
+                Some(v) => match v {
                     Value::Record(hash_map) => {
                         match hash_map.read().unwrap().get(variant) {
                             Some(_) => Ok(ControlFlow::Value(Value::EnumVariant { 
@@ -382,7 +379,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 match &pattern.inner {
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.clone();
-                        inner_env.add_variable(alias.clone(), target.inner.clone(), false);
+                        inner_env.add_variable(alias.clone(), target.inner.clone());
 
                         match eval_expr(condition, &mut inner_env)? {
                             ControlFlow::Value(Value::Bool(true)) => {
@@ -418,7 +415,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     },
                     MatchArm::Default(alias) => {
                         let mut inner_env = env.clone();
-                        inner_env.add_variable(alias.clone(), target.inner.clone(), false);
+                        inner_env.add_variable(alias.clone(), target.inner.clone());
                         Ok(Some(eval_expr(outcome, &mut inner_env)?))
                     },
                     MatchArm::EnumConstructor { enum_name, variant, alias } => {
@@ -426,7 +423,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             Value::EnumVariant { enum_name: target_enum, variant: target_variant, value } => {
                                 if enum_name == target_enum && variant == target_variant {
                                     let mut inner_env = env.clone();
-                                    inner_env.add_variable(alias.clone(), *value.clone(), false);
+                                    inner_env.add_variable(alias.clone(), *value.clone());
                                     Ok(Some(eval_expr(outcome, &mut inner_env)?))
                                 } else {
                                     Ok(None)
@@ -467,7 +464,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     span: this.span
                 })
             };
-            method_scope.add_variable("self".to_smolstr(), value, false);
+            method_scope.add_variable("self".to_smolstr(), value);
             eval_expr(fun, &mut method_scope)
         },
         Expr::NativeMethod { this, native_fun, name, path } => {
@@ -511,9 +508,9 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
     let mut new_scope = env.enter_scope();
     for statement in stmts {
         match &statement.inner {
-            Statement::Let { name, expr, mutable } => {
+            Statement::Let { name, expr } => {
                 match eval_expr(expr, &mut new_scope)? {
-                    ControlFlow::Value(v) => new_scope.add_variable(name.clone(), v, mutable.clone()),
+                    ControlFlow::Value(v) => new_scope.add_variable(name.clone(), v),
                     cf => return Ok(cf),
                 }
             },
@@ -554,7 +551,7 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                         if param.last().unwrap().0 {
                             for ((is_spread, name), arg) in param.iter().zip(args.iter()) {
                                 if *is_spread {break}
-                                new_scope.add_variable(name.clone(), arg.clone(), false);
+                                new_scope.add_variable(name.clone(), arg.clone());
                             }
                             let spread_args = &args[param.len() - 1..];
                             let mut zipped_args = Vec::new();
@@ -563,12 +560,11 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) 
                             }
                             new_scope.add_variable(
                                 param.last().unwrap().1.clone(),
-                                Value::Array(Arc::new(RwLock::new(zipped_args))), 
-                                false
+                                Value::Array(Arc::new(RwLock::new(zipped_args)))
                             );
                         } else {
                             for ((_, name), arg) in param.iter().zip(args.iter()) {
-                                new_scope.add_variable(name.clone(), arg.clone(), false);
+                                new_scope.add_variable(name.clone(), arg.clone());
                             }
                         }
                     }

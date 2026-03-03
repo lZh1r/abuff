@@ -6,7 +6,7 @@ use crate::{ast::{Span, Spanned, TypeInfo, TypeKind}, error::build_report, ir::{
 
 #[derive(Debug, Clone)]
 pub struct Scope {
-    values: HashMap<SmolStr, (Value, bool)>,
+    values: HashMap<SmolStr, Value>,
     parent: Option<Env>,
 }
 
@@ -21,7 +21,7 @@ impl Env {
         })))
     }
     
-    pub fn get(&self, name: &str) -> Option<(Value, bool)> {
+    pub fn get(&self, name: &str) -> Option<Value> {
         let scope = self.0.read().unwrap();
         
         if let Some(val) = scope.values.get(name) {
@@ -43,19 +43,16 @@ impl Env {
         )
     }
     
-    pub fn add_variable(&mut self, name: SmolStr, value: Value, mutable: bool) -> () {
-        self.0.write().unwrap().values.insert(name, (value, mutable));
+    pub fn add_variable(&mut self, name: SmolStr, value: Value) -> () {
+        self.0.write().unwrap().values.insert(name, value);
     }
     
-    pub fn set_variable(&mut self, name: SmolStr, value: Value) -> Result<(), SmolStr> {
+    pub fn set_variable(&mut self, name: SmolStr, value: Value) {
         let mut scope = self.0.write().unwrap();
         
-        if let Some(val) = scope.values.get(&name) {
-            if !val.1 {
-                return Err(format_smolstr!("Variable {name} is not mutable"))
-            }
-            scope.values.insert(name, (value, true));
-            return Ok(());
+        if let Some(_) = scope.values.get(&name) {
+            scope.values.insert(name, value);
+            return
         }
         
         match &mut scope.parent {
