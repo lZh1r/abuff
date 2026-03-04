@@ -231,7 +231,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
             build_report(Spanned {
                 inner: errors.inner,
                 span: errors.span
-            }, &src);
+            }, &src, &path.to_str().unwrap().to_string());
             return Err(Spanned {
                 inner: SmolStr::new(format!("Module parsing failed")),
                 span: Span::from(0..0)

@@ -21,7 +21,7 @@ pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<SmolStr>> {
             build_report(Spanned {
                 inner: errors.inner,
                 span: errors.span
-            }, &src);
+            }, &src, &"test".to_string());
             
             return Err(Spanned {
                 inner: "Parsing failed".into(),

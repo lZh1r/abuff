@@ -849,7 +849,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
     match eval_import(BUILTINS_PATH, &registry) {
         Ok(_) => (),
         Err(e) => {
-            build_report(e, &fs::read_to_string(BUILTINS_PATH).unwrap());
+            build_report(e, &fs::read_to_string(BUILTINS_PATH).unwrap(), &BUILTINS_PATH.to_string());
         },
     };
     get_module_envs(&registry, BUILTINS_PATH).unwrap()

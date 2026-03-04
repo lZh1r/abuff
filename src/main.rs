@@ -23,7 +23,7 @@ fn main() {
                     build_report(Spanned {
                         inner: errors.inner,
                         span: errors.span
-                    }, &src);
+                    }, &src, file_path);
                     return 
                 },
             };
@@ -32,7 +32,7 @@ fn main() {
             match res {
                 Err(e) => {
                     println!("Type checking failed with following errors:");
-                    build_report(e, &src)
+                    build_report(e, &src, file_path)
                 },
                 Ok(result) => {
                     let lowered_statements = result.0;
@@ -40,7 +40,7 @@ fn main() {
                     match run(&lowered_statements, &mut stack, current_dir().unwrap(), &reg) {
                         Err(e) => {
                             println!("Runtime error occured:");
-                            build_report(e, &src)
+                            build_report(e, &src, file_path)
                         },
                         Ok(cf) => {
                             match cf {
@@ -69,19 +69,19 @@ fn main() {
                         build_report(Spanned {
                             inner: errors.inner,
                             span: errors.span
-                        }, &src);
+                        }, &src, &"repl".to_string());
                         continue
                     },
                 };
                 
                 let res = hoist(&parsed, &mut type_env, current_dir().unwrap().to_str().unwrap());
                 match res {
-                    Err(e) => build_report(e, &src),
+                    Err(e) => build_report(e, &src, &"repl".to_string()),
                     Ok(result) => {
                         let lowered_statements = result.0;
                         let reg = GlobalRegistry;
                         match run(&lowered_statements, &mut stack, current_dir().unwrap(), &reg) {
-                            Err(e) => build_report(e, &src),
+                            Err(e) => build_report(e, &src, &"repl".to_string()),
                             Ok(cf) => {
                                 match cf {
                                     ControlFlow::Value(_) => (),

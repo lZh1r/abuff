@@ -3,15 +3,15 @@ use smol_str::SmolStr;
 
 use crate::span::Spanned;
 
-pub fn build_report(e: Spanned<SmolStr>, src: &String) {
-    Report::build(ReportKind::Error, e.span.into_range())
+pub fn build_report(e: Spanned<SmolStr>, src: &String, path: &String) {
+    Report::build(ReportKind::Error, (path, e.span.into_range()))
         .with_message(e.inner.clone())
         .with_label(
-            Label::new(e.span.into_range())
+            Label::new((path, e.span.into_range()))
                 .with_message(e.inner)
                 .with_color(Color::Red),
         )
         .finish()
-        .print(Source::from(src.clone()))
+        .print((path, Source::from(src)))
         .unwrap();
 }
