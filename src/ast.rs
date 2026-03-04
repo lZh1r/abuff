@@ -23,6 +23,9 @@ impl Span {
     pub fn into_range(&self) -> Range<usize> {
         self.start..self.end
     }
+    pub fn at(point: usize) -> Self {
+        Span { start: point, end: point }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
