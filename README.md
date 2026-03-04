@@ -35,7 +35,7 @@ cargo run -- <filename>
 cargo test -- --test-threads=1
 ```
 ## Roadmap
-- [ ] Improve error spans
+- [x] Improve error spans
 - [x] Pattern matching
 - [ ] Generic constraints
 - [ ] Interface system
