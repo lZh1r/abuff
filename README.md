@@ -40,6 +40,7 @@ cargo test -- --test-threads=1
 - [ ] Generic constraints
 - [ ] Interface system
 - [ ] Type level operations
+- [ ] Error tolerant type checking
 - [ ] Performance
 - [ ] Caching
 - [ ] Expand standard library
