@@ -70,7 +70,7 @@ fn main() {
                             inner: errors.inner,
                             span: errors.span
                         }, &src);
-                        return 
+                        continue
                     },
                 };
                 
