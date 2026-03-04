@@ -1,43 +1,15 @@
-use std::{collections::HashMap, fmt::Display, ops::Range};
+use std::{collections::HashMap, fmt::Display};
 
 use smol_str::SmolStr;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::span::Spanned;
+
 static TYPE_ID_COUNTER: AtomicU32 = AtomicU32::new(10);
 
 pub fn next_type_id() -> u32 {
     TYPE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize
-}
-
-impl Span {
-    pub fn from(range: Range<usize>) -> Self {
-        Span { start: range.start, end: range.end }
-    }
-    pub fn into_range(&self) -> Range<usize> {
-        self.start..self.end
-    }
-    pub fn at(point: usize) -> Self {
-        Span { start: point, end: point }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub struct Spanned<T> {
-    pub inner: T,
-    pub span: Span
-}
-
-impl Display for Spanned<SmolStr> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
 }
 
 impl Display for Spanned<TypeInfo> {

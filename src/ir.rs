@@ -3,7 +3,9 @@ use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smol_str::SmolStr;
 
-use crate::{ast::{Operation, Spanned, UnaryOp}, env::Env, native::NativeFun};
+use crate::{ast::{Operation, UnaryOp}, env::Env, native::NativeFun};
+
+use crate::span::Spanned;
 
 #[allow(unpredictable_function_pointer_comparisons)]
 #[derive(Debug, Clone, PartialEq)]

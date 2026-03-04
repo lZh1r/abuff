@@ -1,7 +1,7 @@
 use logos::Logos;
 use smol_str::SmolStr;
 
-use crate::ast::{Span, Spanned};
+use crate::span::{Span, Spanned};
 
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip r"[ \t\n\f]+")]

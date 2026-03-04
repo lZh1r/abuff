@@ -2,7 +2,8 @@ use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, OnceLock, RwLock}, ti
 
 use smol_str::{SmolStr, StrExt, ToSmolStr, format_smolstr};
 
-use crate::{ast::{Span, Spanned, TypeInfo, TypeKind}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun, register_type}};
+use crate::{ast::{TypeInfo, TypeKind}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun, register_type}};
+use crate::span::{Span, Spanned};
 
 #[derive(Debug, Clone)]
 pub struct Scope {

@@ -1,8 +1,10 @@
+use crate::span::spanned;
 use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{Expr, MatchArm, Method, Operation, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp}, env::{MethodInfo, TypeEnv}, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::{get_native_fun, get_native_type}};
+use crate::{ast::{Expr, MatchArm, Method, Operation, Statement, TypeInfo, TypeKind, UnaryOp}, env::{MethodInfo, TypeEnv}, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::{get_native_fun, get_native_type}};
+use crate::span::{Span, Spanned};
 
 struct LoweringResult {
     name: Option<SmolStr>,
@@ -22,10 +24,6 @@ enum FunctionStatement<'a> {
         interfaces: &'a Vec<Spanned<SmolStr>>,
         implementations: &'a HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>
     }
-}
-
-fn spanned<T>(inner: T, span: Span) -> Spanned<T> {
-    Spanned { inner, span }
 }
 
 pub fn hoist(

@@ -1,7 +1,7 @@
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use smol_str::SmolStr;
 
-use crate::ast::Spanned;
+use crate::span::Spanned;
 
 pub fn build_report(e: Spanned<SmolStr>, src: &String) {
     Report::build(ReportKind::Error, e.span.into_range())

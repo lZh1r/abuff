@@ -1,19 +1,18 @@
+use crate::span::spanned;
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
 use crate::{
-    ast::{Expr, MatchArm, Method, NativeMethod, NormalMethod, Span, Spanned, Statement, TypeInfo, TypeKind, UnaryOp},
+    ast::{Expr, MatchArm, Method, NativeMethod, NormalMethod, Statement, TypeInfo, TypeKind, UnaryOp},
     lexer::Token,
 };
+
+use crate::span::{Span, Spanned};
 
 pub struct Parser<'a> {
     tokens: &'a [Spanned<Token>],
     cursor: usize,
-}
-
-fn spanned<T>(inner: T, span: Span) -> Spanned<T> {
-    Spanned { inner, span }
 }
 
 impl<'a> Parser<'a> {

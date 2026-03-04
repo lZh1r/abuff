@@ -2,7 +2,8 @@ use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smol_str::{SmolStr, ToSmolStr, format_smolstr};
 
-use crate::{ast::{Operation, Span, Spanned}, env::Env, ir::{ControlFlow, Expr, MatchArm, Statement, Value}};
+use crate::{ast::{Operation}, env::Env, ir::{ControlFlow, Expr, MatchArm, Statement, Value}};
+use crate::span::{Span, Spanned};
 
 pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<SmolStr>> {
     match &expr.inner {
@@ -541,7 +542,7 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
     }
 }
 
-pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: crate::ast::Span) -> Result<ControlFlow, Spanned<SmolStr>> {
+pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: Span) -> Result<ControlFlow, Spanned<SmolStr>> {
     match fun {
         ControlFlow::Value(v) => {
             match v {
@@ -597,7 +598,7 @@ fn binary_operation(
     operation: &Operation,
     right: &Box<Spanned<Expr>>,
     env: &mut Env,
-    span: crate::ast::Span
+    span: Span
 ) -> Result<ControlFlow, Spanned<SmolStr>> {
     let left_value = match eval_expr(left, env)? {
         ControlFlow::Value(v) => v,

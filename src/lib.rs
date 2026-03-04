@@ -8,3 +8,4 @@ pub mod native;
 pub mod lexer;
 pub mod main_parser;
 pub mod type_checker;
+pub mod span;
