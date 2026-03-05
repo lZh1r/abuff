@@ -199,6 +199,13 @@ pub enum MatchArm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MethodSignature {
+    pub method: Spanned<Method>,
+    pub is_static: bool,
+    pub is_mutating: bool
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Method {
     Normal(NormalMethod),
     Native(NativeMethod)
@@ -233,7 +240,7 @@ pub enum Statement {
         name: SmolStr, 
         type_info: Spanned<TypeInfo>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>,
+        implementation: HashMap<SmolStr, Vec<MethodSignature>>,
         interfaces: Vec<Spanned<SmolStr>>
     },
     Expr(Spanned<Expr>),
@@ -253,14 +260,14 @@ pub enum Statement {
     NativeType {
         name: SmolStr,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>,
+        implementation: HashMap<SmolStr, Vec<MethodSignature>>,
         interfaces: Vec<Spanned<SmolStr>>
     },
     EnumDef {
         name: SmolStr, 
         variants: Vec<(SmolStr, Option<Spanned<TypeInfo>>)>,
         generic_params: Vec<Spanned<SmolStr>>,
-        implementation: HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>,
+        implementation: HashMap<SmolStr, Vec<MethodSignature>>,
         interfaces: Vec<Spanned<SmolStr>>
     },
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>, bool)>, path: Spanned<SmolStr>},

@@ -1,7 +1,7 @@
 # ABuff 
 A statically typed interpreted language inspired by TypeScript and Rust.
 ## Overview
-The language is designed to be a blend of TypeScript and Rust. It takes interpretability, most of the type system and garbage collection from the former, while taking enums, pattern matcing and trait system from the latter.
+The language is designed to be a blend of TypeScript and Rust. It takes interpretability, most of the type system and garbage collection from the former, while taking enums, pattern matching and trait system from the latter.
 
 **Current status:** Experimental
 ### Why?

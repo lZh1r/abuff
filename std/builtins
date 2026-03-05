@@ -173,6 +173,10 @@ native type Array<T> impl {
     native fun get(index: Int): Option<T>;
     
     native fun contains(element: T): Bool;
+    
+    mut native fun push(element: T);
+    
+    mut native fun pop(): Option<T>;
 };
 
 native type String impl {

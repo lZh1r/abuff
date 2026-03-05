@@ -1,4 +1,4 @@
-use crate::span::spanned;
+use crate::{ast::MethodSignature, span::spanned};
 use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
@@ -22,7 +22,7 @@ enum FunctionStatement<'a> {
         name: &'a SmolStr,
         generic_params: &'a Vec<Spanned<SmolStr>>,
         interfaces: &'a Vec<Spanned<SmolStr>>,
-        implementations: &'a HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>
+        implementations: &'a HashMap<SmolStr, Vec<MethodSignature>>
     }
 }
 
@@ -209,7 +209,7 @@ pub fn hoist(
             _ => rest.push(st),
         }
     }
-
+    
     // Process functions in the order they were collected
     for st in functions {
         match st {
@@ -257,7 +257,10 @@ pub fn hoist(
                 for (interface_name, methods) in implementations {
                     env.add_interface_impl(interface_name.clone(), ti.inner.id());
                     let mut interface_env = generic_scope.enter_scope();
-                    for (is_static, method) in methods {
+                    for m in methods {
+                        let method = m.method.clone();
+                        let is_static = m.is_static;
+                        let is_mutating = m.is_mutating;
                         match &method.inner {
                             Method::Normal(m) => {
                                 if implemented_methods.contains(&m.name) {
@@ -358,7 +361,8 @@ pub fn hoist(
                                                 method.span,
                                             ),
                                             type_info: fun_type,
-                                            type_template
+                                            type_template,
+                                            is_mutating
                                         }
                                     );
                                     match is_static {
@@ -450,7 +454,8 @@ pub fn hoist(
                                                 method.span,
                                             ),
                                             type_info: fun_type,
-                                            type_template
+                                            type_template,
+                                            is_mutating
                                         }
                                     );
                                     
@@ -542,7 +547,8 @@ pub fn hoist(
                                                 method.span,
                                             ),
                                             type_info: fun_type,
-                                            type_template
+                                            type_template,
+                                            is_mutating
                                         }
                                     );
                                     
@@ -604,7 +610,8 @@ pub fn hoist(
                                                 method.span,
                                             ),
                                             type_info: fun_type,
-                                            type_template
+                                            type_template,
+                                            is_mutating
                                         }
                                     );
                                     
@@ -2252,6 +2259,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 } else {
                     method_info.type_info
                 };
+                if method_info.is_mutating {
+                    if check_mutability(&target_result.0, env)? != method_info.is_mutating {
+                        return Err(spanned(
+                            "Cannot use a mutating method on an immutable value".into(),
+                            method_info.lowered.span
+                        ))
+                    }
+                }
                 match method_info.lowered.inner {
                     ir::Expr::NativeFun { name, path, native_fun } => {
                         Ok((

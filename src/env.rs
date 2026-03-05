@@ -74,7 +74,8 @@ pub struct MethodInfo {
     //used later when executing
     pub lowered: Spanned<ir::Expr>, 
     //a raw generic type which will be compared to "this" type to deduce values for generic params
-    pub type_template: Option<Spanned<TypeInfo>>
+    pub type_template: Option<Spanned<TypeInfo>>,
+    pub is_mutating: bool
 }
 
 #[derive(Debug, Clone)]
@@ -516,7 +517,56 @@ pub fn create_default_env() -> (Env, TypeEnv) {
             })
         }
     });
+    
+    register_fun(BUILTINS_PATH, "push", |(args, this)| {
+        let element = args.first().unwrap();
+        let this = this.unwrap();
+        match *this {
+            Value::Array(a) => {
+                a.write().unwrap().push(element.clone());
+                Ok(ControlFlow::Value(Value::Void))
+            },
+            v => Err(Spanned {
+                inner: format!("Cannot push to {v}").into(),
+                span: Span::from(0..0)
+            })
+        }
+    });
 
+    register_fun(BUILTINS_PATH, "pop", |(_, this)| {
+        let this = this.unwrap();
+        match *this {
+            Value::Array(a) => {
+                let v = a.write().unwrap().pop();
+                match v {
+                    Some(v) => Ok(
+                        ControlFlow::Value(
+                            Value::EnumVariant { 
+                                enum_name: "Option".into(),
+                                variant: "Some".into(),
+                                value: Box::new(v)
+                            }
+                        )
+                    ),
+                    None => Ok(
+                        ControlFlow::Value(
+                            Value::EnumVariant { 
+                                enum_name: "Option".into(),
+                                variant: "None".into(),
+                                value: Box::new(Value::Void)
+                            }
+                        )
+                    )
+                }
+                
+            },
+            v => Err(Spanned {
+                inner: format!("Cannot push to {v}").into(),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
     register_fun(BUILTINS_PATH, "reverse", |(_, this)| {
         let val = this.unwrap();
         match *val {

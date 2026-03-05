@@ -1,4 +1,4 @@
-use crate::span::spanned;
+use crate::{ast::MethodSignature, span::spanned};
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
@@ -358,8 +358,8 @@ impl<'a> Parser<'a> {
     
     fn parse_methods(
         &mut self,
-        implementation: &mut HashMap<SmolStr, Vec<(bool, Spanned<Method>)>>,
-        own_methods: &mut Vec<(bool, Spanned<Method>)>
+        implementation: &mut HashMap<SmolStr, Vec<MethodSignature>>,
+        own_methods: &mut Vec<MethodSignature>
     ) -> Result<(), Spanned<SmolStr>> {
         if self.check(&Token::Impl) {
             self.advance();
@@ -369,8 +369,21 @@ impl<'a> Parser<'a> {
                     self.advance();
                     break
                 }
-                let is_static = self.check(&Token::Static);
-                if is_static { self.advance(); }
+                let (is_static, is_mutating) = match self.peek() {
+                    Some(t) => {
+                        match &t.inner {
+                            Token::Mut => (false, true),
+                            Token::Static => (true, false),
+                            _ => (false, false)
+                        }
+                    },
+                    None => return Err(spanned(
+                        "Unexpected EOF in method declaration".into(),
+                        Span::at(self.peek_at(-1).unwrap().span.end)
+                    )),
+                };
+                if is_static | is_mutating {self.advance();}
+                
                 match &self.peek().ok_or(spanned(
                     "Unexpected EOF in impl block".into(),
                     self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
@@ -384,8 +397,21 @@ impl<'a> Parser<'a> {
                                 self.advance();
                                 break
                             }
-                            let is_static = self.check(&Token::Static);
-                            if is_static { self.advance(); }
+                            
+                            let (is_static, is_mutating) = match self.peek() {
+                                Some(t) => {
+                                    match &t.inner {
+                                        Token::Mut => (false, true),
+                                        Token::Static => (true, false),
+                                        _ => (false, false)
+                                    }
+                                },
+                                None => return Err(spanned(
+                                    "Unexpected EOF in method declaration".into(),
+                                    Span::at(self.peek_at(-1).unwrap().span.end)
+                                )),
+                            };
+                            if is_static | is_mutating {self.advance();}
                             
                             match &self.peek().ok_or(spanned(
                                 "Unexpected EOF in impl block".into(),
@@ -410,7 +436,13 @@ impl<'a> Parser<'a> {
                                         },
                                         _ => panic!()
                                     };
-                                    methods.push((is_static, method));
+                                    methods.push(
+                                        MethodSignature {
+                                            method,
+                                            is_static,
+                                            is_mutating,
+                                        }
+                                    );
                                 },
                                 Token::Native => {
                                     let native_fun = self.native_fun_statement()?;
@@ -430,7 +462,13 @@ impl<'a> Parser<'a> {
                                         },
                                         _ => panic!()
                                     };
-                                    own_methods.push((is_static, method));
+                                    own_methods.push(
+                                        MethodSignature {
+                                            method,
+                                            is_static,
+                                            is_mutating,
+                                        }
+                                    );
                                 },
                                 t => {
                                     return Err(spanned(
@@ -461,7 +499,13 @@ impl<'a> Parser<'a> {
                             },
                             _ => panic!()
                         };
-                        own_methods.push((is_static, method));
+                        own_methods.push(
+                            MethodSignature {
+                                method,
+                                is_static,
+                                is_mutating,
+                            }
+                        );
                     },
                     Token::Native => {
                         let native_fun = self.native_fun_statement()?;
@@ -481,7 +525,13 @@ impl<'a> Parser<'a> {
                             },
                             _ => panic!()
                         };
-                        own_methods.push((is_static, method));
+                        own_methods.push(
+                            MethodSignature {
+                                method,
+                                is_static,
+                                is_mutating,
+                            }
+                        );
                     },
                     t => {
                         return Err(spanned(

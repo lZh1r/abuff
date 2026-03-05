@@ -200,3 +200,20 @@ fn shared_reference_mutation() {
         _ => panic!()
     };
 }
+
+#[test]
+fn array_push_pop() {
+    let src = r#"
+        let mut a = [0];
+        a.push(1);
+        a.pop().unwrap()
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => match v {
+            Value::Int(i) => assert_eq!(i, 1),
+            _ => panic!()
+        },
+        _ => panic!()
+    };
+}
