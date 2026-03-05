@@ -4,7 +4,7 @@ use smol_str::SmolStr;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::span::Spanned;
+use crate::{ast::shared::{Operation, UnaryOp}, span::Spanned};
 
 static TYPE_ID_COUNTER: AtomicU32 = AtomicU32::new(10);
 
@@ -272,35 +272,6 @@ pub enum Statement {
     },
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>, bool)>, path: Spanned<SmolStr>},
     Export(Box<Spanned<Statement>>)
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Operation {
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-    Eq,
-    NotEq,
-    LessThan,
-    LessThanEq,
-    GreaterThan,
-    GreaterThanEq,
-    And,
-    Or,
-    NullCoal,
-    BitwiseAnd,
-    BitwiseOr,
-    BitwiseXor,
-    BitwiseLeftShift,
-    BitwiseRightShift
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum UnaryOp {
-    Negate,
-    Not
 }
 
 #[derive(Debug, Clone)]

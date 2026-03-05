@@ -1,6 +1,15 @@
 use std::{env::{self, current_dir}, fs};
 
-use abuff::{span::Spanned, env::{DEFAULT_ENVS, create_default_env}, error::build_report, ir::ControlFlow, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, type_checker::{hoist}};
+use abuff::{
+    span::Spanned,
+    env::{DEFAULT_ENVS, create_default_env},
+    error::build_report, 
+    ast::clean::ControlFlow, 
+    lexer::lex, 
+    main_parser::Parser,
+    module::{GlobalRegistry, run},
+    type_checker::{hoist}
+};
 
 fn main() {
     let args: Vec<String> = env::args().collect();

@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLoc
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ir::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun, type_checker::{hoist}};
+use crate::{ast::typed::{TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ast::clean::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun, type_checker::{hoist}};
 use crate::span::{Span, Spanned};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -251,7 +251,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
 
 #[allow(private_bounds)]
 pub fn run<R: ModuleRegistry>(
-    statements: &[Spanned<ir::Statement>],
+    statements: &[Spanned<clean::Statement>],
     env: &mut Env, 
     module_path: PathBuf,
     registry: &R
@@ -260,7 +260,7 @@ pub fn run<R: ModuleRegistry>(
     let mut value_exports = HashMap::new();
     for statement in statements {
         match statement.inner.clone() {
-            ir::Statement::Let { name, expr } => {
+            clean::Statement::Let { name, expr } => {
                 match eval_expr(&expr, env)? {
                     ControlFlow::Value(v) => env.add_variable(name.clone(), v),
                     cf => {
@@ -274,7 +274,7 @@ pub fn run<R: ModuleRegistry>(
                     },
                 }
             },
-            ir::Statement::Expr(expr) => {
+            clean::Statement::Expr(expr) => {
                 let cf = eval_expr(&expr, env)?;
                 match cf {
                     ControlFlow::Value(_) => result = Ok(cf),
@@ -289,7 +289,7 @@ pub fn run<R: ModuleRegistry>(
                     },
                 }
             },
-            ir::Statement::Import { symbols, path } => {
+            clean::Statement::Import { symbols, path } => {
                 let reg = GlobalRegistry;
                 match get_export_values(&path.inner, &reg) {
                     Some(map) => {
@@ -312,9 +312,9 @@ pub fn run<R: ModuleRegistry>(
                     None => panic!(), //theoretically impossible since there are no circular imports
                 }
             },
-            ir::Statement::Export(spanned) => {
+            clean::Statement::Export(spanned) => {
                 match &spanned.inner {
-                    ir::Statement::Let { name, expr } => {
+                    clean::Statement::Let { name, expr } => {
                         match eval_expr(&expr, env)? {
                             ControlFlow::Value(v) => {
                                 env.add_variable(name.clone(), v.clone());
@@ -332,15 +332,15 @@ pub fn run<R: ModuleRegistry>(
                         }
     
                     },
-                    ir::Statement::Expr(spanned) => {
+                    clean::Statement::Expr(spanned) => {
                         return Err(Spanned {
                             inner: "Cannot export an expression".into(),
                             span: spanned.span.clone()
                         })
                     },
-                    ir::Statement::Import { symbols: _, path: _ } => panic!(),
-                    ir::Statement::Export(_) => panic!(),
-                    ir::Statement::NativeFun(name) => {
+                    clean::Statement::Import { symbols: _, path: _ } => panic!(),
+                    clean::Statement::Export(_) => panic!(),
+                    clean::Statement::NativeFun(name) => {
                         let str_path = module_path.to_str().unwrap();
                         match get_native_fun(str_path, name) {
                             Some(ptr) => {
@@ -365,7 +365,7 @@ pub fn run<R: ModuleRegistry>(
                     },
                 }
             },
-            ir::Statement::NativeFun(_) => todo!(), //later
+            clean::Statement::NativeFun(_) => todo!(), //later
         }
     };
     

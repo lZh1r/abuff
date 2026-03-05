@@ -1,9 +1,13 @@
-use crate::{ast::MethodSignature, span::spanned};
+use crate::{ast::typed::MethodSignature, span::spanned};
 use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{Expr, MatchArm, Method, Operation, Statement, TypeInfo, TypeKind, UnaryOp}, env::{MethodInfo, TypeEnv}, ir, module::{GlobalRegistry, eval_import, insert_type_module}, native::{get_native_fun, get_native_type}};
+use crate::{ast::typed::{Expr, MatchArm, Method, Statement, TypeInfo, TypeKind},
+    ast::shared::{Operation, UnaryOp}, env::{MethodInfo, TypeEnv},
+    ast::clean,
+    module::{GlobalRegistry, eval_import, insert_type_module},
+    native::{get_native_fun, get_native_type}};
 use crate::span::{Span, Spanned};
 
 struct LoweringResult {
@@ -11,7 +15,7 @@ struct LoweringResult {
     var_type: Option<Spanned<TypeInfo>>,
     custom_type: Option<Spanned<TypeInfo>>,
     export: bool,
-    lowered_statement: Option<Spanned<ir::Statement>>,
+    lowered_statement: Option<Spanned<clean::Statement>>,
 }
 
 #[derive(Debug)]
@@ -32,7 +36,7 @@ pub fn hoist(
     path: &str,
 ) -> Result<
     (
-        Vec<Spanned<ir::Statement>>, // ordered statements
+        Vec<Spanned<clean::Statement>>, // ordered statements
         HashMap<SmolStr, Spanned<TypeInfo>>, // var_exports
         HashMap<SmolStr, Spanned<TypeInfo>>, // type_exports
     ),
@@ -350,7 +354,7 @@ pub fn hoist(
                                         m.name.clone(),
                                         MethodInfo {
                                             lowered: spanned(
-                                                ir::Expr::Fun {
+                                                clean::Expr::Fun {
                                                     params: m
                                                         .params
                                                         .iter()
@@ -443,7 +447,7 @@ pub fn hoist(
                                         m.name.clone(),
                                         MethodInfo {
                                             lowered: spanned(
-                                                ir::Expr::Fun {
+                                                clean::Expr::Fun {
                                                     params: m
                                                         .params
                                                         .iter()
@@ -539,7 +543,7 @@ pub fn hoist(
                                         m.name.clone(),
                                         MethodInfo {
                                             lowered: spanned(
-                                                ir::Expr::NativeFun {
+                                                clean::Expr::NativeFun {
                                                     name: m.name.clone(),
                                                     path: path.into(),
                                                     native_fun,
@@ -602,7 +606,7 @@ pub fn hoist(
                                         m.name.clone(),
                                         MethodInfo {
                                             lowered: spanned(
-                                                ir::Expr::NativeFun {
+                                                clean::Expr::NativeFun {
                                                     name: m.name.clone(),
                                                     path: path.into(),
                                                     native_fun,
@@ -709,7 +713,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 custom_type: None,
                 export: false,
                 lowered_statement: Some(spanned(
-                    ir::Statement::Let { 
+                    clean::Statement::Let { 
                         name: name.clone(),
                         expr: expr_result.0
                     },
@@ -757,7 +761,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 custom_type: None,
                 export: false,
                 lowered_statement: Some(spanned(
-                    ir::Statement::Expr(expr_result.0),
+                    clean::Statement::Expr(expr_result.0),
                     statement.span
                 ))
             })
@@ -815,10 +819,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     custom_type: None,
                     export: false,
                     lowered_statement: Some(spanned(
-                        ir::Statement::Let { 
+                        clean::Statement::Let { 
                             name: name.clone(),
                             expr: spanned(
-                                ir::Expr::Fun { 
+                                clean::Expr::Fun { 
                                     params: params.iter().map(|(need, _)| need.clone()).collect(),
                                     body: Box::new(body_result.0)
                                 },
@@ -884,10 +888,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     custom_type: None,
                     export: false,
                     lowered_statement: Some(spanned(
-                        ir::Statement::Let { 
+                        clean::Statement::Let { 
                             name: name.clone(),
                             expr: spanned(
-                                ir::Expr::Fun { 
+                                clean::Expr::Fun { 
                                     params: params.iter().map(|(need, _)| need.clone()).collect(),
                                     body: Box::new(body_result.0)
                                 },
@@ -932,7 +936,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     custom_type: None,
                     export: false,
                     lowered_statement: Some(spanned(
-                        ir::Statement::NativeFun(name.clone()),
+                        clean::Statement::NativeFun(name.clone()),
                         statement.span
                     ))
                 })
@@ -973,7 +977,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     custom_type: None,
                     export: false,
                     lowered_statement: Some(spanned(
-                        ir::Statement::NativeFun(name.clone()),
+                        clean::Statement::NativeFun(name.clone()),
                         statement.span
                     ))
                 })
@@ -1023,14 +1027,14 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     record_exprs.insert(
                         v_name.clone(),
                         Spanned {
-                            inner: ir::Expr::Fun { 
+                            inner: clean::Expr::Fun { 
                                 params: vec![(false, SmolStr::new("+arg"))], 
                                 body: Box::new(Spanned {
-                                    inner: ir::Expr::EnumConstructor { 
+                                    inner: clean::Expr::EnumConstructor { 
                                         enum_name: name.clone(),
                                         variant: v_name.clone(),
                                         value: Box::new(Spanned {
-                                            inner: ir::Expr::Var(SmolStr::new("+arg")),
+                                            inner: clean::Expr::Var(SmolStr::new("+arg")),
                                             span: ti.span
                                         })
                                     },
@@ -1082,14 +1086,14 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     record_exprs.insert(
                         v_name.clone(),
                         Spanned {
-                            inner: ir::Expr::Fun { 
+                            inner: clean::Expr::Fun { 
                                 params: vec![], 
                                 body: Box::new(Spanned {
-                                    inner: ir::Expr::EnumConstructor { 
+                                    inner: clean::Expr::EnumConstructor { 
                                         enum_name: name.clone(),
                                         variant: v_name.clone(),
                                         value: Box::new(Spanned {
-                                            inner: ir::Expr::Void,
+                                            inner: clean::Expr::Void,
                                             span: Span::from(0..0)
                                         })
                                     },
@@ -1127,10 +1131,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 custom_type: Some(enum_type),
                 export: false,
                 lowered_statement: Some(spanned(
-                    ir::Statement::Let { 
+                    clean::Statement::Let { 
                         name: name.clone(),
                         expr: Spanned {
-                            inner: ir::Expr::Record(record_exprs),
+                            inner: clean::Expr::Record(record_exprs),
                             span: statement.span
                         }
                     },
@@ -1192,7 +1196,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
     
                     if new_symbols.len() != 0 {
                         Some(spanned(
-                            ir::Statement::Import { 
+                            clean::Statement::Import { 
                                 symbols: new_symbols, 
                                 path: path.clone()
                             },
@@ -1230,7 +1234,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 lowered_statement: {
                     if result.var_type.is_some() {
                         Some(spanned(
-                            ir::Statement::Export(Box::new(result.lowered_statement.unwrap())),
+                            clean::Statement::Export(Box::new(result.lowered_statement.unwrap())),
                             statement.span
                         ))
                     } else { None }
@@ -1634,36 +1638,36 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
 }
 
 fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
-    (Spanned<ir::Expr>, Spanned<TypeInfo>),
+    (Spanned<clean::Expr>, Spanned<TypeInfo>),
     Spanned<SmolStr>
 > {
     match &expr.inner {
         Expr::Bool(b) => Ok((
-            spanned(ir::Expr::Bool(*b), expr.span),
+            spanned(clean::Expr::Bool(*b), expr.span),
             spanned(TypeInfo::bool(), expr.span)
         )),
         Expr::Float(f) => Ok((
-            spanned(ir::Expr::Float(*f), expr.span),
+            spanned(clean::Expr::Float(*f), expr.span),
             spanned(TypeInfo::float(), expr.span)
         )),
         Expr::Int(i) => Ok((
-            spanned(ir::Expr::Int(*i), expr.span),
+            spanned(clean::Expr::Int(*i), expr.span),
             spanned(TypeInfo::int(), expr.span)
         )),
         Expr::String(s) => Ok((
-            spanned(ir::Expr::String(s.clone()), expr.span),
+            spanned(clean::Expr::String(s.clone()), expr.span),
             spanned(TypeInfo::string(), expr.span)
         )),
         Expr::Char(c) => Ok((
-            spanned(ir::Expr::Char(c.clone()), expr.span),
+            spanned(clean::Expr::Char(c.clone()), expr.span),
             spanned(TypeInfo::char(), expr.span)
         )),
         Expr::Void => Ok((
-            spanned(ir::Expr::Void, expr.span),
+            spanned(clean::Expr::Void, expr.span),
             spanned(TypeInfo::void(), expr.span)
         )),
         Expr::Null => Ok((
-            spanned(ir::Expr::Null, expr.span),
+            spanned(clean::Expr::Null, expr.span),
             spanned(TypeInfo::null(), expr.span)
         )),
         Expr::Var(name) => {
@@ -1676,7 +1680,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 ))
             };
             Ok((
-                spanned(ir::Expr::Var(name.clone()), expr.span),
+                spanned(clean::Expr::Var(name.clone()), expr.span),
                 var_type.0
             ))
         },
@@ -1702,7 +1706,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 lowered.push(result.0);
             }
             Ok((
-                spanned(ir::Expr::Array(lowered), expr.span.clone()),
+                spanned(clean::Expr::Array(lowered), expr.span.clone()),
                 spanned(
                     TypeInfo::array(expected_type),
                     expr.span
@@ -1722,7 +1726,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     }
                     Ok((
                         spanned(
-                            ir::Expr::Index(
+                            clean::Expr::Index(
                                 Box::new(target_result.0),
                                 Box::new(index_result.0)
                             ),
@@ -1761,7 +1765,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             }
                             Ok((
                                 spanned(
-                                    ir::Expr::Binary { 
+                                    clean::Expr::Binary { 
                                         left: Box::new(left_result.0),
                                         operation: operation.clone(),
                                         right: Box::new(right_result.0)
@@ -1798,7 +1802,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             }
                             Ok((
                                 spanned(
-                                    ir::Expr::Binary { 
+                                    clean::Expr::Binary { 
                                         left: Box::new(left_result.0),
                                         operation: operation.clone(),
                                         right: Box::new(right_result.0)
@@ -1837,7 +1841,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             }
                             Ok((
                                 spanned(
-                                    ir::Expr::Binary { 
+                                    clean::Expr::Binary { 
                                         left: Box::new(left_result.0),
                                         operation: operation.clone(),
                                         right: Box::new(right_result.0)
@@ -1869,7 +1873,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     }
                     Ok((
                         spanned(
-                            ir::Expr::Binary { 
+                            clean::Expr::Binary { 
                                 left: Box::new(left_result.0),
                                 operation: operation.clone(),
                                 right: Box::new(right_result.0)
@@ -1886,7 +1890,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     match (left_result.1.inner.kind(), right_result.1.inner.kind()) {
                         (TypeKind::Bool, TypeKind::Bool) => Ok((
                             spanned(
-                                ir::Expr::Binary { 
+                                clean::Expr::Binary { 
                                     left: Box::new(left_result.0),
                                     operation: operation.clone(),
                                     right: Box::new(right_result.0)
@@ -1914,7 +1918,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         (TypeKind::Null, _) => {
                             Ok((
                                 spanned(
-                                    ir::Expr::Binary { 
+                                    clean::Expr::Binary { 
                                         left: Box::new(left_result.0),
                                         operation: operation.clone(),
                                         right: Box::new(right_result.0)
@@ -1926,7 +1930,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         },
                         _ => Ok((
                             spanned(
-                                ir::Expr::Binary { 
+                                clean::Expr::Binary { 
                                     left: Box::new(left_result.0),
                                     operation: operation.clone(),
                                     right: Box::new(right_result.0)
@@ -1956,7 +1960,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             }
                             Ok((
                                 spanned(
-                                    ir::Expr::Binary { 
+                                    clean::Expr::Binary { 
                                         left: Box::new(left_result.0),
                                         operation: operation.clone(),
                                         right: Box::new(right_result.0)
@@ -1988,7 +1992,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 let final_result = lower_expr(e, &mut inner_scope)?;
                 Ok((
                     spanned(
-                        ir::Expr::Block(lowered_statements, Some(Box::new(final_result.0))),
+                        clean::Expr::Block(lowered_statements, Some(Box::new(final_result.0))),
                         expr.span.clone()
                     ),
                     final_result.1
@@ -1996,7 +2000,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             } else {
                 Ok((
                     spanned(
-                        ir::Expr::Block(lowered_statements, None),
+                        clean::Expr::Block(lowered_statements, None),
                         expr.span.clone()
                     ),
                     spanned(
@@ -2031,7 +2035,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 }
                 Ok((
                     spanned(
-                        ir::Expr::Fun {
+                        clean::Expr::Fun {
                             params: lower_params,
                             body: Box::new(body_result.0)
                         },
@@ -2071,7 +2075,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
 
                 Ok((
                     spanned(
-                        ir::Expr::Fun { 
+                        clean::Expr::Fun { 
                             params: lower_params,
                             body: Box::new(body_result.0)
                         },
@@ -2221,7 +2225,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
     
                     Ok((
                         spanned(
-                            ir::Expr::Call {
+                            clean::Expr::Call {
                                 fun: Box::new(fun_result.0),
                                 args: lowered_args
                             },
@@ -2245,7 +2249,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 lowers.insert(name.clone(), item_result.0);
             }
             Ok((
-                spanned(ir::Expr::Record(lowers), expr.span.clone()),
+                spanned(clean::Expr::Record(lowers), expr.span.clone()),
                 spanned(TypeInfo::new(TypeKind::Record(types)), expr.span)
             ))
         },
@@ -2268,10 +2272,10 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     }
                 }
                 match method_info.lowered.inner {
-                    ir::Expr::NativeFun { name, path, native_fun } => {
+                    clean::Expr::NativeFun { name, path, native_fun } => {
                         Ok((
                             spanned(
-                                ir::Expr::NativeMethod { 
+                                clean::Expr::NativeMethod { 
                                     this: Box::new(target_result.0),
                                     name, 
                                     path,
@@ -2288,7 +2292,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     _ => {
                         Ok((
                             spanned(
-                                ir::Expr::Method { 
+                                clean::Expr::Method { 
                                     this: Box::new(target_result.0),
                                     fun: Box::new(method_info.lowered)
                                 },
@@ -2307,7 +2311,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         if let Some(e) = fields.get(field) {
                             return Ok((
                                 spanned(
-                                    ir::Expr::Get(Box::new(target_result.0), field.clone()),
+                                    clean::Expr::Get(Box::new(target_result.0), field.clone()),
                                     expr.span.clone()
                                 ),
                                 spanned(
@@ -2359,7 +2363,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             
             Ok((
                 spanned(
-                    ir::Expr::Assign {
+                    clean::Expr::Assign {
                         target: Box::new(target_result.0),
                         value: Box::new(value_result.0)
                     },
@@ -2378,14 +2382,14 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 | (UnaryOp::Negate, TypeKind::Float)
                 | (UnaryOp::Negate, TypeKind::Int) => Ok((
                     spanned(
-                        ir::Expr::Unary(unary_op.clone(), Box::new(expr_result.0)),
+                        clean::Expr::Unary(unary_op.clone(), Box::new(expr_result.0)),
                         expr.span
                     ),
                     expr_result.1
                 )),
                 (UnaryOp::Not, TypeKind::Bool) => Ok((
                     spanned(
-                        ir::Expr::Unary(unary_op.clone(), Box::new(expr_result.0)),
+                        clean::Expr::Unary(unary_op.clone(), Box::new(expr_result.0)),
                         expr.span
                     ),
                     expr_result.1
@@ -2423,7 +2427,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 }
                 Ok((
                     spanned(
-                        ir::Expr::If {
+                        clean::Expr::If {
                             condition: Box::new(condition_result.0),
                             body: Box::new(body_result.0),
                             else_block: Some(Box::new(result.0))
@@ -2438,7 +2442,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             } else {
                 Ok((
                     spanned(
-                        ir::Expr::If {
+                        clean::Expr::If {
                             condition: Box::new(condition_result.0),
                             body: Box::new(body_result.0),
                             else_block: None
@@ -2470,7 +2474,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             }
             Ok((
                 spanned(
-                    ir::Expr::While {
+                    clean::Expr::While {
                         condition: Box::new(condition_result.0),
                         body: Box::new(body_result.0)
                     },
@@ -2483,18 +2487,18 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             ))
         },
         Expr::Break => Ok((
-            spanned(ir::Expr::Break, expr.span.clone()),
+            spanned(clean::Expr::Break, expr.span.clone()),
             spanned(TypeInfo::void(), expr.span)
         )),
         Expr::Continue => Ok((
-            spanned(ir::Expr::Continue, expr.span.clone()),
+            spanned(clean::Expr::Continue, expr.span.clone()),
             spanned(TypeInfo::void(), expr.span)
         )),
         Expr::Return(e) => {
             let result = lower_expr(e, env)?;
             Ok((
                 spanned(
-                    ir::Expr::Return(Box::new(result.0)),
+                    clean::Expr::Return(Box::new(result.0)),
                     expr.span
                 ),
                 spanned(
@@ -2511,7 +2515,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 pattern: &Spanned<MatchArm>,
                 branch: &Spanned<Expr>,
                 env: &mut TypeEnv
-            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+            ) -> Result<((Spanned<clean::MatchArm>, Spanned<clean::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
                 match &pattern.inner {
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.enter_scope();
@@ -2533,7 +2537,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         }
                         let branch_result = lower_expr(branch, &mut inner_env)?;
                         let lowered_pattern = spanned(
-                            ir::MatchArm::Conditional {
+                            clean::MatchArm::Conditional {
                                 alias: alias.clone(),
                                 condition: cond_result.0
                             },
@@ -2551,7 +2555,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         }
                         let branch_result = lower_expr(branch, env)?;
                         let lowered_pattern = spanned(
-                            ir::MatchArm::Value(pattern_result.0),
+                            clean::MatchArm::Value(pattern_result.0),
                             pattern.span
                         );
                         Ok(((lowered_pattern, branch_result.0), branch_result.1, false))
@@ -2568,7 +2572,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         );
                         let branch_result = lower_expr(branch, &mut inner_env)?;
                         let lowered_pattern = spanned(
-                            ir::MatchArm::Default(alias.clone()),
+                            clean::MatchArm::Default(alias.clone()),
                             pattern.span
                         );
                         Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
@@ -2587,7 +2591,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 pattern: &Spanned<MatchArm>,
                 branch: &Spanned<Expr>,
                 env: &mut TypeEnv,
-            ) -> Result<((Spanned<ir::MatchArm>, Spanned<ir::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>>
+            ) -> Result<((Spanned<clean::MatchArm>, Spanned<clean::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>>
             {
                 // If the supplied variants map is empty we are matching a single enum variant.
                 // Resolve the enum definition to obtain its full variant map in that case.
@@ -2641,7 +2645,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         );
 
                         let branch_result = lower_expr(branch, &mut inner_env)?;
-                        let lowered_pattern = spanned(ir::MatchArm::Default(alias.clone()), pattern.span);
+                        let lowered_pattern = spanned(clean::MatchArm::Default(alias.clone()), pattern.span);
                         Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
                     }
                     MatchArm::EnumConstructor {
@@ -2700,7 +2704,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
 
                                     let branch_result = lower_expr(branch, &mut inner_scope)?;
                                     let lowered_pattern = spanned(
-                                        ir::MatchArm::EnumConstructor {
+                                        clean::MatchArm::EnumConstructor {
                                             enum_name: enum_name.clone(),
                                             variant: variant.clone(),
                                             alias: alias.clone(),
@@ -2765,7 +2769,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 branches: &Vec<(Spanned<MatchArm>, Spanned<Expr>)>,
                 expected_type: &mut TypeInfo,
                 all_branches_handled: &mut bool,
-                lowered_branches: &mut Vec<(Spanned<ir::MatchArm>, Spanned<ir::Expr>)>,
+                lowered_branches: &mut Vec<(Spanned<clean::MatchArm>, Spanned<clean::Expr>)>,
                 enum_name: &SmolStr,
                 enum_variants: &HashMap<SmolStr, Spanned<TypeInfo>>,
                 enum_generic_args: &Vec<Spanned<TypeInfo>>,
@@ -2869,7 +2873,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             if all_branches_handled {
                 Ok((
                     spanned(
-                        ir::Expr::Match { 
+                        clean::Expr::Match { 
                             target: Box::new(target_result.0),
                             branches: lowered_branches,
                         },
@@ -2893,7 +2897,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     let reason_result = lower_expr(reason, env)?;
                     Ok((
                         spanned(
-                            ir::Expr::Panic(Some(Box::new(reason_result.0))), 
+                            clean::Expr::Panic(Some(Box::new(reason_result.0))), 
                             expr.span
                         ),
                         spanned(
@@ -2907,7 +2911,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 None => {
                     Ok((
                         spanned(
-                            ir::Expr::Panic(None), 
+                            clean::Expr::Panic(None), 
                             expr.span
                         ),
                         spanned(
@@ -3055,15 +3059,15 @@ fn compare_types(
     map
 }
 
-fn check_mutability(expr: &Spanned<ir::Expr>, env: &TypeEnv) -> Result<bool, Spanned<SmolStr>> {
+fn check_mutability(expr: &Spanned<clean::Expr>, env: &TypeEnv) -> Result<bool, Spanned<SmolStr>> {
     match &expr.inner {
-        ir::Expr::Var(var) => {
+        clean::Expr::Var(var) => {
             Ok(env.get_var_type(var).unwrap().1)
         },
-        ir::Expr::Index(target, _) => {
+        clean::Expr::Index(target, _) => {
             check_mutability(&*target, env)
         },
-        ir::Expr::Get(target, _) => {
+        clean::Expr::Get(target, _) => {
             check_mutability(&*target, env)
         },
         t => Err(Spanned {

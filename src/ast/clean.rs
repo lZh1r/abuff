@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smol_str::SmolStr;
 
-use crate::{ast::{Operation, UnaryOp}, env::Env, native::NativeFun};
+use crate::{ast::shared::{Operation, UnaryOp}, env::Env, native::NativeFun};
 
 use crate::span::Spanned;
 

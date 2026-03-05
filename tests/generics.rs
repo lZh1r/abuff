@@ -1,4 +1,4 @@
-use abuff::ir::{ControlFlow, Value};
+use abuff::ast::clean::{ControlFlow, Value};
 
 use crate::common::run_typed;
 

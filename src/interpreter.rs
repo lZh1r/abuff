@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smol_str::{SmolStr, ToSmolStr, format_smolstr};
 
-use crate::{ast::{Operation}, env::Env, ir::{ControlFlow, Expr, MatchArm, Statement, Value}};
+use crate::{ast::shared::{Operation}, env::Env, ast::clean::{ControlFlow, Expr, MatchArm, Statement, Value}};
 use crate::span::{Span, Spanned};
 
 pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<SmolStr>> {
@@ -183,7 +183,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             match eval_expr(inner_expr, env)? {
                 ControlFlow::Value(v) => {
                     match op {
-                        crate::ast::UnaryOp::Negate => {
+                        crate::ast::shared::UnaryOp::Negate => {
                             match v {
                                 Value::Float(f) => Ok(ControlFlow::Value(Value::Float(-f))),
                                 Value::Int(i) => Ok(ControlFlow::Value(Value::Int(-i))),
@@ -193,7 +193,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                 })
                             }
                         },
-                        crate::ast::UnaryOp::Not => {
+                        crate::ast::shared::UnaryOp::Not => {
                             match v {
                                 Value::Bool(b) => Ok(ControlFlow::Value(Value::Bool(!b))),
                                 v => Err(Spanned {

@@ -2,7 +2,7 @@
 use std::{collections::HashMap, sync::{Mutex, OnceLock}};
 use smol_str::SmolStr;
 
-use crate::{ast::{TypeInfo}, ir::{ControlFlow, Value}};
+use crate::{ast::typed::{TypeInfo}, ast::clean::{ControlFlow, Value}};
 use crate::span::{Spanned};
 
 // (args, [this])

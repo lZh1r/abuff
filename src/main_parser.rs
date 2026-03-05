@@ -1,11 +1,12 @@
-use crate::{ast::MethodSignature, span::spanned};
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
 use crate::{
-    ast::{Expr, MatchArm, Method, NativeMethod, NormalMethod, Statement, TypeInfo, TypeKind, UnaryOp},
+    ast::typed::{Expr, MatchArm, Method, NativeMethod, NormalMethod, Statement, TypeInfo, TypeKind, MethodSignature},
+    ast::shared::{UnaryOp, Operation},
     lexer::Token,
+    span::spanned
 };
 
 use crate::span::{Span, Spanned};
@@ -95,8 +96,8 @@ impl<'a> Parser<'a> {
     }
 
     // helpers for operations
-    fn token_to_operation(token: &Token) -> Option<crate::ast::Operation> {
-        use crate::ast::Operation::*;
+    fn token_to_operation(token: &Token) -> Option<Operation> {
+        use crate::ast::shared::Operation::*;
         match token {
             Token::Plus => Some(Add),
             Token::Minus => Some(Subtract),
@@ -1710,7 +1711,7 @@ impl<'a> Parser<'a> {
                 let value = match &op_token.inner {
                     Token::Eq => right.clone(),
                     Token::PlusEq => {
-                        let op = crate::ast::Operation::Add;
+                        let op = Operation::Add;
                         let bin_span = Span { start: left.span.start, end: right.span.end };
                         spanned(
                             Expr::Binary {
@@ -1722,7 +1723,7 @@ impl<'a> Parser<'a> {
                         )
                     }
                     Token::MinusEq => {
-                        let op = crate::ast::Operation::Subtract;
+                        let op = Operation::Subtract;
                         let bin_span = Span { start: left.span.start, end: right.span.end };
                         spanned(
                             Expr::Binary {
@@ -1734,7 +1735,7 @@ impl<'a> Parser<'a> {
                         )
                     }
                     Token::StarEq => {
-                        let op = crate::ast::Operation::Multiply;
+                        let op = Operation::Multiply;
                         let bin_span = Span { start: left.span.start, end: right.span.end };
                         spanned(
                             Expr::Binary {
@@ -1746,7 +1747,7 @@ impl<'a> Parser<'a> {
                         )
                     }
                     Token::SlashEq => {
-                        let op = crate::ast::Operation::Divide;
+                        let op = Operation::Divide;
                         let bin_span = Span { start: left.span.start, end: right.span.end };
                         spanned(
                             Expr::Binary {
@@ -1758,7 +1759,7 @@ impl<'a> Parser<'a> {
                         )
                     }
                     Token::PercentEq => {
-                        let op = crate::ast::Operation::Modulo;
+                        let op = Operation::Modulo;
                         let bin_span = Span { start: left.span.start, end: right.span.end };
                         spanned(
                             Expr::Binary {

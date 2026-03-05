@@ -1,7 +1,10 @@
-pub mod ast;
+pub mod ast {
+    pub mod typed;
+    pub mod clean;
+    pub mod shared;
+}
 pub mod interpreter;
 pub mod env;
-pub mod ir;
 pub mod error;
 pub mod module;
 pub mod native;

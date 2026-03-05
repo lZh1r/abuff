@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, OnceLock, RwLock}, ti
 
 use smol_str::{SmolStr, StrExt, ToSmolStr, format_smolstr};
 
-use crate::{ast::{TypeInfo, TypeKind}, error::build_report, ir::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun, register_type}};
+use crate::{ast::typed::{TypeInfo, TypeKind}, error::build_report, ast::clean::{self, ControlFlow, Value}, module::{GlobalRegistry, eval_import, get_module_envs}, native::{register_fun, register_type}};
 use crate::span::{Span, Spanned};
 
 #[derive(Debug, Clone)]
@@ -72,7 +72,7 @@ pub struct MethodInfo {
     //type signature of
     pub type_info: Spanned<TypeInfo>,
     //used later when executing
-    pub lowered: Spanned<ir::Expr>, 
+    pub lowered: Spanned<clean::Expr>, 
     //a raw generic type which will be compared to "this" type to deduce values for generic params
     pub type_template: Option<Spanned<TypeInfo>>,
     pub is_mutating: bool
