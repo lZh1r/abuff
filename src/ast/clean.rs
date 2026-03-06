@@ -181,6 +181,12 @@ impl Value {
             (Value::Char(a), Value::Int(b)) => Ok(Value::String(a.to_string().repeat(b as usize).into())),
             (Value::Int(a), Value::Char(b)) => Ok(Value::String(b.to_string().repeat(a as usize).into())),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
+            (Value::Array(a), Value::Int(i))
+            | (Value::Int(i), Value::Array(a)) => {
+                let arr = a.read().unwrap().clone();
+                let len = arr.len();
+                Ok(Value::Array(Arc::new(RwLock::new(arr.into_iter().cycle().take(len * i.abs() as usize).collect()))))
+            },
             (a,b) => Err(format!("Cannot multiply {a:?} by {b:?}").into())
         }
     }

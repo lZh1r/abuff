@@ -380,3 +380,39 @@ fn bitwise_ops() {
         _ => panic!()
     };
 }
+
+#[test]
+fn array_mult() {
+    let src = r#"
+        let a = [1,2,3];
+        (a*3)[6]
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn array_mult_negative() {
+    let src = r#"
+        let a = [1,2,3];
+        (a*(-3))[6]
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
