@@ -1754,13 +1754,13 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         | TypeKind::Float 
                         | TypeKind::Int => {
                             if left_result.1.inner != right_result.1.inner 
-                            || !match right_result.1.inner.kind() {
+                            && !match right_result.1.inner.kind() {
                                 TypeKind::Array(_) => true,
                                 _ => false
                             } {
                                 return Err(spanned(
                                     format_smolstr!(
-                                        "Type Mismatch: Expeccted {}, got {}",
+                                        "Type Mismatch: Expected {}, got {}",
                                         left_result.1.inner, 
                                         right_result.1.inner
                                     ), 
