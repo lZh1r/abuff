@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, OnceLock, RwLock}, time::Instant};
+use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, Mutex, OnceLock, RwLock}, time::Instant};
 
 use smol_str::{SmolStr, StrExt, ToSmolStr, format_smolstr};
 
@@ -86,7 +86,7 @@ pub struct TypeScope {
     interface_implementations: HashMap<SmolStr, HashSet<u32>>, //interface name - typesthat implement it
     method_map: HashMap<u32, HashMap<SmolStr, MethodInfo>>, //for getting type signatures of specific method implementations
     static_method_map: HashMap<u32, HashMap<SmolStr, MethodInfo>>,
-    
+    method_copies: Arc<Mutex<HashMap<u32, Vec<u32>>>> //(from, to)
 }
 
 #[derive(Debug, Clone)]
@@ -100,8 +100,41 @@ impl TypeEnv {
             parent: None,
             interface_implementations: HashMap::new(),
             method_map: HashMap::new(),
-            static_method_map: HashMap::new()
+            static_method_map: HashMap::new(),
+            method_copies: Arc::new(Mutex::new(HashMap::new()))
         })))
+    }
+    
+    pub fn schedule_or_try_method_copy(&mut self, from_id: u32, to_id: u32) {
+        let mut scope = self.0.write().unwrap();
+        if let Some(methods) = scope.method_map.get(&from_id).cloned() {
+             scope.method_map.entry(to_id).or_default().extend(methods);
+        }
+        
+        if let Some(static_methods) = scope.static_method_map.get(&from_id).cloned() {
+            scope.static_method_map.entry(to_id).or_default().extend(static_methods);
+        }
+        
+        scope.method_copies.lock().unwrap().entry(from_id).or_default().push(to_id);
+    }
+    
+    pub fn copy_methods(&mut self, from_id: u32) {
+        let mut scope = self.0.write().unwrap();
+
+        let copy_map = scope.method_copies.lock().unwrap().clone();
+        
+        let ids = copy_map.get(&from_id);
+        
+        if let Some(ids) = ids {
+            for to_id in ids {
+                if let Some(methods) = scope.method_map.get(&from_id).cloned() {
+                    scope.method_map.entry(*to_id).or_default().extend(methods);
+                }
+                if let Some(static_methods) = scope.static_method_map.get(&from_id).cloned() {
+                    scope.static_method_map.entry(*to_id).or_default().extend(static_methods);
+                }
+            }
+        }
     }
     
     pub fn get_var_type(&self, name: &str) -> Option<(Spanned<TypeInfo>, bool)> {
@@ -138,7 +171,8 @@ impl TypeEnv {
                 interface_implementations: HashMap::new(), 
                 method_map: HashMap::new(),
                 parent: Some(self.clone()),
-                static_method_map: HashMap::new()
+                static_method_map: HashMap::new(),
+                method_copies: self.0.read().unwrap().method_copies.clone()
             }))
         )
     }

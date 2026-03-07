@@ -636,8 +636,8 @@ pub fn hoist(
                                 }
                             },
                         }
-                        
                     }
+                    env.copy_methods(ti.inner.id());
                 }
             }
         }
@@ -723,6 +723,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
         },
         Statement::TypeDef { name, type_info, generic_params, implementation: _, interfaces: _ } => {
             let mut generic_scope = env.enter_scope();
+            let mut source_id = None;
             let flat_type = if generic_params.len() != 0 {
                 for param in generic_params {
                     generic_scope.add_custom_type(
@@ -741,8 +742,16 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     statement.span
                 )
             } else {
-                flatten_type(type_info, env)?.into_owned()
+                let temp = flatten_type(type_info, env)?.into_owned();
+                source_id = Some(temp.inner.id());
+                spanned(
+                    TypeInfo::new(temp.inner.kind().clone()),
+                    temp.span
+                )
             };
+            if let Some(id) = source_id {
+                env.schedule_or_try_method_copy(id, flat_type.inner.id());
+            }
     
             env.add_custom_type(name.clone(), flat_type.clone());
             Ok(LoweringResult { 
@@ -1448,7 +1457,14 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                         ))
                     }
                     Ok(Cow::Owned(spanned(
-                        TypeInfo::new_with_id(TypeKind::EnumInstance { enum_name: name.clone(), variants: variants.clone(), generic_args: generic_args.clone() }, resolved_type.inner.id()),
+                        TypeInfo::new_with_id(
+                            TypeKind::EnumInstance {
+                                enum_name: name.clone(),
+                                variants: variants.clone(),
+                                generic_args: generic_args.clone()
+                            },
+                            resolved_type.inner.id()
+                        ),
                         type_info.span
                     )))
                 },
@@ -1497,7 +1513,15 @@ fn flatten_type<'a>(type_info: &'a Spanned<TypeInfo>, env: &mut TypeEnv) -> Resu
                             type_info.span
                         ))
                     }
-                    Ok(Cow::Owned(flatten_type(&resolved_type, env)?.into_owned()))
+                    Ok(Cow::Owned(spanned(
+                        TypeInfo::new_with_id(
+                            flatten_type(&resolved_type, env)?.inner.kind().clone(),
+                            resolved_type.inner.id()
+                        ), 
+                        type_info.span
+                    )))
+                    // Ok(Cow::Owned(resolved_type))
+                    // Ok(Cow::Owned(flatten_type(&resolved_type, env)?.into_owned()))
                 }
             }
         },
@@ -1785,7 +1809,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         TypeKind::Array(_) => {
                             if right_result.1.inner.kind() != &TypeKind::Int {
                                 return Err(spanned(
-                                    format!("Cannot apply {:?} to {}", operation, left_result.1.inner).into(), 
+                                    format_smolstr!(
+                                        "Cannot apply {:?} to {}", 
+                                        operation, 
+                                        left_result.1.inner
+                                    ), 
                                     left.span
                                 ))
                             }
@@ -2055,7 +2083,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 let actual_type = flatten_type(&body_result.1, env)?;
                 if actual_type.inner != expected_type.inner {
                     return Err(spanned(
-                        format_smolstr!("Function return type mismatch: expected {}, got {}", expected_type.inner, actual_type.inner),
+                        format_smolstr!(
+                            "Function return type mismatch: expected {}, got {}", 
+                            expected_type.inner, 
+                            actual_type.inner
+                        ),
                         expected_type.span
                     ))
                 }
@@ -2068,7 +2100,13 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         expr.span.clone()
                     ),
                     spanned(
-                        TypeInfo::new(TypeKind::Fun { params: flat_params, return_type: Box::new(actual_type.into_owned()), generic_params: Vec::new() }),
+                        TypeInfo::new(
+                            TypeKind::Fun {
+                                params: flat_params, 
+                                return_type: Box::new(actual_type.into_owned()), 
+                                generic_params: Vec::new()
+                            }
+                        ),
                         expr.span
                     )
                 ))
@@ -2094,7 +2132,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 let body_result = lower_expr(body, &mut inner_scope)?;
                 if body_result.1.inner != expected_flat.inner {
                     return Err(spanned(
-                        format_smolstr!("Function return type mismatch: expected {}, got {}", expected_flat.inner, body_result.1.inner),
+                        format_smolstr!(
+                            "Function return type mismatch: expected {}, got {}",
+                            expected_flat.inner, 
+                            body_result.1.inner
+                        ),
                         expected_flat.span
                     ))
                 }
@@ -2192,7 +2234,8 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                 expr.span
                             ))
                         }
-                        for (i, (((v, _), p_type), arg_type)) in substituted_params.iter().zip(arg_types.iter()).enumerate() {
+                        for (i, (((v, _), p_type), arg_type))
+                        in substituted_params.iter().zip(arg_types.iter()).enumerate() {
                             match v {
                                 true => {
                                     if i != substituted_params.len() - 1 {
@@ -2224,10 +2267,15 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                                 temp.span
                             ))
                         };
-                        for (arg, arg_type) in spread_args.iter().zip(arg_types.iter().skip(substituted_params.len()-1)) {
+                        for (arg, arg_type) 
+                        in spread_args.iter().zip(arg_types.iter().skip(substituted_params.len()-1)) {
                             if arg_type.inner != spread_type.inner {
                                 return Err(spanned(
-                                    format_smolstr!("Argument type mismatch: expected {}, got {}", spread_type.inner, arg_type.inner),
+                                    format_smolstr!(
+                                        "Argument type mismatch: expected {}, got {}",
+                                        spread_type.inner, 
+                                        arg_type.inner
+                                    ),
                                     arg.span
                                 ))
                             }
@@ -2235,14 +2283,21 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     } else {
                         if substituted_params.len() != args.len() {
                             return Err(spanned(
-                                format_smolstr!("Argument type mismatch: expected {} args, got {}", substituted_params.len(), args.len()),
+                                format_smolstr!(
+                                    "Argument type mismatch: expected {} args, got {}",
+                                    substituted_params.len(), args.len()
+                                ),
                                 expr.span
                             ))
                         }
                         for ((_, p_type), arg_type) in substituted_params.iter().zip(arg_types.iter()) {
                             if arg_type.inner != p_type.inner {
                                 return Err(spanned(
-                                    format_smolstr!("Argument type mismatch: expected {}, got {}", p_type.inner, arg_type.inner),
+                                    format_smolstr!(
+                                        "Argument type mismatch: expected {}, got {}",
+                                        p_type.inner, 
+                                        arg_type.inner
+                                    ),
                                     expr.span
                                 ))
                             }
@@ -2281,7 +2336,16 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
         },
         Expr::Get(target, field) => {
             let mut target_result = lower_expr(target, env)?;
-            target_result.1 = flatten_type(&target_result.1, env)?.into_owned();
+            // HORRIBLE BANDAID
+            // ABSOLUTELY DISGUSTING
+            // but idk what to do
+            match &target.inner {
+                Expr::Var(v) => if v == "self" {
+                    target_result.1 = flatten_type(&target_result.1, env)?.into_owned();
+                },
+                _ => ()
+            }
+            // target_result.1 = flatten_type(&target_result.1, env)?.into_owned();
             if let Some(method_info) = env.get_method(target_result.1.inner.id(), field) {
                 let ti = if let Some(template) = method_info.type_template {
                     let generic_map = compare_types(&template, &target_result.1);
@@ -2541,7 +2605,10 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 pattern: &Spanned<MatchArm>,
                 branch: &Spanned<Expr>,
                 env: &mut TypeEnv
-            ) -> Result<((Spanned<clean::MatchArm>, Spanned<clean::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>> {
+            ) -> Result<
+                ((Spanned<clean::MatchArm>, Spanned<clean::Expr>), Spanned<TypeInfo>, bool),
+                Spanned<SmolStr>
+            > {
                 match &pattern.inner {
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.enter_scope();
@@ -2557,7 +2624,10 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         match cond_result.1.inner.kind() {
                             TypeKind::Bool => (),
                             _ => return Err(spanned(
-                                format_smolstr!("Match guard condition should return a Bool, found {} instead", cond_result.1.inner),
+                                format_smolstr!(
+                                    "Match guard condition should return a Bool, found {} instead",
+                                    cond_result.1.inner
+                                ),
                                 condition.span
                             ))
                         }
@@ -2575,7 +2645,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         let pattern_result = lower_expr(e, env)?;
                         if &pattern_result.1.inner != target {
                             return Err(spanned(
-                                format_smolstr!("Type mismatch in match branch: expected {}, got {}", target, pattern_result.1.inner),
+                                format_smolstr!(
+                                    "Type mismatch in match branch: expected {}, got {}", 
+                                    target, 
+                                    pattern_result.1.inner
+                                ),
                                 e.span
                             ))
                         }
@@ -2617,8 +2691,10 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 pattern: &Spanned<MatchArm>,
                 branch: &Spanned<Expr>,
                 env: &mut TypeEnv,
-            ) -> Result<((Spanned<clean::MatchArm>, Spanned<clean::Expr>), Spanned<TypeInfo>, bool), Spanned<SmolStr>>
-            {
+            ) -> Result<
+                ((Spanned<clean::MatchArm>, Spanned<clean::Expr>), Spanned<TypeInfo>, bool),
+                Spanned<SmolStr>
+            > {
                 // If the supplied variants map is empty we are matching a single enum variant.
                 // Resolve the enum definition to obtain its full variant map in that case.
                 let resolved_variants = if variants.is_empty() {
@@ -2969,7 +3045,11 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     }
                 },
                 None => return Err(spanned(
-                    format_smolstr!("Type {} does not have a static method {}", target_type.inner, method.inner),
+                    format_smolstr!(
+                        "Type {} does not have a static method {}", 
+                        target_type.inner, 
+                        method.inner
+                    ),
                     method.span
                 )),
             };

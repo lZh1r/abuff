@@ -1,4 +1,4 @@
-use abuff::ast::clean::{ControlFlow, Value};
+use abuff::{ast::clean::{ControlFlow, Value}, error::build_report};
 
 use crate::common::{run_typed};
 
@@ -435,6 +435,55 @@ fn generic_static_method() {
         ControlFlow::Value(v) => {
             match v {
                 Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn method_inheritance_block() {
+    let src = r#"
+        type A = Int impl {
+            fun hello() {
+                print("hello")
+            }
+        };
+        let a: A = 1;
+        a.hello();
+        let b = 2;
+        b.hello();
+    "#;
+    
+    match run_typed(src.to_string()) {
+        Err(e) => {
+            assert!(e.inner == ("Type Int does not have property hello"))
+        },
+        _ => panic!()
+    };
+}
+
+#[test]
+fn method_inheritance() {
+    let src = r#"
+        type A = Int[] impl {
+            fun hello() {
+                print("hello")
+            }
+        };
+        type B = A;
+        let a: A = [1];
+        a.hello();
+        let mut b: B = [2];
+        b.hello();
+        b.pop().unwrap()
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 2),
                 _ => panic!()
             }
         }
