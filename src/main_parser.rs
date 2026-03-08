@@ -2133,6 +2133,75 @@ impl<'a> Parser<'a> {
         };
         Ok(spanned(ty, ident_sp.span))
     }
+    
+    fn try_parse_function_type(
+        &mut self,
+        paren_span: Span
+    ) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
+        let mut params: Vec<((bool, SmolStr), Spanned<TypeInfo>)> = Vec::new();
+        if !self.check(&Token::RParen) {
+            loop {
+                let mut variadic = false;
+                if self.check(&Token::DotDotDot) {
+                    variadic = true;
+                    self.advance();
+                }
+                let prev_token_span = self.peek_at(-1)
+                    .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
+                // expect name
+                let name_tok = self.advance().ok_or(spanned(
+                    "Unexpected EOF in function type params".into(),
+                    prev_token_span
+                ))?.clone();
+                let pname = if let Token::Ident(n) = name_tok.inner.clone() {
+                    n 
+                } else { 
+                    return Err(spanned(
+                        "Expected identifier in function type params".into(),
+                        name_tok.span
+                    ));
+                };
+                // expect colon
+                self.expect(&Token::Colon)?;
+                // parse type
+                let ptype = self.parse_type()?;
+                params.push(((variadic, pname), ptype));
+                if self.check(&Token::Comma) {
+                    self.advance();
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
+        let prev_token_span = self.peek_at(-1)
+            .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
+        let rpar = self.advance().ok_or(spanned(
+            "Unexpected EOF, expected RParen".into(),
+            prev_token_span
+        ))?.clone();
+        // if arrow follows, it's a function type
+        if self.check(&Token::Arrow) {
+            self.advance(); // consume arrow
+            let ret = self.parse_type()?;
+            let span = Span { start: paren_span.start, end: ret.span.end };
+            Ok(spanned(
+                TypeInfo::new(
+                    TypeKind::Fun {
+                        params,
+                        return_type: Box::new(ret),
+                        generic_params: vec![] 
+                    }
+                ), 
+                span
+            ))
+        } else {
+            Err(spanned(
+                "A return type has to be specified for a function type".into(),
+                Span::from(paren_span.start..rpar.span.end)
+            ))
+        }
+    }
  
     fn parse_type_primary(&mut self) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
         let prev_token_span = self.peek_at(-1)
@@ -2145,67 +2214,41 @@ impl<'a> Parser<'a> {
             Token::LParen => {
                 // plain function type without generic parameters
                 self.advance();
-                let mut params: Vec<((bool, SmolStr), Spanned<TypeInfo>)> = Vec::new();
-                if !self.check(&Token::RParen) {
-                    loop {
-                        let mut variadic = false;
-                        if self.check(&Token::DotDotDot) {
-                            variadic = true;
-                            self.advance();
-                        }
-                        let prev_token_span = self.peek_at(-1)
-                            .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
-                        // expect name
-                        let name_tok = self.advance().ok_or(spanned(
-                            "Unexpected EOF in function type params".into(),
-                            prev_token_span
-                        ))?.clone();
-                        let pname = if let Token::Ident(n) = name_tok.inner.clone() {
-                            n 
-                        } else { 
-                            return Err(spanned(
-                                "Expected identifier in function type params".into(),
-                                name_tok.span
-                            ));
-                        };
-                        // expect colon
-                        self.expect(&Token::Colon)?;
-                        // parse type
-                        let ptype = self.parse_type()?;
-                        params.push(((variadic, pname), ptype));
-                        if self.check(&Token::Comma) {
-                            self.advance();
-                            continue;
-                        } else {
-                            break;
-                        }
+                let checkpoint = self.cursor.clone();
+                match self.try_parse_function_type(prev_token_span) {
+                    Ok(t) => return Ok(t),
+                    Err(_) => {},
+                }
+                self.cursor = checkpoint;
+                let mut types = Vec::new();
+                loop {
+                    // parse type
+                    let ptype = self.parse_type()?;
+                    types.push(Box::new(ptype));
+                    if self.check(&Token::Comma) {
+                        self.advance();
+                        continue;
+                    } else {
+                        break;
                     }
                 }
                 let prev_token_span = self.peek_at(-1)
                     .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
-                let rpar = self.advance().ok_or(spanned(
-                    "Unexpected EOF, expected )".into(),
+                let r_paren_span = self.peek().cloned().ok_or(spanned(
+                    "Unexpected EOF parsing type".into(),
                     prev_token_span
-                ))?.clone();
-                // if arrow follows, it's a function type
-                if self.check(&Token::Arrow) {
-                    self.advance(); // consume arrow
-                    let ret = self.parse_type()?;
-                    let span = Span { start: t_peek.span.start, end: ret.span.end };
-                    Ok(spanned(
-                        TypeInfo::new(
-                            TypeKind::Fun {
-                                params,
-                                return_type: Box::new(ret),
-                                generic_params: vec![] 
-                            }
-                        ), 
+                ))?.span;
+                self.expect(&Token::RParen)?;
+                let span = Span::from(t_peek.span.start..r_paren_span.end);
+                if types.len() == 0 {
+                    Err(spanned(
+                        "Empty tuple types are not allowed".into(),
                         span
                     ))
                 } else {
-                    Err(spanned(
-                        "Parenthesized types are only allowed for function types".into(),
-                        rpar.span
+                    Ok(spanned(
+                        TypeInfo::new(TypeKind::Tuple(types)),
+                        span
                     ))
                 }
             }

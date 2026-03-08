@@ -450,6 +450,14 @@ impl PartialEq for TypeKind {
                 
                 true
             },
+            (TypeKind::Tuple(a), TypeKind::Tuple(b)) => {
+                for (ta, tb) in a.iter().zip(b.iter()) {
+                    if ta.inner != tb.inner {
+                        return false
+                    }
+                }
+                true
+            },
             (TypeKind::Enum { name, variants, generic_params: _ }, TypeKind::EnumVariant { enum_name, variant, generic_args: _ }) 
             | (TypeKind::EnumVariant { enum_name, variant, generic_args: _ }, TypeKind::Enum { name, variants, generic_params: _ }) => {
                 name == enum_name && variants.get(variant).is_some()

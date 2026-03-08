@@ -490,3 +490,23 @@ fn method_inheritance() {
         _ => panic!()
     };
 }
+
+#[test]
+fn tuple_type() {
+    let src = r#"
+        fun f(a: Int, b: Int): (Int, Int) {
+            (a, b)
+        }
+        f(1,2)[0]
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
