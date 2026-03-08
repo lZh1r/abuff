@@ -127,7 +127,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     *val = new_val;
                     return Ok(());
                 }
-                
+        
                 match &path[0] {
                     Access::Index(idx_expr) => {
                         let idx = match eval_expr(idx_expr, env)? {
@@ -138,7 +138,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                             })
                         };
                         match val {
-                            Value::Array(arr) => {
+                            Value::Array(arr) | Value::Tuple(arr) => {
                                 let mut arr = arr.write().unwrap();
                                 if idx >= arr.len() {
                                     return Err(Spanned {
@@ -147,9 +147,9 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                                     });
                                 }
                                 update_value(&mut arr[idx], &path[1..], new_val, env, span)
-                            }
+                            },
                             _ => Err(Spanned {
-                                inner: "Runtime error: Cannot index non-array".into(),
+                                inner: "Runtime error: Cannot index that".into(),
                                 span: idx_expr.span
                             })
                         }
@@ -296,7 +296,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             match eval_expr(target, env)? {
                 ControlFlow::Value(value) | ControlFlow::Return(value) => {
                     match value {
-                        Value::Array(entries) => {
+                        Value::Array(entries) | Value::Tuple(entries) => {
                             let index = match eval_expr(index, env)? {
                                 ControlFlow::Value(v) | ControlFlow::Return(v) => {
                                     match v {
@@ -499,9 +499,18 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 None => Ok(ControlFlow::Panic(None)),
             }
         },
-        //SHOULD NOT BE USED AS A NORMAL EXPRESSION
-        // this is used to differentiate native methods from normal ones
         Expr::NativeFun { name: _, path: _, native_fun: _ } => panic!(),
+        Expr::Tuple(exprs) => {
+            let mut values = Vec::new();
+            for e in exprs {
+                match eval_expr(e, env)? {
+                    ControlFlow::Value(v) => values.push(v),
+                    _ => panic!()
+                }
+                
+            }
+            Ok(ControlFlow::Value(Value::Tuple(Arc::new(RwLock::new(values)))))
+        },
     }
 }
 

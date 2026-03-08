@@ -151,6 +151,16 @@ impl Display for TypeKind {
                 write!(f, "> = {}", body)
             },
             TypeKind::Return(spanned) => write!(f, "{}", spanned),
+            TypeKind::Tuple(types) => {
+                write!(f, "(")?;
+                for (i, ti) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", ti)?;
+                }
+                write!(f, ")")
+            },
         }
     }
 }
@@ -187,7 +197,8 @@ pub enum Expr {
     Return(Box<Spanned<Expr>>),
     Panic(Option<Box<Spanned<Expr>>>),
     Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>},
-    StaticMethod {target: Spanned<SmolStr>, method: Spanned<SmolStr>}
+    StaticMethod {target: Spanned<SmolStr>, method: Spanned<SmolStr>},
+    Tuple(Vec<Box<Spanned<Expr>>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -372,6 +383,7 @@ pub enum TypeKind {
     EnumInstance {enum_name: SmolStr, variants: HashMap<SmolStr, Spanned<TypeInfo>>, generic_args: Vec<Spanned<TypeInfo>>},
     EnumVariant {enum_name: SmolStr, variant: SmolStr, generic_args: Vec<Spanned<TypeInfo>>},
     TypeClosure {params: Vec<Spanned<SmolStr>>, body: Box<Spanned<TypeInfo>>},
+    Tuple(Vec<Box<Spanned<TypeInfo>>>),
     Return(Box<Spanned<TypeInfo>>)
 }
 

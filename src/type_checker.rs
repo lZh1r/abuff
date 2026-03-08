@@ -1759,6 +1759,35 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                         *element_type.clone()
                     ))
                 },
+                TypeKind::Tuple(elements) => {
+                    match index_result.0.inner {
+                        clean::Expr::Int(i) => {
+                            if elements.get(i as usize).is_none() {
+                                return Err(spanned(
+                                    format_smolstr!(
+                                        "Index {i} is out of bounds for a tuple of length {}",
+                                        elements.len()
+                                    ),
+                                    index.span
+                                ))
+                            }
+                            Ok((
+                                spanned(
+                                    clean::Expr::Index(
+                                        Box::new(target_result.0),
+                                        Box::new(index_result.0)
+                                    ),
+                                    expr.span
+                                ),
+                                *elements[i as usize].clone()
+                            ))
+                        },
+                        _ => Err(spanned(
+                            format_smolstr!("Cannot use {} to index tuples", index_result.1.inner),
+                            index.span
+                        ))
+                    }
+                }
                 _ => Err(spanned(
                     format_smolstr!("Cannot index {}", target_result.1.inner),
                     target.span
@@ -2185,7 +2214,7 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                             }
                         }
                     } else if generic_params.len() == 0 {
-                        
+                
                     } else {
                         if generic_params.len() != generic_args.len() {
                             return Err(spanned(
@@ -2441,16 +2470,16 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                     value.span
                 ))
             }
-            
+    
             let is_mutable = check_mutability(&target_result.0, env)?;
-            
+    
             if !is_mutable {
                 return Err(spanned(
                     "Cannot assign to an immutable variable".into(),
                     expr.span
                 ))
             }
-            
+    
             Ok((
                 spanned(
                     clean::Expr::Assign {
@@ -3054,6 +3083,27 @@ fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 )),
             };
             Ok((lowered_expr, ti))
+        },
+        Expr::Tuple(exprs) => {
+            let mut types = Vec::new();
+            let mut lowered = Vec::new();
+            
+            for e in exprs {
+                let result = lower_expr(e, env)?;
+                lowered.push(result.0);
+                types.push(Box::new(result.1));
+            }
+            
+            Ok((
+                spanned(
+                    clean::Expr::Tuple(lowered),
+                    expr.span
+                ),
+                spanned(
+                    TypeInfo::new(TypeKind::Tuple(types)),
+                    expr.span
+                )
+            ))
         },
     }
 }

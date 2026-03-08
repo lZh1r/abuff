@@ -1295,14 +1295,54 @@ impl<'a> Parser<'a> {
                 }
             }
             Token::LParen => {
-                // grouped expression
                 let expr = self.parse_expression()?;
                 let prev_token_span = self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
                 let rspan = self.peek().map(|s| s.span)
                     .ok_or(spanned("Unexpected EOF".into(), prev_token_span))?;
-                self.expect(&Token::RParen)?;
-                let combined_span = Span { start: token.span.start, end: rspan.end };
-                Ok(spanned(expr.inner, combined_span))
+                if self.check(&Token::Comma) {
+                    // tuple
+                    self.advance();
+                    let rspan = self.peek().map(|s| s.span)
+                        .ok_or(spanned("Unexpected EOF".into(), prev_token_span))?;
+                    if self.check(&Token::RParen) {
+                        return Err(spanned(
+                            "Expected an expression, found RParen".into(),
+                            rspan
+                        ))
+                    }
+                    let mut elements = vec![Box::new(expr)];
+                    
+                    loop {
+                        if self.check(&Token::RParen) {
+                            break
+                        }
+                        let expr = self.parse_expression()?;
+                        elements.push(Box::new(expr));
+                        if self.check(&Token::Comma) {
+                            self.advance();
+                            let rspan = self.peek().map(|s| s.span)
+                                .ok_or(spanned("Unexpected EOF".into(), prev_token_span))?;
+                            if self.check(&Token::RParen) {
+                                return Err(spanned(
+                                    "Expected an expression, found RParen".into(),
+                                    rspan
+                                ))
+                            }
+                            continue
+                        } else {
+                            break
+                        }
+                    }
+                    
+                    self.expect(&Token::RParen)?;
+                    let combined_span = Span { start: token.span.start, end: rspan.end };
+                    Ok(spanned(Expr::Tuple(elements), combined_span))
+                } else {
+                    // grouped expression
+                    self.expect(&Token::RParen)?;
+                    let combined_span = Span { start: token.span.start, end: rspan.end };
+                    Ok(spanned(expr.inner, combined_span))
+                }
             }
             Token::LBracket => {
                 // array literal

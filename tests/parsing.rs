@@ -416,3 +416,24 @@ fn array_mult_negative() {
         _ => panic!()
     };
 }
+
+#[test]
+fn tuples() {
+    let src = r#"
+        fun f(a: Int): Int {
+            a * 2
+        }
+        let a = (1,f(2),3+1);
+        a[0] + a[1] + a[2]
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 9),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

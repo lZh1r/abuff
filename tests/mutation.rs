@@ -217,3 +217,23 @@ fn array_push_pop() {
         _ => panic!()
     };
 }
+
+#[test]
+fn tuple_mut() {
+    let src = r#"
+        let mut a = (1,2,3);
+        a[0] = 3;
+        a[1] = 3;
+        a[0] + a[1] + a[2]
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 9),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

@@ -41,7 +41,8 @@ pub enum Expr {
     Return(Box<Spanned<Expr>>),
     Panic(Option<Box<Spanned<Expr>>>),
     EnumConstructor {enum_name: SmolStr, variant: SmolStr, value: Box<Spanned<Expr>>},
-    Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>}
+    Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>},
+    Tuple(Vec<Spanned<Expr>>)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,7 +85,8 @@ pub enum Value {
     NativeFun {path: SmolStr, name: SmolStr, pointer: NativeFun, this: Option<Box<Value>>},
     Null,
     Void,
-    EnumVariant {enum_name: SmolStr, variant: SmolStr, value: Box<Value>}
+    EnumVariant {enum_name: SmolStr, variant: SmolStr, value: Box<Value>},
+    Tuple(Arc<RwLock<Vec<Value>>>)
 }
 
 impl fmt::Display for Value {
@@ -131,6 +133,16 @@ impl fmt::Display for Value {
                 write!(f, "]")
             },
             Value::EnumVariant { enum_name, variant, value } => write!(f, "{enum_name}.{variant}({value})"),
+            Value::Tuple(values) => {
+                write!(f, "(")?;
+                for (i, v) in values.read().unwrap().iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, ")")
+            },
         }
     }
 }

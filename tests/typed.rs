@@ -1,4 +1,4 @@
-use abuff::{ast::clean::{ControlFlow, Value}, error::build_report};
+use abuff::{ast::clean::{ControlFlow, Value}};
 
 use crate::common::{run_typed};
 
