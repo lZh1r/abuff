@@ -5,15 +5,20 @@ use crate::common::{run_typed};
 mod common;
 
 #[test]
-fn test_simple_number() {
+fn simple_int_match() {
     let src = r#"
-        22
+        let a = 12;
+        match a {
+            1 -> 2,
+            12 -> 10,
+            _ -> 1
+        }
     "#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::Int(i) => assert_eq!(i, 22),
+                Value::Int(i) => assert_eq!(i, 10),
                 _ => panic!()
             }
         }
@@ -22,15 +27,20 @@ fn test_simple_number() {
 }
 
 #[test]
-fn test_math_precedence() {
+fn conditional_int_match() {
     let src = r#"
-        2 + 3 * 6 / 3 - 4 * (9 - 5)
+        let a = 12;
+        match a {
+            1 -> 2,
+            i if i % 2 == 0 -> 10,
+            _ -> 1
+        }
     "#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::Int(i) => assert_eq!(i, -8),
+                Value::Int(i) => assert_eq!(i, 10),
                 _ => panic!()
             }
         }
@@ -39,86 +49,17 @@ fn test_math_precedence() {
 }
 
 #[test]
-fn test_block_and_anon_abuse() {
+fn enum_match() {
     let src = r#"
-        let a = 2;
-        a + {
-            let b = {
-                (fun(x: Int): Int {
-                    x + 5
-                })({ d: 3 }.d)
-            };
-            b - 4
-        } + (fun(x: Int): Int {x * x})(4)
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 22),
-                _ => panic!()
-            }
-        }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn test_nested_records() {
-    let src = r#"
-        let obj = {
-            a: {
-                b: {
-                    c: {
-                        d: {
-                            e: 4
-                        }
-                    }
-                }
-            }
+        enum A {
+            B: Int,
+            C: Int
         };
-        obj.a.b.c.d.e
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 4),
-                _ => panic!()
-            }
+        let a = A.B(1);
+        match a {
+            A.B(v) -> v,
+            A.C(_) -> 123
         }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn test_nested_fun_calls() {
-    let src = r#"
-        let f = fun(x: Int): Int {x+1};
-        f(f(f(f(f(1)))))
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 6),
-                _ => panic!()
-            }
-        }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn test_fun_shadowing() {
-    let src = r#"
-        let a = 2;
-        let f = fun(x: Int): Int {
-            let a = 0;
-            x+a
-        };
-        let a = 3;
-        f(1)
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -133,20 +74,23 @@ fn test_fun_shadowing() {
 }
 
 #[test]
-fn test_whitespace_max() {
+fn enum_match_shorthand() {
     let src = r#"
-        let a = 12 ; 
-        fun mega_function ( x : Int ) : Int {
-            a + x
+        enum A {
+            B: Int,
+            C: Int
+        };
+        let a = A.B(1);
+        match a {
+            .B(v) -> v,
+            .C(_) -> 123
         }
-        let b = { bb : 2 } ;
-        mega_function ( b . bb )
     "#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::Int(i) => assert_eq!(i, 14),
+                Value::Int(i) => assert_eq!(i, 1),
                 _ => panic!()
             }
         }
@@ -155,13 +99,19 @@ fn test_whitespace_max() {
 }
 
 #[test]
-fn test_whitespace_min() {
-    let src = r#"let a=12;let mega_function=fun(x:Int):Int{a+x};let b={bb:2};mega_function(b.bb)"#;
+fn builtin_enum_match() {
+    let src = r#"
+        let a = Some(1);
+        match a {
+            Option.Some(v) -> v,
+            Option.None(_) -> 123
+        }
+    "#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
             match v {
-                Value::Int(i) => assert_eq!(i, 14),
+                Value::Int(i) => assert_eq!(i, 1),
                 _ => panic!()
             }
         }
@@ -170,10 +120,122 @@ fn test_whitespace_min() {
 }
 
 #[test]
-fn test_if_else() {
+fn builtin_enum_match_shorthand() {
     let src = r#"
-        if (4 < 3) 3
-        else if (2 == 2) 2
+        let a = Some(1);
+        match a {
+            .Some(v) -> v,
+            .None(_) -> 123
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn simple_tuple_match() {
+    let src = r#"
+        let a = (1,2);
+        match a {
+            (1,2) -> 1,
+            _ -> 2
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn conditional_tuple_match() {
+    let src = r#"
+        let a = (1,2);
+        match a {
+            (1,1) -> 3,
+            (x if x % 2 == 1, y if y % 2 == 0) -> x,
+            _ -> 2
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn enum_tuple_match() {
+    let src = r#"
+        let a = (Some(4), Some(3));
+        match a {
+            (.None(_), .None(_)) -> 2,
+            (.Some(a), .Some(b)) -> a - b,
+            _ -> 0
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn enum_default_tuple_match() {
+    let src = r#"
+        let a = (Some(4), 2);
+        match a {
+            (.None(_), 2) -> 2,
+            (.Some(a), _) -> a,
+            _ -> 0
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 4),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn nested_mixed_tuple_match_default() {
+    let src = r#"
+        let a = ((Some(4), "123"), 2);
+        match a {
+            ((.None(_), "hello"), 2) -> 1,
+            (_, a) -> a,
+            _ -> 0
+        }
     "#;
     
     match run_typed(src.to_string()).unwrap() {
@@ -188,113 +250,43 @@ fn test_if_else() {
 }
 
 #[test]
-fn test_anon_fun() {
+fn nested_mixed_tuple_match() {
     let src = r#"
-        (fun (a: Int): Int {a*2})(2)
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 4),
-                _ => panic!()
-            }
+        let a = ((Some(4), "123"), 2);
+        match a {
+            ((.Some(a), x if x.len() == 3), 2) -> a + x.len() + 2,
+            _ -> 0
         }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn test_fun_in_record() {
-    let src = r#"
-        let a = {
-            b: fun (x: Int): Int x*2
-        };
-        a.b(2)
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 4),
-                _ => panic!()
-            }
-        }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn bitwise_ops() {
-    let src = r#"
-        (12 & 10) // 8
-        + (12 | 10) // 14
-        + (12 ^ 10) // 6
-        - (5 << 2) // 20
-        - (20 >> 2) // 5
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 3),
-                _ => panic!()
-            }
-        }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn array_mult() {
-    let src = r#"
-        let a = [1,2,3];
-        (a*3)[6]
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 1),
-                _ => panic!()
-            }
-        }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn array_mult_negative() {
-    let src = r#"
-        let a = [1,2,3];
-        (a*(-3))[6]
-    "#;
-    
-    match run_typed(src.to_string()).unwrap() {
-        ControlFlow::Value(v) => {
-            match v {
-                Value::Int(i) => assert_eq!(i, 1),
-                _ => panic!()
-            }
-        }
-        _ => panic!()
-    };
-}
-
-#[test]
-fn tuples() {
-    let src = r#"
-        fun f(a: Int): Int {
-            a * 2
-        }
-        let a = (1,f(2),3+1);
-        a[0] + a[1] + a[2]
     "#;
     
     match run_typed(src.to_string()).unwrap() {
         ControlFlow::Value(v) => {
             match v {
                 Value::Int(i) => assert_eq!(i, 9),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn match_dead_branches() {
+    let src = r#"
+        let a = (Some(4), 2);
+        match a {
+            (.None(_), 2) -> 2,
+            (a, b) -> 1,
+            (.Some(a), _) -> a,
+            (.Some(a), 2) -> a,
+            _ -> 0
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
                 _ => panic!()
             }
         }

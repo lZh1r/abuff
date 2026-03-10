@@ -119,7 +119,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             fn update_value(
                 val: &mut Value,
                 path: &[Access],
-                new_val: Value, 
+                new_val: Value,
                 env: &mut Env,
                 span: Span
             ) -> Result<(), Spanned<SmolStr>> {
@@ -127,7 +127,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     *val = new_val;
                     return Ok(());
                 }
-        
+
                 match &path[0] {
                     Access::Index(idx_expr) => {
                         let idx = match eval_expr(idx_expr, env)? {
@@ -340,9 +340,9 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                 Some(v) => match v {
                     Value::Record(hash_map) => {
                         match hash_map.read().unwrap().get(variant) {
-                            Some(_) => Ok(ControlFlow::Value(Value::EnumVariant { 
+                            Some(_) => Ok(ControlFlow::Value(Value::EnumVariant {
                                 enum_name: enum_name.clone(),
-                                variant: variant.clone(), 
+                                variant: variant.clone(),
                                 value: Box::new(match eval_expr(value, env)? {
                                     ControlFlow::Value(v) | ControlFlow::Return(v) => v,
                                     _ => return Err(Spanned {
@@ -371,87 +371,141 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         Expr::Void => Ok(ControlFlow::Value(Value::Void)),
         Expr::Null => Ok(ControlFlow::Value(Value::Null)),
         Expr::Match { target, branches } => {
-            fn match_pattern(
-                target: &Spanned<&Value>, 
-                pattern: &Spanned<MatchArm>, 
-                outcome: &Spanned<Expr>,
-                env: &mut Env
-            ) -> Result<Option<ControlFlow>, Spanned<SmolStr>> {
+            // helper used by match_pattern: bind a pattern against a concrete value,
+            // populating `env` with any variable bindings. returns `true` if the
+            // pattern matched.
+            fn bind_pattern(
+                value: &Value,
+                pattern: &Spanned<MatchArm>,
+                env: &mut Env,
+            ) -> Result<bool, Spanned<SmolStr>> {
                 match &pattern.inner {
                     MatchArm::Conditional { alias, condition } => {
                         let mut inner_env = env.clone();
-                        inner_env.add_variable(alias.clone(), target.inner.clone());
-
+                        inner_env.add_variable(alias.clone(), value.clone());
                         match eval_expr(condition, &mut inner_env)? {
                             ControlFlow::Value(Value::Bool(true)) => {
-                                Ok(Some(eval_expr(outcome, &mut inner_env)?))
-                            },
-                            ControlFlow::Value(Value::Bool(false)) => Ok(None),
+                                *env = inner_env;
+                                Ok(true)
+                            }
+                            ControlFlow::Value(Value::Bool(false)) => Ok(false),
                             ControlFlow::Value(v) => Err(Spanned {
-                                inner: format!("Runtime Error: match guard must be a Bool, found {:?}", v).into(),
-                                span: condition.span
+                                inner: format!(
+                                    "Runtime Error: match guard must be a Bool, found {:?}",
+                                    v
+                                )
+                                .into(),
+                                span: condition.span,
                             }),
                             ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
                             cf => Err(Spanned {
-                                inner: format!("Runtime Error: cannot use {:?} as match guard", cf).into(),
-                                span: condition.span
-                            })
+                                inner: format!(
+                                    "Runtime Error: cannot use {:?} as match guard",
+                                    cf
+                                )
+                                .into(),
+                                span: condition.span,
+                            }),
                         }
-                    },
+                    }
                     MatchArm::Value(pattern_expr) => {
                         let pattern_value = match eval_expr(pattern_expr, env)? {
                             ControlFlow::Value(v) => v,
                             ControlFlow::Panic(reason) => panic!("{}", reason.unwrap_or_default()),
-                            cf => return Err(Spanned {
-                                inner: format!("Runtime Error: cannot use {:?} as pattern", cf).into(),
-                                span: pattern_expr.span
-                            })
+                            cf => {
+                                return Err(Spanned {
+                                    inner: format!(
+                                        "Runtime Error: cannot use {:?} as pattern",
+                                        cf
+                                    )
+                                    .into(),
+                                    span: pattern_expr.span,
+                                })
+                            }
                         };
-
-                        if *target.inner == pattern_value {
-                            Ok(Some(eval_expr(outcome, env)?))
+                        if *value == pattern_value {
+                            Ok(true)
                         } else {
-                            Ok(None)
+                            Ok(false)
                         }
-                    },
+                    }
                     MatchArm::Default(alias) => {
-                        let mut inner_env = env.clone();
-                        inner_env.add_variable(alias.clone(), target.inner.clone());
-                        Ok(Some(eval_expr(outcome, &mut inner_env)?))
-                    },
-                    MatchArm::EnumConstructor { enum_name, variant, alias } => {
-                        match target.inner {
-                            Value::EnumVariant { enum_name: target_enum, variant: target_variant, value } => {
-                                if enum_name == target_enum && variant == target_variant {
-                                    let mut inner_env = env.clone();
-                                    inner_env.add_variable(alias.clone(), *value.clone());
-                                    Ok(Some(eval_expr(outcome, &mut inner_env)?))
-                                } else {
-                                    Ok(None)
+                        env.add_variable(alias.clone(), value.clone());
+                        Ok(true)
+                    }
+                    MatchArm::EnumConstructor {
+                        enum_name,
+                        variant,
+                        alias,
+                    } => {
+                        if let Value::EnumVariant {
+                            enum_name: target_enum,
+                            variant: target_variant,
+                            value: inner,
+                        } = value
+                        {
+                            if enum_name == target_enum && variant == target_variant {
+                                env.add_variable(alias.clone(), *inner.clone());
+                                Ok(true)
+                            } else {
+                                Ok(false)
+                            }
+                        } else {
+                            Ok(false)
+                        }
+                    }
+                    MatchArm::Tuple(patterns) => {
+                        if let Value::Tuple(vals) = value {
+                            let vals = vals.read().unwrap();
+                            if vals.len() != patterns.len() {
+                                return Ok(false);
+                            }
+                            for (subpat, subval) in patterns.iter().zip(vals.iter()) {
+                                if !bind_pattern(subval, subpat, env)? {
+                                    return Ok(false);
                                 }
-                            },
-                            _ => Ok(None)
+                            }
+                            Ok(true)
+                        } else {
+                            Ok(false)
                         }
                     }
                 }
             }
+
+            fn match_pattern(
+                target: &Spanned<&Value>,
+                pattern: &Spanned<MatchArm>,
+                outcome: &Spanned<Expr>,
+                env: &mut Env,
+            ) -> Result<Option<ControlFlow>, Spanned<SmolStr>> {
+                let mut inner_env = env.clone();
+                if bind_pattern(target.inner, pattern, &mut inner_env)? {
+                    Ok(Some(eval_expr(outcome, &mut inner_env)?))
+                } else {
+                    Ok(None)
+                }
+            }
+
             let val = eval_expr(target, env)?;
             match &val {
                 ControlFlow::Value(value) => {
                     for (pattern, outcome) in branches {
-                        if let Some(cf) = match_pattern(&Spanned {inner: value, span: expr.span}, pattern, outcome, env)? {
-                            return Ok(cf)
+                        if let Some(cf) =
+                            match_pattern(&Spanned { inner: value, span: expr.span }, pattern, outcome, env)?
+                        {
+                            return Ok(cf);
                         }
                     }
                     Err(Spanned {
                         inner: "Runtime Error: non-exhaustive match expression".into(),
-                        span: expr.span
+                        span: expr.span,
                     })
-                },
+                }
                 ControlFlow::Return(v) => return Ok(ControlFlow::Return(v.clone())),
-                ControlFlow::Break | ControlFlow::Continue => Err(Spanned { 
+                ControlFlow::Break | ControlFlow::Continue => Err(Spanned {
                     inner: "Runtime Error: Cannot match control flow statements".into(),
-                    span: target.span
+                    span: target.span,
                 }),
                 ControlFlow::Panic(reason) => panic!("{}", reason.clone().unwrap_or_default()),
             }
@@ -476,9 +530,9 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     span: this.span
                 })
             };
-            Ok(ControlFlow::Value(Value::NativeFun { 
+            Ok(ControlFlow::Value(Value::NativeFun {
                 path: path.clone(),
-                name: name.clone(), 
+                name: name.clone(),
                 pointer: native_fun.clone(),
                 this: Some(Box::new(value))
             }))
@@ -507,7 +561,7 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     ControlFlow::Value(v) => values.push(v),
                     _ => panic!()
                 }
-                
+
             }
             Ok(ControlFlow::Value(Value::Tuple(Arc::new(RwLock::new(values)))))
         },
@@ -578,7 +632,7 @@ pub fn eval_closure(fun: ControlFlow, args: Vec<Value>, span: Span) -> Result<Co
                             }
                         }
                     }
-                    
+
                     match eval_expr(&body, &mut new_scope)? {
                         ControlFlow::Return(v) => Ok(ControlFlow::Value(v)),
                         ControlFlow::Value(v) => Ok(ControlFlow::Value(v)),

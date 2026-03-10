@@ -20,14 +20,14 @@ impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Spanned<Token>]) -> Self {
         Self { tokens, cursor: 0 }
     }
-    
+
     pub fn parse(&mut self) -> Result<Vec<Spanned<Statement>>, Spanned<SmolStr>> {
         let mut statements = Vec::new();
-        
+
         while self.peek().is_some() {
             statements.push(self.parse_statement()?);
         }
-        
+
         Ok(statements)
     }
 
@@ -148,7 +148,7 @@ impl<'a> Parser<'a> {
     //----------
     //statements
     //----------
-    
+
     fn parse_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         match &self.peek().unwrap().inner {
             Token::Let => self.let_statement(),
@@ -195,7 +195,7 @@ impl<'a> Parser<'a> {
             },
         }
     }
-    
+
     fn let_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume let
         let mutable = if self.check(&Token::Mut) {
@@ -205,23 +205,23 @@ impl<'a> Parser<'a> {
         if self.peek().is_none() {
             return Err(spanned("Unexpected EOF in let declaration".into(), Span::at(start_span.end)))
         }
-        
+
         let ident_token = self.advance().unwrap().clone();
         let var_name = match ident_token.inner {
             Token::Ident(i) => i,
             t => return Err(spanned(format!("Expected identifier, got {t:?} instead").into(), ident_token.span))
         };
-        
+
         let var_type = if self.check(&Token::Colon) {
             self.advance(); //consume colon
             Some(self.parse_type()?)
         } else {
             None
         };
-        
+
         self.expect(&Token::Eq)?;
         let var_expr = self.parse_expression()?;
-        
+
         let end_span = if self.check(&Token::Semicolon) {
             self.advance().unwrap().span
         } else {
@@ -230,19 +230,19 @@ impl<'a> Parser<'a> {
                 self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap()
             ));
         };
-        
+
         Ok(spanned(
             Statement::Let { name: var_name, expr: var_expr, type_info: var_type, mutable },
             Span::from(start_span.start..end_span.end)
         ))
     }
-    
+
     fn fun_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume fun
         if self.peek().is_none() {
             return Err(spanned("Unexpected EOF in fun declaration".into(), Span::at(start_span.end)))
         }
-        
+
         let ident_token = self.advance().unwrap().clone();
         let fun_name = match ident_token.inner {
             Token::Ident(i) => i,
@@ -251,7 +251,7 @@ impl<'a> Parser<'a> {
                 ident_token.span
             ))
         };
-        
+
         let fun_generics = if self.check(&Token::Lt) {
             let mut params = Vec::new();
             let lt = self.advance().unwrap().clone();
@@ -270,7 +270,7 @@ impl<'a> Parser<'a> {
                 }
                 break;
             }
-            
+
             if !self.check(&Token::Gt) {
                 return Err(spanned(
                     "Expected > after generic params".into(),
@@ -282,7 +282,7 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        
+
         self.expect(&Token::LParen)?;
         let mut fun_params: Vec<((bool, SmolStr), Spanned<TypeInfo>)> = Vec::new();
         if !self.check(&Token::RParen) {
@@ -327,14 +327,14 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect(&Token::RParen)?;
-        
+
         let fun_type = if self.check(&Token::Colon) {
             self.advance();
             Some(self.parse_type()?)
         } else {
             None
         };
-        
+
         let fun_body = if self.check(&Token::LBrace) {
             self.parse_block_expr()?
         } else {
@@ -342,21 +342,21 @@ impl<'a> Parser<'a> {
             self.expect(&Token::Semicolon)?;
             body
         };
-        
+
         let end_span = fun_body.span.end;
-        
+
         Ok(spanned(
-            Statement::Fun { 
-                name: fun_name, 
-                params: fun_params, 
-                body: fun_body, 
-                return_type: fun_type, 
-                generic_params: fun_generics 
+            Statement::Fun {
+                name: fun_name,
+                params: fun_params,
+                body: fun_body,
+                return_type: fun_type,
+                generic_params: fun_generics
             },
             Span::from(start_span.start..end_span)
         ))
     }
-    
+
     fn parse_methods(
         &mut self,
         implementation: &mut HashMap<SmolStr, Vec<MethodSignature>>,
@@ -384,7 +384,7 @@ impl<'a> Parser<'a> {
                     )),
                 };
                 if is_static | is_mutating {self.advance();}
-                
+
                 match &self.peek().ok_or(spanned(
                     "Unexpected EOF in impl block".into(),
                     self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
@@ -398,7 +398,7 @@ impl<'a> Parser<'a> {
                                 self.advance();
                                 break
                             }
-                            
+
                             let (is_static, is_mutating) = match self.peek() {
                                 Some(t) => {
                                     match &t.inner {
@@ -413,7 +413,7 @@ impl<'a> Parser<'a> {
                                 )),
                             };
                             if is_static | is_mutating {self.advance();}
-                            
+
                             match &self.peek().ok_or(spanned(
                                 "Unexpected EOF in impl block".into(),
                                 self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
@@ -545,13 +545,13 @@ impl<'a> Parser<'a> {
         }
         Ok(())
     }
-    
+
     fn type_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume type
         if self.peek().is_none() {
             return Err(spanned("Unexpected EOF in type declaration".into(), start_span))
         }
-        
+
         let ident_token = self.advance().unwrap().clone();
         let type_name = match ident_token.inner {
             Token::Ident(i) => i,
@@ -560,7 +560,7 @@ impl<'a> Parser<'a> {
                 ident_token.span
             ))
         };
-        
+
         let type_generics = if self.check(&Token::Lt) {
             let mut params = Vec::new();
             let lt = self.advance().unwrap().clone();
@@ -579,7 +579,7 @@ impl<'a> Parser<'a> {
                 }
                 break;
             }
-            
+
             if !self.check(&Token::Gt) {
                 return Err(spanned(
                     "Expected > after generic params".into(),
@@ -591,7 +591,7 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        
+
         let mut interfaces = Vec::new();
         if self.check(&Token::Colon) {
             let start_span = self.advance().unwrap().span;
@@ -626,15 +626,15 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        
+
         self.expect(&Token::Eq)?;
         let type_expr = self.parse_type()?;
-        
+
         let mut implementation = HashMap::new();
         let mut own_methods = Vec::new();
-        
+
         self.parse_methods(&mut implementation, &mut own_methods)?;
-        
+
         let end_span = if self.check(&Token::Semicolon) {
             self.advance().unwrap().span
         } else {
@@ -643,21 +643,21 @@ impl<'a> Parser<'a> {
                 self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
             ));
         };
-        
+
         implementation.insert("+self".into(), own_methods);
-        
+
         Ok(spanned(
-            Statement::TypeDef { 
-                name: type_name, 
+            Statement::TypeDef {
+                name: type_name,
                 type_info: type_expr,
-                generic_params: type_generics, 
-                implementation, 
+                generic_params: type_generics,
+                implementation,
                 interfaces
             },
             Span::from(start_span.start..end_span.end)
         ))
     }
-    
+
     fn enum_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume enum
         if self.peek().is_none() {
@@ -666,7 +666,7 @@ impl<'a> Parser<'a> {
                 Span::at(start_span.end)
             ))
         }
-        
+
         let mut interfaces = Vec::new();
         if self.check(&Token::Colon) {
             let start_span = self.advance().unwrap().span;
@@ -701,7 +701,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        
+
         let ident_token = self.advance().unwrap().clone();
         let enum_name = match ident_token.inner {
             Token::Ident(i) => i,
@@ -710,7 +710,7 @@ impl<'a> Parser<'a> {
                 ident_token.span
             ))
         };
-        
+
         let enum_generics = if self.check(&Token::Lt) {
             let mut params = Vec::new();
             let lt = self.advance().unwrap().clone();
@@ -729,7 +729,7 @@ impl<'a> Parser<'a> {
                 }
                 break;
             }
-            
+
             if !self.check(&Token::Gt) {
                 return Err(spanned(
                     "Expected > after generic params".into(),
@@ -741,7 +741,7 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        
+
         let mut enum_variants = Vec::new();
         let brace = self.peek().cloned();
         self.expect(&Token::LBrace)?;
@@ -758,16 +758,16 @@ impl<'a> Parser<'a> {
                     ident.span
                 ))
             };
-            
+
             let variant_type = if self.check(&Token::Colon) {
                 self.advance();
                 Some(self.parse_type()?)
             } else {
                 None
             };
-            
+
             enum_variants.push((variant_name, variant_type));
-            
+
             if self.check(&Token::Comma) {
                 self.advance();
             } else {
@@ -776,12 +776,12 @@ impl<'a> Parser<'a> {
         }
         let _end_span = self.peek().unwrap().span;
         self.expect(&Token::RBrace)?;
-        
+
         let mut own_methods = Vec::new();
         let mut implementation = HashMap::new();
-        
+
         self.parse_methods(&mut implementation, &mut own_methods)?;
-        
+
         let end_span = if self.check(&Token::Semicolon) {
             self.advance().unwrap().span
         } else {
@@ -790,21 +790,21 @@ impl<'a> Parser<'a> {
                 self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
             ));
         };
-        
+
         implementation.insert("+self".into(), own_methods);
-        
+
         Ok(spanned(
-            Statement::EnumDef { 
-                name: enum_name, 
-                variants: enum_variants, 
-                generic_params: enum_generics, 
+            Statement::EnumDef {
+                name: enum_name,
+                variants: enum_variants,
+                generic_params: enum_generics,
                 implementation,
                 interfaces
             },
             Span::from(start_span.start..end_span.end)
         ))
     }
-    
+
     fn import_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume import
         if self.peek().is_none() {
@@ -813,7 +813,7 @@ impl<'a> Parser<'a> {
                 Span::at(start_span.end)
             ))
         }
-        
+
         self.expect(&Token::LBrace)?;
         let mut prev_span = Span::from(0..0);
         let mut imports = Vec::new();
@@ -824,7 +824,7 @@ impl<'a> Parser<'a> {
             } else {
                 false
             };
-            
+
             let import_name = match self.advance() {
                 Some(t) => match t.inner.clone() {
                     Token::Ident(i) => spanned(i, t.span),
@@ -838,7 +838,7 @@ impl<'a> Parser<'a> {
                     Span::at(prev_span.end)
                 )),
             };
-            
+
             let alias = if self.check(&Token::As) {
                 prev_span = self.advance().unwrap().span; //as
                 match self.peek() {
@@ -860,9 +860,9 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            
+
             imports.push((import_name, alias, is_type));
-            
+
             if self.check(&Token::Comma) {
                 self.advance();
             } else {
@@ -870,7 +870,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.advance(); // RBrace
-        
+
         let from_span = self.peek().cloned();
         self.expect(&Token::From)?;
         let from_span = from_span.unwrap().span;
@@ -884,7 +884,7 @@ impl<'a> Parser<'a> {
                 Span::at(from_span.end)
             )),
         };
-        
+
         let end_span = if self.check(&Token::Semicolon) {
             self.advance().unwrap().span
         } else {
@@ -893,13 +893,13 @@ impl<'a> Parser<'a> {
                 self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
             ));
         };
-        
+
         Ok(spanned(
             Statement::Import { symbols: imports, path },
             Span::from(start_span.start..end_span.end)
         ))
     }
-    
+
     fn native_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         match self.peek_at(1).ok_or(spanned(
             "Unexpected EOF in native statement".into(),
@@ -917,18 +917,18 @@ impl<'a> Parser<'a> {
             ))
         }
     }
-    
+
     fn native_type_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume native
         self.expect(&Token::Type)?;
-        
+
         if self.peek().is_none() {
             return Err(spanned(
                 "Unexpected EOF in type declaration".into(),
                 Span::at(start_span.end)
             ))
         }
-        
+
         let ident_token = self.advance().unwrap().clone();
         let type_name = match ident_token.inner {
             Token::Ident(i) => i,
@@ -937,9 +937,9 @@ impl<'a> Parser<'a> {
                 ident_token.span
             ))
         };
-        
-        
-        
+
+
+
         let type_generics = if self.check(&Token::Lt) {
             let mut params = Vec::new();
             let lt = self.advance().unwrap().clone();
@@ -958,10 +958,10 @@ impl<'a> Parser<'a> {
                 }
                 break;
             }
-            
+
             if !self.check(&Token::Gt) {
                 return Err(spanned(
-                    "Expected > after generic params".into(), 
+                    "Expected > after generic params".into(),
                     self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
                 ));
             }
@@ -970,7 +970,7 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        
+
         let mut interfaces = Vec::new();
         if self.check(&Token::Colon) {
             let start_span = self.advance().unwrap().span;
@@ -1005,12 +1005,12 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        
+
         let mut implementation = HashMap::new();
         let mut own_methods = Vec::new();
-        
+
         self.parse_methods(&mut implementation, &mut own_methods)?;
-        
+
         let end_span = if self.check(&Token::Semicolon) {
             self.advance().unwrap().span
         } else {
@@ -1019,31 +1019,31 @@ impl<'a> Parser<'a> {
                 self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
             ));
         };
-        
+
         implementation.insert("+self".into(), own_methods);
-        
+
         Ok(spanned(
             Statement::NativeType {
                 name: type_name,
-                generic_params: type_generics, 
-                implementation, 
-                interfaces 
+                generic_params: type_generics,
+                implementation,
+                interfaces
             },
             Span::from(start_span.start..end_span.end)
         ))
     }
-    
+
     fn native_fun_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume native
         self.expect(&Token::Fun)?;
-        
+
         if self.peek().is_none() {
             return Err(spanned(
                 "Unexpected EOF in fun declaration".into(),
                 Span::at(start_span.end)
             ))
         }
-        
+
         let ident_token = self.advance().unwrap().clone();
         let fun_name = match ident_token.inner {
             Token::Ident(i) => i,
@@ -1052,7 +1052,7 @@ impl<'a> Parser<'a> {
                 ident_token.span
             ))
         };
-        
+
         let fun_generics = if self.check(&Token::Lt) {
             let mut params = Vec::new();
             let lt = self.advance().unwrap().clone();
@@ -1071,10 +1071,10 @@ impl<'a> Parser<'a> {
                 }
                 break;
             }
-            
+
             if !self.check(&Token::Gt) {
                 return Err(spanned(
-                    "Expected > after generic params".into(), 
+                    "Expected > after generic params".into(),
                     self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
                 ));
             }
@@ -1083,7 +1083,7 @@ impl<'a> Parser<'a> {
         } else {
             Vec::new()
         };
-        
+
         self.expect(&Token::LParen)?;
         let mut fun_params: Vec<((bool, SmolStr), Spanned<TypeInfo>)> = Vec::new();
         if !self.check(&Token::RParen) {
@@ -1127,14 +1127,14 @@ impl<'a> Parser<'a> {
             }
         }
         self.expect(&Token::RParen)?;
-        
+
         let fun_type = if self.check(&Token::Colon) {
             self.advance();
             Some(self.parse_type()?)
         } else {
             None
         };
-        
+
         let end_span = if self.check(&Token::Semicolon) {
             self.advance().unwrap().span
         } else {
@@ -1143,18 +1143,18 @@ impl<'a> Parser<'a> {
                 self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0))
             ));
         };
-        
+
         Ok(spanned(
-            Statement::NativeFun { 
+            Statement::NativeFun {
                 name: fun_name,
-                params: fun_params, 
+                params: fun_params,
                 return_type: fun_type,
-                generic_params: fun_generics 
+                generic_params: fun_generics
             },
             Span::from(start_span.start..end_span.end)
         ))
     }
-    
+
     //-----------
     //expressions
     //-----------
@@ -1162,7 +1162,7 @@ impl<'a> Parser<'a> {
     fn parse_expression(&mut self) -> Result<Spanned<Expr>, Spanned<SmolStr>> {
         self.parse_expression_bp(1)
     }
-    
+
     fn parse_atom(&mut self) -> Result<Spanned<Expr>, Spanned<SmolStr>> {
         let prev_token_span = self.peek_at(-1).map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0));
         let token = self
@@ -1180,7 +1180,7 @@ impl<'a> Parser<'a> {
                 self.expect(&Token::LParen)?;
                 let cond = self.parse_expression()?;
                 self.expect(&Token::RParen)?;
- 
+
                 // parse body: either block or single expression
                 let body = if self.check(&Token::LBrace) {
                     self.parse_block_expr()?
@@ -1188,7 +1188,7 @@ impl<'a> Parser<'a> {
                     let e = self.parse_expression()?;
                     e
                 };
- 
+
                 // optional else
                 let else_block = if self.check(&Token::Else) {
                     self.advance(); // consume else
@@ -1263,7 +1263,7 @@ impl<'a> Parser<'a> {
                         let combined_span = Span { start: token.span.start, end: expr.span.end };
                         Ok(spanned(Expr::Panic(Some(Box::new(expr))), combined_span))
                     }
-                    
+
                 } else {
                     Err(spanned("Unexpected EOF".into(), Span::at(token.span.end)))
                 }
@@ -1311,7 +1311,7 @@ impl<'a> Parser<'a> {
                         ))
                     }
                     let mut elements = vec![Box::new(expr)];
-                    
+
                     loop {
                         if self.check(&Token::RParen) {
                             break
@@ -1333,7 +1333,7 @@ impl<'a> Parser<'a> {
                             break
                         }
                     }
-                    
+
                     self.expect(&Token::RParen)?;
                     let combined_span = Span { start: token.span.start, end: rspan.end };
                     Ok(spanned(Expr::Tuple(elements), combined_span))
@@ -1442,7 +1442,7 @@ impl<'a> Parser<'a> {
                     }
                     let _gt = self.advance().unwrap().clone();
                 }
- 
+
                 // parse params
                 self.expect(&Token::LParen)?;
                 let mut params: Vec<((bool, SmolStr), Spanned<TypeInfo>)> = Vec::new();
@@ -1461,7 +1461,7 @@ impl<'a> Parser<'a> {
                             Token::Ident(s) => s,
                             _ => return Err(spanned("Expected identifier in parameters".into(), name_tok.span)),
                         };
- 
+
                         // type annotation required: ":" TypeInfo (like Rust)
                         if !self.check(&Token::Colon) {
                             return Err(spanned("Expected : Type for function parameter".into(), self.peek().map(|s| s.span).unwrap_or(name_tok.span)));
@@ -1480,7 +1480,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.expect(&Token::RParen)?;
- 
+
                 // optional return type: ':' Type
                 let return_type: Option<Spanned<TypeInfo>> = if self.check(&Token::Colon) {
                     self.advance(); // consume ':'
@@ -1488,7 +1488,7 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
- 
+
                 // parse body: either a block or a single expression
                 let body = if self.check(&Token::LBrace) {
                     self.parse_block_expr()?
@@ -1510,141 +1510,14 @@ impl<'a> Parser<'a> {
             Token::Match => {
                 let target = self.parse_expression()?;
                 self.expect(&Token::LBrace)?;
-                
+
                 let mut branches = Vec::new();
                 loop {
                     if self.check(&Token::RBrace) {
                         break
                     }
-                    let token = self.peek().ok_or(spanned("Unexpected EOF".into(), Span::from(0..0)))?.clone();
-                    let pattern = match token.inner {
-                        Token::Ident(ident) => {
-                            let start = self.advance().unwrap().clone();
-                            if self.check(&Token::Dot) {
-                                let enum_name = ident;
-                                let mid = self.advance().unwrap().clone();
-                                if self.peek().is_none() {
-                                    return Err(spanned(
-                                        "Unexpected EOF in match expression".into(),
-                                        mid.span
-                                    ))
-                                }
-                                let variant = match self.peek().unwrap().inner.clone() {
-                                    Token::Ident(variant) => {
-                                        variant
-                                    }
-                                    _ => return Err(spanned(
-                                        "Unexpected token in match expression branch".into(),
-                                        self.peek().unwrap().span
-                                    ))
-                                };
-                                
-                                self.advance(); //consume enum variant
-                                self.expect(&Token::LParen)?;
-                                if self.peek().is_none() {
-                                    return Err(spanned(
-                                        "Unexpected EOF in match expression".into(),
-                                        mid.span
-                                    ))
-                                }
-                                let alias = match self.peek().unwrap().inner.clone() {
-                                    Token::Ident(variant) => {
-                                        variant
-                                    }
-                                    _ => return Err(spanned(
-                                        "Unexpected token in match expression branch".into(),
-                                        self.peek().unwrap().span
-                                    ))
-                                };
-                                self.advance(); //consume alias
-                                let end = self.peek()
-                                    .ok_or(spanned("Unexpected EOF in match expression".into(), Span::from(0..0)))?.clone();
-                                self.expect(&Token::RParen)?;
-                                
-                                spanned(
-                                    MatchArm::EnumConstructor { 
-                                        enum_name: Some(enum_name.clone()),
-                                        variant, 
-                                        alias
-                                    },
-                                    Span::from(start.span.start..end.span.end)
-                                )
-                            } else if self.check(&Token::If) {
-                                self.advance();
-                                let condition = self.parse_expression()?;
-                                spanned(
-                                    MatchArm::Conditional { alias: ident.clone(), condition: condition.clone() },
-                                    Span::from(token.span.start..condition.span.end)
-                                )
-                            } else if self.check(&Token::Arrow) {
-                                spanned(
-                                    MatchArm::Default(ident.clone()),
-                                    token.span
-                                )
-                            } else {
-                                return Err(spanned(
-                                    "Unexpected token in match expression branch".into(),
-                                    self.peek().unwrap().span
-                                ))
-                            }
-                        },
-                        Token::Dot => {
-                            let start = self.advance().unwrap().clone();
-                            if self.peek().is_none() {
-                                return Err(spanned(
-                                    "Unexpected EOF in match expression".into(),
-                                    start.span
-                                ))
-                            }
-                            let variant = match self.peek().unwrap().inner.clone() {
-                                Token::Ident(variant) => {
-                                    variant
-                                }
-                                _ => return Err(spanned(
-                                    "Unexpected token in match expression branch".into(),
-                                    self.peek().unwrap().span
-                                ))
-                            };
-                            
-                            self.advance(); //consume enum variant
-                            self.expect(&Token::LParen)?;
-                            if self.peek().is_none() {
-                                return Err(spanned(
-                                    "Unexpected EOF in match expression".into(),
-                                    start.span
-                                ))
-                            }
-                            let alias = match self.peek().unwrap().inner.clone() {
-                                Token::Ident(variant) => {
-                                    variant
-                                }
-                                _ => return Err(spanned(
-                                    "Unexpected token in match expression branch".into(),
-                                    self.peek().unwrap().span
-                                ))
-                            };
-                            self.advance(); //consume alias
-                            let end = self.peek()
-                                .ok_or(spanned("Unexpected EOF in match expression".into(), Span::from(0..0)))?.clone();
-                            self.expect(&Token::RParen)?;
-                            
-                            spanned(
-                                MatchArm::EnumConstructor { 
-                                    enum_name: None,
-                                    variant, 
-                                    alias
-                                },
-                                Span::from(start.span.start..end.span.end)
-                            )
-                        }
-                        _ => {
-                            let expr = self.parse_expression()?;
-                            spanned(
-                                MatchArm::Value(expr.clone()),
-                                expr.span
-                            )
-                        }
-                    };
+                    // simplified pattern parsing: delegate to helper
+                    let pattern = self.parse_pattern()?;
                     self.expect(&Token::Arrow)?;
                     let branch = self.parse_expression()?;
                     branches.push((pattern, branch));
@@ -1654,7 +1527,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                     };
                 }
-                
+
                 let end = self.advance().unwrap();
                 Ok(spanned(
                     Expr::Match { target: Box::new(target), branches },
@@ -1670,6 +1543,158 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // helper used when parsing match branches; handles tuples and nested
+    // patterns such as enum constructors, guards, and simple bindings.
+    fn parse_pattern(&mut self) -> Result<Spanned<MatchArm>, Spanned<SmolStr>> {
+        let token = self.peek().ok_or(spanned(
+            "Unexpected EOF in pattern".into(),
+            Span::from(0..0),
+        ))?.clone();
+        match &token.inner {
+            Token::Ident(ident) => {
+                let start = self.advance().unwrap().clone();
+                if self.check(&Token::Dot) {
+                    // enum constructor with explicit enum name
+                    self.advance(); // consume '.'
+                    let variant_tok = self.advance()
+                        .ok_or(spanned("Unexpected EOF in pattern".into(), start.span))?
+                        .clone();
+                    let variant = match variant_tok.inner {
+                        Token::Ident(v) => v,
+                        _ => {
+                            return Err(spanned(
+                                "Expected variant name in pattern".into(),
+                                variant_tok.span,
+                            ))
+                        }
+                    };
+                    self.expect(&Token::LParen)?;
+                    if self.peek().is_none() {
+                        return Err(spanned(
+                            "Unexpected EOF in pattern".into(),
+                            Span::from(0..0),
+                        ));
+                    }
+                    let alias_tok = self.advance().unwrap().clone();
+                    let alias = match alias_tok.inner {
+                        Token::Ident(a) => a,
+                        _ => {
+                            return Err(spanned(
+                                "Expected identifier for alias in pattern".into(),
+                                alias_tok.span,
+                            ))
+                        }
+                    };
+                    let end = self.peek()
+                        .ok_or(spanned("Unexpected EOF in pattern".into(), alias_tok.span))?
+                        .clone();
+                    self.expect(&Token::RParen)?;
+                    Ok(spanned(
+                        MatchArm::EnumConstructor {
+                            enum_name: Some(ident.clone()),
+                            variant,
+                            alias,
+                        },
+                        Span::from(start.span.start..end.span.end),
+                    ))
+                } else if self.check(&Token::If) {
+                    self.advance();
+                    let condition = self.parse_expression()?;
+                    Ok(spanned(
+                        MatchArm::Conditional {
+                            alias: ident.clone(),
+                            condition: condition.clone(),
+                        },
+                        Span::from(start.span.start..condition.span.end),
+                    ))
+                } else {
+                    // simple binding identifier
+                    Ok(spanned(MatchArm::Default(ident.clone()), start.span))
+                }
+            }
+            Token::Dot => {
+                // enum constructor without enum name
+                let start = self.advance().unwrap().clone();
+                if self.peek().is_none() {
+                    return Err(spanned(
+                        "Unexpected EOF in pattern".into(),
+                        start.span,
+                    ));
+                }
+                let variant_tok = self.advance().unwrap().clone();
+                let variant = match variant_tok.inner {
+                    Token::Ident(v) => v,
+                    _ => {
+                        return Err(spanned(
+                            "Expected variant name in pattern".into(),
+                            variant_tok.span,
+                        ))
+                    }
+                };
+                self.expect(&Token::LParen)?;
+                if self.peek().is_none() {
+                    return Err(spanned(
+                        "Unexpected EOF in pattern".into(),
+                        variant_tok.span,
+                    ));
+                }
+                let alias_tok = self.advance().unwrap().clone();
+                let alias = match alias_tok.inner {
+                    Token::Ident(a) => a,
+                    _ => {
+                        return Err(spanned(
+                            "Expected identifier for alias in pattern".into(),
+                            alias_tok.span,
+                        ))
+                    }
+                };
+                let end = self.peek()
+                    .ok_or(spanned("Unexpected EOF in pattern".into(), alias_tok.span))?
+                    .clone();
+                self.expect(&Token::RParen)?;
+                Ok(spanned(
+                    MatchArm::EnumConstructor {
+                        enum_name: None,
+                        variant,
+                        alias,
+                    },
+                    Span::from(start.span.start..end.span.end),
+                ))
+            }
+            Token::LParen => {
+                // tuple pattern
+                let start = self.advance().unwrap().clone();
+                let mut elements = Vec::new();
+                if !self.check(&Token::RParen) {
+                    loop {
+                        let pat = self.parse_pattern()?;
+                        elements.push(pat);
+                        if self.check(&Token::Comma) {
+                            self.advance();
+                            if self.check(&Token::RParen) {
+                                break;
+                            }
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                let end = self.peek().cloned();
+                self.expect(&Token::RParen)?;
+                Ok(spanned(
+                    MatchArm::Tuple(elements),
+                    Span::from(start.span.start..end.unwrap().span.end),
+                ))
+            }
+            _ => {
+                // fallback to a value pattern (expression)
+                let expr = self.parse_expression()?;
+                Ok(spanned(MatchArm::Value(expr.clone()), expr.span))
+            }
+        }
+    }
+
     fn parse_block_expr(&mut self) -> Result<Spanned<Expr>, Spanned<SmolStr>> {
         let start_span = self.peek().map(|s| s.span).unwrap();
         self.advance();
@@ -1680,7 +1705,7 @@ impl<'a> Parser<'a> {
             if self.peek().is_none() {
                 return Err(spanned("Unexpected EOF in block".into(), Span::at(start_span.end) ));
             }
- 
+
             // parse a statement
             let stmt = self.parse_statement()?;
 
@@ -1699,7 +1724,7 @@ impl<'a> Parser<'a> {
                     stmts.push(stmt.clone());
                 }
             }
- 
+
             // optionally consume semicolon after statement
             if self.check(&Token::Semicolon) {
                 self.advance();
@@ -1848,7 +1873,7 @@ impl<'a> Parser<'a> {
                     Token::LParen => {
                         // call
                         let start_span = expr.span;
-                        
+
                         self.advance();
                         let mut args: Vec<Spanned<Expr>> = Vec::new();
                         if !self.check(&Token::RParen) {
@@ -1863,7 +1888,7 @@ impl<'a> Parser<'a> {
                                 }
                             }
                         }
-                        
+
                         let end_span = if self.peek().is_some() {
                             let r = self.peek().unwrap().span;
                             self.expect(&Token::RParen)?;
@@ -1955,10 +1980,10 @@ impl<'a> Parser<'a> {
                                     ),
                                 };
                                 expr = spanned(
-                                    Expr::StaticMethod { 
+                                    Expr::StaticMethod {
                                         target: spanned(target.clone(), expr.span),
                                         method: method.clone()
-                                
+
                                     },
                                     Span::from(expr.span.start..method.span.end)
                                 )
@@ -1972,8 +1997,8 @@ impl<'a> Parser<'a> {
                     //generic function call
                     Token::Lt => {
                         match expr.inner {
-                            Expr::Var(_) 
-                            | Expr::Block(_, _) 
+                            Expr::Var(_)
+                            | Expr::Block(_, _)
                             | Expr::Call { fun: _, args: _, generic_args: _ }
                             | Expr::Fun { params: _, body: _, return_type: _, generic_params: _ }
                             | Expr::Index(_, _)
@@ -1995,7 +2020,7 @@ impl<'a> Parser<'a> {
                                         }
                                         args
                                     };
-                                    
+
                                     self.expect(&Token::Gt)?;
                                     self.expect(&Token::LParen)?;
                                     let mut args: Vec<Spanned<Expr>> = Vec::new();
@@ -2011,7 +2036,7 @@ impl<'a> Parser<'a> {
                                             }
                                         }
                                     }
-                                    
+
                                     let end_span = if self.peek().is_some() {
                                         let r = self.peek().unwrap().span;
                                         self.expect(&Token::RParen)?;
@@ -2024,10 +2049,10 @@ impl<'a> Parser<'a> {
                                                 .unwrap_or(Span::at(0))
                                         ));
                                     };
-                                    
-                                    Ok(spanned(Expr::Call { 
+
+                                    Ok(spanned(Expr::Call {
                                         fun: Box::new(expr.clone()),
-                                        args, 
+                                        args,
                                         generic_args: generics
                                     }, Span::from(position..end_span.end)))
                                 }() {
@@ -2052,7 +2077,7 @@ impl<'a> Parser<'a> {
     //-----
     //types
     //-----
-    
+
     fn parse_type(&mut self) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
         // parse primary and apply postfix (array) operators
         let mut ty = self.parse_type_primary()?;
@@ -2070,7 +2095,7 @@ impl<'a> Parser<'a> {
         }
         Ok(ty)
     }
- 
+
     fn parse_type_ident_or_enumvariant(&mut self) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
         let prev_token_span = self.peek_at(-1)
             .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
@@ -2133,7 +2158,7 @@ impl<'a> Parser<'a> {
         };
         Ok(spanned(ty, ident_sp.span))
     }
-    
+
     fn try_parse_function_type(
         &mut self,
         paren_span: Span
@@ -2154,8 +2179,8 @@ impl<'a> Parser<'a> {
                     prev_token_span
                 ))?.clone();
                 let pname = if let Token::Ident(n) = name_tok.inner.clone() {
-                    n 
-                } else { 
+                    n
+                } else {
                     return Err(spanned(
                         "Expected identifier in function type params".into(),
                         name_tok.span
@@ -2190,9 +2215,9 @@ impl<'a> Parser<'a> {
                     TypeKind::Fun {
                         params,
                         return_type: Box::new(ret),
-                        generic_params: vec![] 
+                        generic_params: vec![]
                     }
-                ), 
+                ),
                 span
             ))
         } else {
@@ -2202,7 +2227,7 @@ impl<'a> Parser<'a> {
             ))
         }
     }
- 
+
     fn parse_type_primary(&mut self) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
         let prev_token_span = self.peek_at(-1)
             .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
@@ -2307,13 +2332,13 @@ impl<'a> Parser<'a> {
                             "Unexpected EOF in function type params".into(),
                             prev_token_span
                         ))?.clone();
-                        let pname = if let Token::Ident(n) = name_tok.inner.clone() { 
-                            n 
-                        } else { 
+                        let pname = if let Token::Ident(n) = name_tok.inner.clone() {
+                            n
+                        } else {
                             return Err(spanned(
                                 "Expected identifier in function type params".into(),
                                 name_tok.span
-                            )); 
+                            ));
                         };
                         self.expect(&Token::Colon)?;
                         let ptype = self.parse_type()?;
@@ -2362,16 +2387,16 @@ impl<'a> Parser<'a> {
                         let prev_token_span = self.peek_at(-1)
                             .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
                         let name_tok = self.advance().ok_or(spanned(
-                            "Unexpected EOF in record type".into(), 
+                            "Unexpected EOF in record type".into(),
                             prev_token_span
                         ))?.clone();
                         let fname = if let Token::Ident(s) = name_tok.inner.clone() {
-                            s 
+                            s
                         } else {
                             return Err(spanned(
                                 "Expected identifier in record type".into(),
                                 name_tok.span
-                            )); 
+                            ));
                         };
                         self.expect(&Token::Colon)?;
                         let ftype = self.parse_type()?;

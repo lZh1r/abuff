@@ -206,7 +206,8 @@ pub enum MatchArm {
     Conditional {alias: SmolStr, condition: Spanned<Expr>},
     Value(Spanned<Expr>),
     Default(SmolStr),
-    EnumConstructor {enum_name: Option<SmolStr>, variant: SmolStr, alias: SmolStr}
+    EnumConstructor {enum_name: Option<SmolStr>, variant: SmolStr, alias: SmolStr},
+    Tuple(Vec<Spanned<MatchArm>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -224,7 +225,7 @@ pub enum Method {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NormalMethod {
-    pub name: SmolStr, 
+    pub name: SmolStr,
     pub params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
     pub body: Spanned<Expr>,
     pub return_type: Option<Spanned<TypeInfo>>,
@@ -233,7 +234,7 @@ pub struct NormalMethod {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NativeMethod {
-    pub name: SmolStr, 
+    pub name: SmolStr,
     pub params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
     pub return_type: Option<Spanned<TypeInfo>>,
     pub generic_params: Vec<Spanned<SmolStr>>
@@ -242,13 +243,13 @@ pub struct NativeMethod {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let {
-        name: SmolStr, 
+        name: SmolStr,
         expr: Spanned<Expr>,
         type_info: Option<Spanned<TypeInfo>>,
         mutable: bool
     },
     TypeDef {
-        name: SmolStr, 
+        name: SmolStr,
         type_info: Spanned<TypeInfo>,
         generic_params: Vec<Spanned<SmolStr>>,
         implementation: HashMap<SmolStr, Vec<MethodSignature>>,
@@ -256,14 +257,14 @@ pub enum Statement {
     },
     Expr(Spanned<Expr>),
     Fun {
-        name: SmolStr, 
+        name: SmolStr,
         params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
         body: Spanned<Expr>,
         return_type: Option<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
     },
     NativeFun {
-        name: SmolStr, 
+        name: SmolStr,
         params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
         return_type: Option<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
@@ -275,7 +276,7 @@ pub enum Statement {
         interfaces: Vec<Spanned<SmolStr>>
     },
     EnumDef {
-        name: SmolStr, 
+        name: SmolStr,
         variants: Vec<(SmolStr, Option<Spanned<TypeInfo>>)>,
         generic_params: Vec<Spanned<SmolStr>>,
         implementation: HashMap<SmolStr, Vec<MethodSignature>>,
@@ -419,17 +420,17 @@ impl PartialEq for TypeKind {
                 if ret_a.inner != ret_b.inner {
                     return false;
                 }
-                
+
                 if args_a.len() != args_b.len() {
                     return false;
                 }
-                
+
                 for (a,b) in g_a.iter().zip(g_b.iter()) {
                     if a.inner != b.inner {
                         return false;
                     }
                 }
-                
+
                 for ((name_a, type_a), (name_b, type_b)) in args_a.iter().zip(args_b.iter()) {
                     if name_a != name_b || type_a.inner != type_b.inner {
                         return false;
@@ -441,13 +442,13 @@ impl PartialEq for TypeKind {
                 if fields_a.len() != fields_b.len() {
                     return false;
                 }
-                
+
                 for (name_a, type_a) in fields_a.iter() {
                     if !fields_b.contains_key(name_a) || fields_b.get(name_a).unwrap().inner != type_a.inner {
                         return false
                     }
                 }
-                
+
                 true
             },
             (TypeKind::Tuple(a), TypeKind::Tuple(b)) => {
@@ -458,7 +459,7 @@ impl PartialEq for TypeKind {
                 }
                 true
             },
-            (TypeKind::Enum { name, variants, generic_params: _ }, TypeKind::EnumVariant { enum_name, variant, generic_args: _ }) 
+            (TypeKind::Enum { name, variants, generic_params: _ }, TypeKind::EnumVariant { enum_name, variant, generic_args: _ })
             | (TypeKind::EnumVariant { enum_name, variant, generic_args: _ }, TypeKind::Enum { name, variants, generic_params: _ }) => {
                 name == enum_name && variants.get(variant).is_some()
             },
@@ -484,7 +485,7 @@ impl PartialEq for TypeKind {
                 }
             },
             (
-                TypeKind::EnumVariant { enum_name: name1, variant: _, generic_args: g_a }, 
+                TypeKind::EnumVariant { enum_name: name1, variant: _, generic_args: g_a },
                 TypeKind::EnumVariant { enum_name: name2, variant: _, generic_args: g_b }
             ) => {
                 name1 == name2 && {
@@ -496,7 +497,7 @@ impl PartialEq for TypeKind {
                     true
                 }
             },
-            (TypeKind::Enum { name, variants, generic_params }, TypeKind::EnumInstance { enum_name, variants: enum_variants, generic_args }) 
+            (TypeKind::Enum { name, variants, generic_params }, TypeKind::EnumInstance { enum_name, variants: enum_variants, generic_args })
             | (TypeKind::EnumInstance { enum_name, variants: enum_variants, generic_args }, TypeKind::Enum { name, variants, generic_params }) => {
                 if generic_args.len() != generic_params.len() || variants.len() != enum_variants.len() {
                     false
@@ -533,7 +534,7 @@ impl PartialEq for TypeKind {
                 }
                 true
             },
-            (TypeKind::EnumInstance { enum_name: name1, variants, generic_args: args1 }, TypeKind::EnumVariant { enum_name: name2, variant, generic_args: args2 }) 
+            (TypeKind::EnumInstance { enum_name: name1, variants, generic_args: args1 }, TypeKind::EnumVariant { enum_name: name2, variant, generic_args: args2 })
             | (TypeKind::EnumVariant { enum_name: name2, variant, generic_args: args2 }, TypeKind::EnumInstance { enum_name: name1, variants, generic_args: args1 }) => {
                 name1 == name2 && variants.get(variant).is_some() && {
                     {

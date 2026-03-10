@@ -50,7 +50,8 @@ pub enum MatchArm {
     Conditional {alias: SmolStr, condition: Spanned<Expr>},
     Value(Spanned<Expr>),
     Default(SmolStr),
-    EnumConstructor {enum_name: SmolStr, variant: SmolStr, alias: SmolStr}
+    EnumConstructor {enum_name: SmolStr, variant: SmolStr, alias: SmolStr},
+    Tuple(Vec<Spanned<MatchArm>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,14 +74,14 @@ pub enum ControlFlow {
 
 #[derive(Debug, Clone)]
 pub enum Value {
-    Int(i64), 
+    Int(i64),
     Float(f64),
     U128(u128),
     Bool(bool),
     String(SmolStr),
     Char(char),
     Array(Arc<RwLock<Vec<Value>>>),
-    Record(Arc<RwLock<HashMap<SmolStr, Value>>>), 
+    Record(Arc<RwLock<HashMap<SmolStr, Value>>>),
     Closure { params: Vec<(bool, SmolStr)>, body: Box<Spanned<Expr>>, env: Env },
     NativeFun {path: SmolStr, name: SmolStr, pointer: NativeFun, this: Option<Box<Value>>},
     Null,
@@ -102,15 +103,15 @@ impl fmt::Display for Value {
                 let hash_map = hash_map.read().unwrap();
                 let mut entries: Vec<_> = hash_map.iter().collect();
                 entries.sort_by_key(|(k, _)| *k);
-    
+
                 write!(f, "{{")?;
                 for (i, (key, val)) in entries.iter().enumerate() {
-                    if i > 0 { 
-                        write!(f, ", ")?; 
+                    if i > 0 {
+                        write!(f, ", ")?;
                     } else {
                         write!(f, " ")?;
                     }
-                    write!(f, "{}: {}", key, val)?; 
+                    write!(f, "{}: {}", key, val)?;
                 }
 
                 if !entries.is_empty() {
@@ -153,7 +154,7 @@ impl PartialEq for Value {
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Record(a), Value::Record(b)) => *a.read().unwrap() == *b.read().unwrap(), 
+            (Value::Record(a), Value::Record(b)) => *a.read().unwrap() == *b.read().unwrap(),
             (Value::Array(a), Value::Array(b)) => *a.read().unwrap() == *b.read().unwrap(),
             (Value::Char(a), Value::Char(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
