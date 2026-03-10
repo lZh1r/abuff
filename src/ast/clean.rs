@@ -160,6 +160,14 @@ impl PartialEq for Value {
             (Value::Void, Value::Void) => true,
             (Value::Null, Value::Null) => true,
             (Value::Closure { .. }, Value::Closure { .. }) => false,
+            (Value::Tuple(a), Value::Tuple(b)) => {
+                let a = a.read().unwrap();
+                let b = b.read().unwrap();
+                for (e1, e2) in a.iter().zip(b.iter()) {
+                    if e1 != e2 { return false }
+                }
+                true
+            },
             _ => false
         }
     }
