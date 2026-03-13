@@ -244,6 +244,7 @@ pub struct NativeMethod {
 pub enum LetPattern {
     Name(SmolStr),
     Tuple(Vec<Spanned<LetPattern>>),
+    Record(Vec<(Spanned<SmolStr>, Option<Spanned<SmolStr>>)>)
 }
 
 #[derive(Debug, Clone, PartialEq)]

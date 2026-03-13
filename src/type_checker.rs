@@ -730,7 +730,35 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                             pattern.span
                         ))
                     },
-                    (LetPattern::Tuple(_), ti) => {
+                    (LetPattern::Record(elements), TypeKind::Record(map)) => {
+                        let mut lowered_elements = Vec::new();
+                        for (name, maybe_alias) in elements {
+                            let ti = if let Some(ti) = map.get(&name.inner) {
+                                ti
+                            } else {
+                                return Err(spanned(
+                                    format_smolstr!(
+                                        "Type {expected_type} does not have a property {name}"
+                                    ), 
+                                    name.span
+                                ))
+                            };
+                            
+                            if let Some(alias) = maybe_alias {
+                                lowered_elements.push((name.inner.clone(), Some(alias.inner.clone())));
+                                env.add_var_type(alias.inner.clone(), ti.clone(), mutable.clone());
+                            } else {
+                                lowered_elements.push((name.inner.clone(), None));
+                                env.add_var_type(name.inner.clone(), ti.clone(), mutable.clone());
+                            }
+                        }
+                        
+                        Ok(spanned(
+                            clean::LetPattern::Record(lowered_elements), 
+                            pattern.span
+                        ))
+                    },
+                    (LetPattern::Tuple(_), ti) | (LetPattern::Record(_), ti) => {
                         Err(spanned(
                             format_smolstr!("Type {ti} cannot be destructured"), 
                             pattern.span
@@ -748,7 +776,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
             
             let name = match &pattern.inner {
                 LetPattern::Name(smol_str) => Some(smol_str.clone()),
-                LetPattern::Tuple(_) => None,
+                _ => None,
             };
             
             let pattern = lower_pattern(

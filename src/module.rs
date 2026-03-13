@@ -288,7 +288,27 @@ pub fn run<R: ModuleRegistry>(
                                 pattern.span
                             ))
                         },
-                        (LetPattern::Tuple(_), _) => panic!(),
+                        (LetPattern::Record(elements), Value::Record(rec)) => {
+                            let record_map = rec.read().unwrap();
+                            for (name, maybe_alias) in elements {
+                                if let Some(alias) = maybe_alias {
+                                    env.add_variable(
+                                        alias.clone(),
+                                        record_map.get(name).unwrap().clone()
+                                    );
+                                } else {
+                                    env.add_variable(
+                                        name.clone(), 
+                                        record_map.get(name).unwrap().clone()
+                                    );
+                                }
+                            }
+                            Ok(spanned(
+                                LetPattern::Record(elements.clone()),
+                                pattern.span
+                            ))
+                        },
+                        (LetPattern::Record(_), _) | (LetPattern::Tuple(_), _) => panic!(),
                         (LetPattern::Name(name), _) => {
                             env.add_variable(
                                 name.clone(),
@@ -361,7 +381,7 @@ pub fn run<R: ModuleRegistry>(
                                     return Ok(cf)
                                 },
                             },
-                            clean::LetPattern::Tuple(_) => panic!(),
+                            _ => panic!(),
                         }
                     },
                     clean::Statement::Expr(spanned) => {

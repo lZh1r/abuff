@@ -319,3 +319,39 @@ fn tuple_destructuring() {
         _ => panic!()
     };
 }
+
+#[test]
+fn record_destructuring() {
+    let src = r#"
+        let {a, b, c: d} = {a: 1, b: 2, c: 3};
+        a + b + d
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 6),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn mixed_destructuring() {
+    let src = r#"
+        let ({a, b, c: d}, e, {f, g}) = ({a: 1, b: 2, c: 3}, 4, {f: 5, g: 6});
+        a + b + d + e + f + g
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 21),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

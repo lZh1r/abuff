@@ -58,6 +58,7 @@ pub enum MatchArm {
 pub enum LetPattern {
     Name(SmolStr),
     Tuple(Vec<Spanned<LetPattern>>),
+    Record(Vec<(SmolStr, Option<SmolStr>)>)
 }
 
 #[derive(Debug, Clone, PartialEq)]

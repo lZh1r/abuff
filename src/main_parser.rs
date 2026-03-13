@@ -245,9 +245,73 @@ impl<'a> Parser<'a> {
                     LetPattern::Tuple(patterns),
                     Span::from(start_span.start..end_span.end),
                 ))
-            }
+            },
+            Token::LBrace => {
+                let mut entries = Vec::new();
+                loop {
+                    if self.check(&Token::RBrace) {break}
+                    
+                    let prev_token_span = self.peek_at(-1)
+                        .map(|s| Span::at(s.span.end)).unwrap_or(Span::from(0..0));
+                    let ident = match &self.peek().ok_or_else(|| {
+                        spanned(
+                            "Unexpected EOF in tuple pattern".into(),
+                            Span::at(prev_token_span.end),
+                        )
+                    })?.inner {
+                        Token::Ident(i) => spanned(
+                            i.clone(),
+                            self.peek().unwrap().span
+                        ),
+                        t => return Err(spanned(
+                            format_smolstr!(
+                                "Expected an identifier, a tuple or a record, got {t:?} instead"
+                            ),
+                            self.peek().unwrap().span
+                        ))
+                    };
+                    self.advance();
+                    
+                    if self.check(&Token::Colon) {
+                        let prev_token_span = Span::at(self.advance().unwrap().span.end);
+                        let alias = match &self.peek().ok_or_else(|| {
+                            spanned(
+                                "Unexpected EOF in tuple pattern".into(),
+                                Span::at(prev_token_span.end),
+                            )
+                        })?.inner {
+                            Token::Ident(i) => spanned(
+                                i.clone(),
+                                self.peek().unwrap().span
+                            ),
+                            t => return Err(spanned(
+                                format_smolstr!(
+                                    "Expected an identifier, a tuple or a record, got {t:?} instead"
+                                ),
+                                self.peek().unwrap().span
+                            ))
+                        };
+                        self.advance();
+                        
+                        entries.push((ident, Some(alias)));
+                    } else {
+                        entries.push((ident, None));
+                    }
+                    
+                    if self.check(&Token::Comma) {
+                        self.advance();
+                        continue
+                    }
+                }
+                let r_brace = self.peek().cloned();
+                self.expect(&Token::RBrace)?;
+                Ok(spanned(
+                    LetPattern::Record(entries),
+                    Span::from(token.span.start..r_brace.unwrap().span.end)
+                ))
+            },
             t => Err(spanned(
-                format_smolstr!("Expected identifier or LParen, got {t:?} instead"),
+                format_smolstr!("Expected an identifier, a tuple or a record, got {t:?} instead"),
                 token.span,
             )),
         }
