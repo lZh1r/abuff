@@ -1,4 +1,4 @@
-use crate::{ast::typed::MethodSignature, pattern_matching::match_expr, span::spanned};
+use crate::{ast::typed::{LetPattern, MethodSignature}, pattern_matching::match_expr, span::spanned};
 use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
@@ -668,7 +668,7 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
     Spanned<SmolStr>
 > {
     match &statement.inner {
-        Statement::Let { name, expr, type_info, mutable } => {
+        Statement::Let { pattern, expr, type_info, mutable } => {
             let expr_result = lower_expr(expr, env)?;
             let expected_type = if let Some(ti) = type_info {
                 let expected_type = flatten_type(ti, env)?;
@@ -706,15 +706,66 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 Err(_) => (),
             }
             
-            env.add_var_type(name.clone(), expected_type.clone(), mutable.clone());
+            fn lower_pattern(
+                pattern: &Spanned<LetPattern>,
+                expected_type: &Spanned<TypeInfo>,
+                mutable: &bool,
+                env: &mut TypeEnv
+            ) -> Result<Spanned<clean::LetPattern>, Spanned<SmolStr>> {
+                match (&pattern.inner, expected_type.inner.kind()) {
+                    (LetPattern::Tuple(patterns), TypeKind::Tuple(types)) => {
+                        let mut lower_patterns = Vec::new();
+                        for (p, ti) in patterns.iter().zip(types.iter()) {
+                            lower_patterns.push(
+                                lower_pattern(
+                                    &p,
+                                    &*ti,
+                                    mutable,
+                                    env
+                                )?
+                            );
+                        }
+                        Ok(spanned(
+                            clean::LetPattern::Tuple(lower_patterns),
+                            pattern.span
+                        ))
+                    },
+                    (LetPattern::Tuple(_), ti) => {
+                        Err(spanned(
+                            format_smolstr!("Type {ti} cannot be destructured"), 
+                            pattern.span
+                        ))
+                    },
+                    (LetPattern::Name(name), _) => {
+                        env.add_var_type(name.clone(), expected_type.clone(), mutable.clone());
+                        Ok(spanned(
+                            clean::LetPattern::Name(name.clone()),
+                            pattern.span
+                        ))
+                    }
+                }
+            }
+            
+            let name = match &pattern.inner {
+                LetPattern::Name(smol_str) => Some(smol_str.clone()),
+                LetPattern::Tuple(_) => None,
+            };
+            
+            let pattern = lower_pattern(
+                pattern,
+                &expected_type,
+                mutable,
+                env
+            )?;
+                
             Ok(LoweringResult { 
-                name: Some(name.clone()),
+                name,
                 var_type: Some(expected_type), 
                 custom_type: None,
                 export: false,
                 lowered_statement: Some(spanned(
                     clean::Statement::Let { 
-                        name: name.clone(),
+                        pattern,
                         expr: expr_result.0
                     },
                     statement.span
@@ -829,7 +880,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     export: false,
                     lowered_statement: Some(spanned(
                         clean::Statement::Let { 
-                            name: name.clone(),
+                            pattern: spanned(
+                                clean::LetPattern::Name(name.clone()),
+                                statement.span
+                            ),
                             expr: spanned(
                                 clean::Expr::Fun { 
                                     params: params.iter().map(|(need, _)| need.clone()).collect(),
@@ -898,7 +952,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                     export: false,
                     lowered_statement: Some(spanned(
                         clean::Statement::Let { 
-                            name: name.clone(),
+                            pattern: spanned(
+                                clean::LetPattern::Name(name.clone()),
+                                statement.span
+                            ),
                             expr: spanned(
                                 clean::Expr::Fun { 
                                     params: params.iter().map(|(need, _)| need.clone()).collect(),
@@ -1141,7 +1198,10 @@ fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path: &s
                 export: false,
                 lowered_statement: Some(spanned(
                     clean::Statement::Let { 
-                        name: name.clone(),
+                        pattern: spanned(
+                            clean::LetPattern::Name(name.clone()),
+                            statement.span
+                        ),
                         expr: Spanned {
                             inner: clean::Expr::Record(record_exprs),
                             span: statement.span

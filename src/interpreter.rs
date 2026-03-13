@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::{Arc, RwLock}};
 
 use smol_str::{SmolStr, ToSmolStr, format_smolstr};
 
-use crate::{ast::shared::{Operation}, env::Env, ast::clean::{ControlFlow, Expr, MatchArm, Statement, Value}};
+use crate::{ast::{clean::{ControlFlow, Expr, LetPattern, MatchArm, Statement, Value}, shared::Operation}, env::Env, span::spanned};
 use crate::span::{Span, Spanned};
 
 pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spanned<SmolStr>> {
@@ -572,11 +572,49 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
     let mut new_scope = env.enter_scope();
     for statement in stmts {
         match &statement.inner {
-            Statement::Let { name, expr } => {
-                match eval_expr(expr, &mut new_scope)? {
-                    ControlFlow::Value(v) => new_scope.add_variable(name.clone(), v),
+            Statement::Let { pattern, expr } => {
+                let value = match eval_expr(expr, &mut new_scope)? {
+                    ControlFlow::Value(v) => v,
                     cf => return Ok(cf),
+                };
+                
+                fn process_pattern(
+                    pattern: &Spanned<LetPattern>,
+                    value: &Value,
+                    env: &mut Env
+                ) -> Result<Spanned<LetPattern>, Spanned<SmolStr>> {
+                    match (&pattern.inner, value) {
+                        (LetPattern::Tuple(patterns), Value::Tuple(elems)) => {
+                            let mut lower_patterns = Vec::new();
+                            for (p, ti) in patterns.iter().zip(elems.read().unwrap().iter()) {
+                                lower_patterns.push(
+                                    process_pattern(
+                                        &p,
+                                        &*ti,
+                                        env
+                                    )?
+                                );
+                            }
+                            Ok(spanned(
+                                LetPattern::Tuple(lower_patterns),
+                                pattern.span
+                            ))
+                        },
+                        (LetPattern::Tuple(_), _) => panic!(),
+                        (LetPattern::Name(name), _) => {
+                            env.add_variable(
+                                name.clone(),
+                                value.clone()
+                            );
+                            Ok(spanned(
+                                LetPattern::Name(name.clone()),
+                                pattern.span
+                            ))
+                        }
+                    }
                 }
+                
+                let _ = process_pattern(pattern, &value, env)?;
             },
             Statement::Expr(expr) => {
                 match eval_expr(expr, &mut new_scope)? {

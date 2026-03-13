@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use smol_str::{SmolStr, format_smolstr};
 
 use crate::{
-    ast::typed::{Expr, MatchArm, Method, NativeMethod, NormalMethod, Statement, TypeInfo, TypeKind, MethodSignature},
-    ast::shared::{UnaryOp, Operation},
+    ast::{shared::{Operation, UnaryOp}, typed::{Expr, LetPattern, MatchArm, Method, MethodSignature, NativeMethod, NormalMethod, Statement, TypeInfo, TypeKind}},
     lexer::Token,
     span::spanned
 };
@@ -195,6 +194,64 @@ impl<'a> Parser<'a> {
             },
         }
     }
+    
+    fn parse_let_pattern(&mut self) -> Result<Spanned<LetPattern>, Spanned<SmolStr>> {
+        let token = self.advance().cloned().ok_or_else(|| {
+            let span = self.peek_at(-1)
+                .map(|s| Span::at(s.span.end))
+                .unwrap_or(Span::from(0..0));
+            spanned("Unexpected EOF in pattern".into(), span)
+        })?;
+
+        match token.inner {
+            Token::Ident(i) => Ok(spanned(LetPattern::Name(i), token.span)),
+            Token::LParen => {
+                let start_span = token.span;
+                let mut patterns = Vec::new();
+
+                // Check for empty tuple: ()
+                if self.check(&Token::RParen) {
+                    let end_span = self.advance().unwrap().span;
+                    return Ok(spanned(
+                        LetPattern::Tuple(patterns),
+                        Span::from(start_span.start..end_span.end),
+                    ));
+                }
+
+                // Parse first pattern
+                patterns.push(self.parse_let_pattern()?);
+
+                // Parse remaining patterns
+                while self.check(&Token::Comma) {
+                    self.advance(); // consume comma
+                    // Allow trailing comma
+                    if self.check(&Token::RParen) {
+                        break;
+                    }
+                    patterns.push(self.parse_let_pattern()?);
+                }
+
+                let end_span = self.peek()
+                    .map(|s| s.span)
+                    .ok_or_else(|| {
+                        spanned(
+                            "Unexpected EOF in tuple pattern".into(),
+                            Span::at(start_span.end),
+                        )
+                    })?;
+                self.expect(&Token::RParen)?;
+
+                Ok(spanned(
+                    LetPattern::Tuple(patterns),
+                    Span::from(start_span.start..end_span.end),
+                ))
+            }
+            t => Err(spanned(
+                format_smolstr!("Expected identifier or LParen, got {t:?} instead"),
+                token.span,
+            )),
+        }
+    }
 
     fn let_statement(&mut self) -> Result<Spanned<Statement>, Spanned<SmolStr>> {
         let start_span = self.advance().unwrap().span; //consume let
@@ -205,12 +262,8 @@ impl<'a> Parser<'a> {
         if self.peek().is_none() {
             return Err(spanned("Unexpected EOF in let declaration".into(), Span::at(start_span.end)))
         }
-
-        let ident_token = self.advance().unwrap().clone();
-        let var_name = match ident_token.inner {
-            Token::Ident(i) => i,
-            t => return Err(spanned(format!("Expected identifier, got {t:?} instead").into(), ident_token.span))
-        };
+        
+        let pattern = self.parse_let_pattern()?;
 
         let var_type = if self.check(&Token::Colon) {
             self.advance(); //consume colon
@@ -232,7 +285,7 @@ impl<'a> Parser<'a> {
         };
 
         Ok(spanned(
-            Statement::Let { name: var_name, expr: var_expr, type_info: var_type, mutable },
+            Statement::Let { pattern, expr: var_expr, type_info: var_type, mutable },
             Span::from(start_span.start..end_span.end)
         ))
     }

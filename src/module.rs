@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLoc
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::typed::{TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, ast::clean::{self, ControlFlow, Value}, lexer::lex, main_parser::Parser, native::get_native_fun, type_checker::{hoist}};
+use crate::{ast::{clean::{self, ControlFlow, LetPattern, Value}, typed::TypeInfo}, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, lexer::lex, main_parser::Parser, native::get_native_fun, span::spanned, type_checker::hoist};
 use crate::span::{Span, Spanned};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,19 +260,49 @@ pub fn run<R: ModuleRegistry>(
     let mut value_exports = HashMap::new();
     for statement in statements {
         match statement.inner.clone() {
-            clean::Statement::Let { name, expr } => {
-                match eval_expr(&expr, env)? {
-                    ControlFlow::Value(v) => env.add_variable(name.clone(), v),
-                    cf => {
-                        registry.insert_runtime_module(RuntimeModule { 
-                            path: module_path.clone(), 
-                            exports: value_exports,
-                            env: env.clone(),
-                            status: ModuleStatus::Evaluated
-                        });
-                        return Ok(cf)
-                    },
+            clean::Statement::Let { pattern, expr } => {
+                let value = match eval_expr(&expr, env)? {
+                    ControlFlow::Value(v) => v,
+                    cf => return Ok(cf),
+                };
+                
+                fn process_pattern(
+                    pattern: &Spanned<LetPattern>,
+                    value: &Value,
+                    env: &mut Env
+                ) -> Result<Spanned<LetPattern>, Spanned<SmolStr>> {
+                    match (&pattern.inner, value) {
+                        (LetPattern::Tuple(patterns), Value::Tuple(elems)) => {
+                            let mut lower_patterns = Vec::new();
+                            for (p, ti) in patterns.iter().zip(elems.read().unwrap().iter()) {
+                                lower_patterns.push(
+                                    process_pattern(
+                                        &p,
+                                        &*ti,
+                                        env
+                                    )?
+                                );
+                            }
+                            Ok(spanned(
+                                LetPattern::Tuple(lower_patterns),
+                                pattern.span
+                            ))
+                        },
+                        (LetPattern::Tuple(_), _) => panic!(),
+                        (LetPattern::Name(name), _) => {
+                            env.add_variable(
+                                name.clone(),
+                                value.clone()
+                            );
+                            Ok(spanned(
+                                LetPattern::Name(name.clone()),
+                                pattern.span
+                            ))
+                        }
+                    }
                 }
+                
+                let _ = process_pattern(&pattern, &value, env)?;
             },
             clean::Statement::Expr(expr) => {
                 let cf = eval_expr(&expr, env)?;
@@ -314,23 +344,25 @@ pub fn run<R: ModuleRegistry>(
             },
             clean::Statement::Export(spanned) => {
                 match &spanned.inner {
-                    clean::Statement::Let { name, expr } => {
-                        match eval_expr(&expr, env)? {
-                            ControlFlow::Value(v) => {
-                                env.add_variable(name.clone(), v.clone());
-                                value_exports.insert(name.clone(), v);
+                    clean::Statement::Let { pattern, expr } => {
+                        match &pattern.inner {
+                            clean::LetPattern::Name(name) => match eval_expr(&expr, env)? {
+                                ControlFlow::Value(v) => {
+                                    env.add_variable(name.clone(), v.clone());
+                                    value_exports.insert(name.clone(), v);
+                                },
+                                cf => {
+                                    registry.insert_runtime_module(RuntimeModule { 
+                                        path: module_path.clone(), 
+                                        exports: value_exports,
+                                        env: env.clone(),
+                                        status: ModuleStatus::Evaluated
+                                    });
+                                    return Ok(cf)
+                                },
                             },
-                            cf => {
-                                registry.insert_runtime_module(RuntimeModule { 
-                                    path: module_path.clone(), 
-                                    exports: value_exports,
-                                    env: env.clone(),
-                                    status: ModuleStatus::Evaluated
-                                });
-                                return Ok(cf)
-                            },
+                            clean::LetPattern::Tuple(_) => panic!(),
                         }
-    
                     },
                     clean::Statement::Expr(spanned) => {
                         return Err(Spanned {

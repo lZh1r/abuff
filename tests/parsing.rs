@@ -301,3 +301,21 @@ fn tuples() {
         _ => panic!()
     };
 }
+
+#[test]
+fn tuple_destructuring() {
+    let src = r#"
+        let (((a, b), c), d, (e, f)) = (((3,4), 8), 9, (1, 2));
+        a + b + c + d + e + f
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 27),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

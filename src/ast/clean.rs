@@ -55,8 +55,14 @@ pub enum MatchArm {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum LetPattern {
+    Name(SmolStr),
+    Tuple(Vec<Spanned<LetPattern>>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    Let{name: SmolStr, expr: Spanned<Expr>},
+    Let{pattern: Spanned<LetPattern>, expr: Spanned<Expr>},
     Expr(Spanned<Expr>),
     NativeFun(SmolStr),
     Import {symbols: Vec<(Spanned<SmolStr>, Option<SmolStr>)>, path: Spanned<SmolStr>},

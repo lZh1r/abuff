@@ -241,9 +241,15 @@ pub struct NativeMethod {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum LetPattern {
+    Name(SmolStr),
+    Tuple(Vec<Spanned<LetPattern>>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Let {
-        name: SmolStr,
+        pattern: Spanned<LetPattern>,
         expr: Spanned<Expr>,
         type_info: Option<Spanned<TypeInfo>>,
         mutable: bool
