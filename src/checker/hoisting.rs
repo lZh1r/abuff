@@ -1,8 +1,8 @@
-use std::{any::Any, collections::{HashMap, HashSet}};
+use std::{collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, typed::{Method, MethodSignature, NativeMethod, NormalMethod, Statement, TypeInfo, TypeKind}}, checker::{expression::process_expression, flatten::flatten_type, statement::process_statement}, env::{MethodInfo, TypeEnv}, module::{GlobalRegistry, insert_type_module}, native::{NativeFun, get_native_fun}, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, typed::{Method, MethodSignature, Statement, TypeInfo, TypeKind}}, checker::{expression::process_expression, flatten::flatten_type, statement::process_statement}, env::{MethodInfo, TypeEnv}, module::{GlobalRegistry, insert_type_module}, native::{get_native_fun}, span::{Span, Spanned, spanned}};
 
 #[derive(Debug)]
 enum FunctionStatement<'a> {
