@@ -9,6 +9,7 @@ pub mod checker {
     pub mod statement;
     pub mod expression;
     pub mod hoisting;
+    pub mod pattern_matching;
 }
 pub mod interpreter;
 pub mod env;
@@ -18,4 +19,3 @@ pub mod native;
 pub mod lexer;
 pub mod main_parser;
 pub mod span;
-pub mod pattern_matching;

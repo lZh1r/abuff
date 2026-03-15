@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist, mutability::check_mutability}, env::TypeEnv, pattern_matching::match_expr, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist, mutability::check_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
 
 pub fn substitute_generic_params(
     type_info: &Spanned<TypeInfo>,
