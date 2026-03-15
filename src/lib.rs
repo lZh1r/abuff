@@ -3,6 +3,9 @@ pub mod ast {
     pub mod clean;
     pub mod shared;
 }
+pub mod checker {
+    pub mod flatten;
+}
 pub mod interpreter;
 pub mod env;
 pub mod error;

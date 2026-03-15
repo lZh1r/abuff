@@ -1,8 +1,9 @@
+use crate::checker::flatten::flatten_type;
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean::{self}, typed::{Expr, TypeInfo, TypeKind, MatchArm}}, env::TypeEnv, span::{Span, Spanned, spanned}, type_checker::{flatten_type, lower_expr, substitute_generic_params}};
+use crate::{ast::{clean::{self}, typed::{Expr, TypeInfo, TypeKind, MatchArm}}, env::TypeEnv, span::{Span, Spanned, spanned}, type_checker::{lower_expr, substitute_generic_params}};
 
 pub fn match_expr(
     expr: &Spanned<Expr>,
