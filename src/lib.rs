@@ -5,6 +5,7 @@ pub mod ast {
 }
 pub mod checker {
     pub mod flatten;
+    pub mod mutability;
 }
 pub mod interpreter;
 pub mod env;

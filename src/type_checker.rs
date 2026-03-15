@@ -1,4 +1,5 @@
 use crate::checker::flatten::flatten_type;
+use crate::checker::mutability::check_mutability;
 use crate::{ast::typed::{LetPattern, MethodSignature}, pattern_matching::match_expr, span::spanned};
 use std::{collections::{HashMap, HashSet}};
 
@@ -2643,22 +2644,4 @@ fn compare_types(
     }
 
     map
-}
-
-fn check_mutability(expr: &Spanned<clean::Expr>, env: &TypeEnv) -> Result<bool, Spanned<SmolStr>> {
-    match &expr.inner {
-        clean::Expr::Var(var) => {
-            Ok(env.get_var_type(var).unwrap().1)
-        },
-        clean::Expr::Index(target, _) => {
-            check_mutability(&*target, env)
-        },
-        clean::Expr::Get(target, _) => {
-            check_mutability(&*target, env)
-        },
-        t => Err(Spanned {
-            inner: format_smolstr!("{t:?} is not a variable"),
-            span: expr.span
-        })
-    }
 }
