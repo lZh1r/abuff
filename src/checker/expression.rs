@@ -234,7 +234,7 @@ fn compare_types(
     map
 }
 
-pub fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
+pub fn process_expression(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
     (Spanned<clean::Expr>, Spanned<TypeInfo>),
     Spanned<SmolStr>
 > {
@@ -281,19 +281,19 @@ pub fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 var_type.0
             ))
         },
-        Expr::Array(elements) => lower_array(elements, expr, env),
-        Expr::Index(target, index) => lower_index(target, index, expr, env),
-        Expr::Binary { left, operation, right } => lower_binary(left, operation, right, expr, env),
-        Expr::Block(statements, final_expr) => lower_block(statements, final_expr, expr, env),
+        Expr::Array(elements) => process_array(elements, expr, env),
+        Expr::Index(target, index) => process_index(target, index, expr, env),
+        Expr::Binary { left, operation, right } => process_binary(left, operation, right, expr, env),
+        Expr::Block(statements, final_expr) => process_block(statements, final_expr, expr, env),
         Expr::Fun { params, body, return_type, generic_params } => {
-            lower_fn(params, body, return_type, generic_params, expr, env)
+            process_fn(params, body, return_type, generic_params, expr, env)
         },
-        Expr::Call { fun, args, generic_args } => lower_call(fun, args, generic_args, expr, env),
+        Expr::Call { fun, args, generic_args } => process_call(fun, args, generic_args, expr, env),
         Expr::Record(items) => {
             let mut types = HashMap::new();
             let mut lowers = HashMap::new();
             for (name, e) in items {
-                let item_result = lower_expr(e, env)?;
+                let item_result = process_expression(e, env)?;
                 types.insert(name.clone(), item_result.1);
                 lowers.insert(name.clone(), item_result.0);
             }
@@ -302,10 +302,10 @@ pub fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 spanned(TypeInfo::new(TypeKind::Record(types)), expr.span)
             ))
         },
-        Expr::Get(target, field) => lower_get(target, field, expr, env),
-        Expr::Assign { target, value } => lower_assign(target, value, expr, env),
+        Expr::Get(target, field) => process_get(target, field, expr, env),
+        Expr::Assign { target, value } => process_assign(target, value, expr, env),
         Expr::Unary(unary_op, e) => {
-            let expr_result = lower_expr(e, env)?;
+            let expr_result = process_expression(e, env)?;
             match (unary_op, expr_result.1.inner.kind()) {
                 (UnaryOp::Negate, TypeKind::Any) 
                 | (UnaryOp::Negate, TypeKind::Float)
@@ -329,8 +329,8 @@ pub fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 ))
             }
         },
-        Expr::If { condition, body, else_block } => lower_if(condition, body, else_block, expr, env),
-        Expr::While { condition, body } => lower_while(condition, body, expr, env),
+        Expr::If { condition, body, else_block } => process_if(condition, body, else_block, expr, env),
+        Expr::While { condition, body } => process_while(condition, body, expr, env),
         Expr::Break => Ok((
             spanned(clean::Expr::Break, expr.span.clone()),
             spanned(TypeInfo::void(), expr.span)
@@ -340,7 +340,7 @@ pub fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
             spanned(TypeInfo::void(), expr.span)
         )),
         Expr::Return(e) => {
-            let result = lower_expr(e, env)?;
+            let result = process_expression(e, env)?;
             Ok((
                 spanned(
                     clean::Expr::Return(Box::new(result.0)),
@@ -355,14 +355,14 @@ pub fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
         Expr::Match { target, branches } => {
             match_expr(expr, target, branches, env)
         },
-        Expr::Panic(reason) => lower_panic(reason, expr, env),
-        Expr::StaticMethod { target, method } => lower_static_method(target, method, env),
+        Expr::Panic(reason) => process_panic(reason, expr, env),
+        Expr::StaticMethod { target, method } => process_static_method(target, method, env),
         Expr::Tuple(exprs) => {
             let mut types = Vec::new();
             let mut lowered = Vec::new();
             
             for e in exprs {
-                let result = lower_expr(e, env)?;
+                let result = process_expression(e, env)?;
                 lowered.push(result.0);
                 types.push(Box::new(result.1));
             }
@@ -381,7 +381,7 @@ pub fn lower_expr(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
     }
 }
 
-fn lower_array(
+fn process_array(
     elements: &Vec<Spanned<Expr>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
@@ -389,7 +389,7 @@ fn lower_array(
     let mut lowered = Vec::new();
     let mut expected_type = spanned(TypeInfo::void(), Span::at(0));
     for e in elements {
-        let result = lower_expr(e, env)?;
+        let result = process_expression(e, env)?;
         if result.1.inner != expected_type.inner {
             if expected_type.inner == TypeInfo::void() {
                 expected_type = result.1
@@ -415,14 +415,14 @@ fn lower_array(
     ))
 }
 
-fn lower_index(
+fn process_index(
     target: &Box<Spanned<Expr>>,
     index: &Box<Spanned<Expr>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>>{
-    let target_result = lower_expr(target, env)?;
-    let index_result = lower_expr(index, env)?;
+    let target_result = process_expression(target, env)?;
+    let index_result = process_expression(index, env)?;
     match target_result.1.inner.kind() {
         TypeKind::Array(element_type) => {
             if index_result.1.inner != TypeInfo::int() {
@@ -478,15 +478,15 @@ fn lower_index(
     }
 }
 
-fn lower_binary(
+fn process_binary(
     left: &Box<Spanned<Expr>>,
     operation: &Operation,
     right: &Box<Spanned<Expr>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
-    let left_result = lower_expr(left, env)?;
-    let right_result = lower_expr(right, env)?;
+    let left_result = process_expression(left, env)?;
+    let right_result = process_expression(right, env)?;
     match operation {
         | Operation::Subtract 
         | Operation::Multiply
@@ -759,7 +759,7 @@ fn lower_binary(
     }
 }
 
-fn lower_block(
+fn process_block(
     statements: &Vec<Spanned<Statement>>,
     final_expr: &Option<Box<Spanned<Expr>>>,
     expr: &Spanned<Expr>,
@@ -769,7 +769,7 @@ fn lower_block(
         let mut inner_scope = env.enter_scope();
         let (lowered_statements, _, _) = hoist(statements, &mut inner_scope, "")?;
         if let Some(e) = final_expr {
-            let final_result = lower_expr(e, &mut inner_scope)?;
+            let final_result = process_expression(e, &mut inner_scope)?;
             Ok((
                 spanned(
                     clean::Expr::Block(lowered_statements, Some(Box::new(final_result.0))),
@@ -792,7 +792,7 @@ fn lower_block(
     }
 }
 
-fn lower_fn(
+fn process_fn(
     params: &Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
     body: &Box<Spanned<Expr>>,
     return_type: &Option<Spanned<TypeInfo>>,
@@ -814,7 +814,7 @@ fn lower_fn(
         }
         let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
         inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone(), false);
-        let body_result = lower_expr(body, &mut inner_scope)?;
+        let body_result = process_expression(body, &mut inner_scope)?;
         let actual_type = flatten_type(&body_result.1, env)?;
         if actual_type.inner != expected_type.inner {
             return Err(spanned(
@@ -864,7 +864,7 @@ fn lower_fn(
 
         let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
         inner_scope.add_var_type(SmolStr::new("+return"), expected_flat.clone(), false);
-        let body_result = lower_expr(body, &mut inner_scope)?;
+        let body_result = process_expression(body, &mut inner_scope)?;
         if body_result.1.inner != expected_flat.inner {
             return Err(spanned(
                 format_smolstr!(
@@ -896,20 +896,20 @@ fn lower_fn(
     }
 }
 
-fn lower_call(
+fn process_call(
     fun: &Box<Spanned<Expr>>,
     args: &Vec<Spanned<Expr>>,
     generic_args: &Vec<Spanned<TypeInfo>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
-    let fun_result = lower_expr(fun, env)?;
+    let fun_result = process_expression(fun, env)?;
     match fun_result.1.inner.kind() {
         TypeKind::Fun { params, return_type: _, generic_params } => {
             let mut lowered_args = Vec::new();
             let mut arg_types = Vec::new();
             for arg in args {
-                let arg_result = lower_expr(arg, env)?;
+                let arg_result = process_expression(arg, env)?;
                 arg_types.push(arg_result.1.clone());
                 lowered_args.push(arg_result.0);
             }
@@ -1064,13 +1064,13 @@ fn lower_call(
     }
 }
 
-fn lower_get(
+fn process_get(
     target: &Box<Spanned<Expr>>,
     field: &SmolStr,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
-    let mut target_result = lower_expr(target, env)?;
+    let mut target_result = process_expression(target, env)?;
     // HORRIBLE BANDAID
     // ABSOLUTELY DISGUSTING
     // but idk what to do
@@ -1164,14 +1164,14 @@ fn lower_get(
     }
 }
 
-fn lower_assign(
+fn process_assign(
     target: &Box<Spanned<Expr>>,
     value: &Box<Spanned<Expr>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
-    let target_result = lower_expr(target, env)?;
-    let value_result = lower_expr(value, env)?;
+    let target_result = process_expression(target, env)?;
+    let value_result = process_expression(value, env)?;
     if target_result.1.inner != value_result.1.inner {
         return Err(spanned(
             format_smolstr!(
@@ -1207,17 +1207,17 @@ fn lower_assign(
     ))
 }
 
-fn lower_if(
+fn process_if(
     condition: &Box<Spanned<Expr>>,
     body: &Box<Spanned<Expr>>,
     else_block: &Option<Box<Spanned<Expr>>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
-    let condition_result = lower_expr(condition, env)?;
-    let body_result = lower_expr(body, env)?;
+    let condition_result = process_expression(condition, env)?;
+    let body_result = process_expression(body, env)?;
     let else_block_result = if let Some(block) = else_block {
-        Some(lower_expr(block, env)?)
+        Some(process_expression(block, env)?)
     } else {
         None
     };
@@ -1270,14 +1270,14 @@ fn lower_if(
     }
 }
 
-fn lower_while(
+fn process_while(
     condition: &Box<Spanned<Expr>>,
     body: &Box<Spanned<Expr>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
-    let condition_result = lower_expr(condition, env)?;
-    let body_result = lower_expr(body, env)?;
+    let condition_result = process_expression(condition, env)?;
+    let body_result = process_expression(body, env)?;
     if condition_result.1.inner != TypeInfo::bool() {
         return Err(spanned(
             SmolStr::new("While loop condition should be a bool"), 
@@ -1305,14 +1305,14 @@ fn lower_while(
     ))
 }
 
-fn lower_panic(
+fn process_panic(
     reason: &Option<Box<Spanned<Expr>>>,
     expr: &Spanned<Expr>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>>{
     match reason {
         Some(reason) => {
-            let reason_result = lower_expr(reason, env)?;
+            let reason_result = process_expression(reason, env)?;
             Ok((
                 spanned(
                     clean::Expr::Panic(Some(Box::new(reason_result.0))), 
@@ -1343,7 +1343,7 @@ fn lower_panic(
     }
 }
 
-fn lower_static_method(
+fn process_static_method(
     target: &Spanned<SmolStr>,
     method: &Spanned<SmolStr>,
     env: &mut TypeEnv

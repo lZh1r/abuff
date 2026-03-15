@@ -1,4 +1,4 @@
-use crate::checker::expression::lower_expr;
+use crate::checker::expression::process_expression;
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
@@ -25,7 +25,7 @@ pub fn process_statement(statement: &Spanned<Statement>, env: &mut TypeEnv, path
             process_type_statement(name, generic_params, type_info, statement, env)
         },
         Statement::Expr(expr) => {
-            let expr_result = lower_expr(expr, env)?;
+            let expr_result = process_expression(expr, env)?;
             Ok(LoweringResult { 
                 name: None,
                 var_type: Some(expr_result.1), 
@@ -66,7 +66,7 @@ fn process_let_statement(
     statement: &Spanned<Statement>,
     env: &mut TypeEnv
 ) -> Result<LoweringResult, Spanned<SmolStr>> {
-    let expr_result = lower_expr(expr, env)?;
+    let expr_result = process_expression(expr, env)?;
     let expected_type = if let Some(ti) = type_info {
         let expected_type = flatten_type(ti, env)?;
         if expected_type.inner != expr_result.1.inner {
@@ -279,7 +279,7 @@ fn process_function_statement(
             ),
             false
         );
-        let body_result = lower_expr(body, &mut inner_scope)?;
+        let body_result = process_expression(body, &mut inner_scope)?;
         if body_result.1.inner != expected_type.inner {
             return Err(spanned(
                 format_smolstr!(
@@ -361,7 +361,7 @@ fn process_function_statement(
             false
         );
 
-        let body_result = lower_expr(body, &mut inner_scope)?;
+        let body_result = process_expression(body, &mut inner_scope)?;
         if body_result.1.inner != expected_flat.inner {
             return Err(spanned(
                 format_smolstr!(

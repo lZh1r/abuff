@@ -1,4 +1,4 @@
-use crate::checker::expression::lower_expr;
+use crate::checker::expression::process_expression;
 use crate::checker::flatten::flatten_type;
 use crate::checker::statement::process_statement;
 use crate::{ast::typed::{MethodSignature}, span::spanned};
@@ -325,7 +325,7 @@ pub fn hoist(
                                         false
                                     );
         
-                                    let method_result = lower_expr(&m.body, &mut inner_scope)?;
+                                    let method_result = process_expression(&m.body, &mut inner_scope)?;
                                     if method_result.1.inner != expected_type.inner {
                                         return Err(spanned(
                                             format_smolstr!(
@@ -417,7 +417,7 @@ pub fn hoist(
                                         false
                                     );
         
-                                    let method_result = lower_expr(&m.body, &mut inner_scope)?;
+                                    let method_result = process_expression(&m.body, &mut inner_scope)?;
                                     if method_result.1.inner != expected_flat.inner {
                                         return Err(spanned(
                                             format_smolstr!(

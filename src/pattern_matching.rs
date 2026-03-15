@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean::{self}, typed::{Expr, TypeInfo, TypeKind, MatchArm}}, env::TypeEnv, span::{Span, Spanned, spanned}, checker::expression::{lower_expr, substitute_generic_params}};
+use crate::{ast::{clean::{self}, typed::{Expr, TypeInfo, TypeKind, MatchArm}}, env::TypeEnv, span::{Span, Spanned, spanned}, checker::expression::{process_expression, substitute_generic_params}};
 
 pub fn match_expr(
     expr: &Spanned<Expr>,
@@ -11,7 +11,7 @@ pub fn match_expr(
     branches: &Vec<(Spanned<MatchArm>, Spanned<Expr>)>,
     env: &mut TypeEnv
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
-    let target_result = lower_expr(target, env)?;
+    let target_result = process_expression(target, env)?;
 
     /// Recursively lower a match pattern while populating `env` with any bound
     /// variables.  The `top_level` flag controls whether a `Default` pattern
@@ -31,7 +31,7 @@ pub fn match_expr(
                     spanned(target.clone(), Span::from(0..0)),
                     false,
                 );
-                let cond_result = lower_expr(condition, env)?;
+                let cond_result = process_expression(condition, env)?;
                 match cond_result.1.inner.kind() {
                     TypeKind::Bool => (),
                     _ => {
@@ -56,7 +56,7 @@ pub fn match_expr(
             MatchArm::Value(e) => {
                 // simple value pattern – just lower the expression and check the
                 // type matches the target.
-                let pattern_result = lower_expr(e, env)?;
+                let pattern_result = process_expression(e, env)?;
                 if &pattern_result.1.inner != target {
                     return Err(spanned(
                         format_smolstr!(
@@ -242,7 +242,7 @@ pub fn match_expr(
     > {
         let mut inner_env = env.enter_scope();
         let (lowered_pattern, is_default) = lower_pattern_inner(target, pattern, &mut inner_env, true)?;
-        let branch_result = lower_expr(branch, &mut inner_env)?;
+        let branch_result = process_expression(branch, &mut inner_env)?;
         Ok(((lowered_pattern, branch_result.0), branch_result.1, is_default))
     }
 
@@ -308,7 +308,7 @@ pub fn match_expr(
                     false
                 );
 
-                let branch_result = lower_expr(branch, &mut inner_env)?;
+                let branch_result = process_expression(branch, &mut inner_env)?;
                 let lowered_pattern = spanned(clean::MatchArm::Default(alias.clone()), pattern.span);
                 Ok(((lowered_pattern, branch_result.0), branch_result.1, true))
             }
@@ -366,7 +366,7 @@ pub fn match_expr(
                                 false
                             );
 
-                            let branch_result = lower_expr(branch, &mut inner_scope)?;
+                            let branch_result = process_expression(branch, &mut inner_scope)?;
                             let lowered_pattern = spanned(
                                 clean::MatchArm::EnumConstructor {
                                     enum_name: enum_name.clone(),
