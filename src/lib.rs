@@ -7,6 +7,7 @@ pub mod checker {
     pub mod flatten;
     pub mod mutability;
     pub mod statement;
+    pub mod expression;
 }
 pub mod interpreter;
 pub mod env;

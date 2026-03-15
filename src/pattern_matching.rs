@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean::{self}, typed::{Expr, TypeInfo, TypeKind, MatchArm}}, env::TypeEnv, span::{Span, Spanned, spanned}, type_checker::{lower_expr, substitute_generic_params}};
+use crate::{ast::{clean::{self}, typed::{Expr, TypeInfo, TypeKind, MatchArm}}, env::TypeEnv, span::{Span, Spanned, spanned}, checker::expression::{lower_expr, substitute_generic_params}};
 
 pub fn match_expr(
     expr: &Spanned<Expr>,

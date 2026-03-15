@@ -1,8 +1,9 @@
+use crate::checker::expression::lower_expr;
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, typed::{Expr, LetPattern, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, mutability::check_mutability}, env::TypeEnv, module::{GlobalRegistry, eval_import}, native::{get_native_fun, get_native_type}, span::{Span, Spanned, spanned}, type_checker::lower_expr};
+use crate::{ast::{clean, typed::{Expr, LetPattern, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, mutability::check_mutability}, env::TypeEnv, module::{GlobalRegistry, eval_import}, native::{get_native_fun, get_native_type}, span::{Span, Spanned, spanned}};
 
 pub struct LoweringResult {
     pub name: Option<SmolStr>,
