@@ -1,14 +1,7 @@
 use std::{env::{self, current_dir}, fs};
 
 use abuff::{
-    span::Spanned,
-    env::{DEFAULT_ENVS, create_default_env},
-    error::build_report, 
-    ast::clean::ControlFlow, 
-    lexer::lex, 
-    main_parser::Parser,
-    module::{GlobalRegistry, run},
-    type_checker::{hoist}
+    ast::clean::ControlFlow, checker::hoisting::hoist, env::{DEFAULT_ENVS, create_default_env}, error::build_report, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, span::Spanned
 };
 
 fn main() {

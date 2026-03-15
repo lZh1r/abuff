@@ -1,17 +1,8 @@
-use crate::checker::expression::process_expression;
-use crate::checker::flatten::flatten_type;
-use crate::checker::statement::process_statement;
-use crate::{ast::typed::{MethodSignature}, span::spanned};
-use std::{collections::{HashMap, HashSet}};
+use std::collections::{HashMap, HashSet};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::typed::{Method, Statement, TypeInfo, TypeKind},
-    env::{MethodInfo, TypeEnv},
-    ast::clean,
-    module::{GlobalRegistry, insert_type_module},
-    native::{get_native_fun}};
-use crate::span::{Span, Spanned};
+use crate::{ast::{clean, typed::{Method, MethodSignature, Statement, TypeInfo, TypeKind}}, checker::{expression::process_expression, flatten::flatten_type, statement::process_statement}, env::{MethodInfo, TypeEnv}, module::{GlobalRegistry, insert_type_module}, native::get_native_fun, span::{Span, Spanned, spanned}};
 
 #[derive(Debug)]
 enum FunctionStatement<'a> {
@@ -276,7 +267,7 @@ pub fn hoist(
                                 let expected_type = m
                                     .return_type
                                     .clone()
-                                    .unwrap_or(spanned(TypeInfo::void(), Span::from(0..0)));
+                                    .unwrap_or(spanned(TypeInfo::void(), Span::at(0)));
         
                                 let type_template = {
                                     match ti.inner.kind() {
@@ -652,8 +643,7 @@ pub fn hoist(
         lowered_statements.push(result.lowered_statement.unwrap());
     }
 
-    let reg = GlobalRegistry;
-    insert_type_module(&reg, var_exports.clone(), type_exports.clone(), env.clone(), path);
+    insert_type_module(&GlobalRegistry, var_exports.clone(), type_exports.clone(), env.clone(), path);
 
     Ok((lowered_statements, var_exports, type_exports))
 }

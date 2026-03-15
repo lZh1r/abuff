@@ -8,6 +8,7 @@ pub mod checker {
     pub mod mutability;
     pub mod statement;
     pub mod expression;
+    pub mod hoisting;
 }
 pub mod interpreter;
 pub mod env;
@@ -16,6 +17,5 @@ pub mod module;
 pub mod native;
 pub mod lexer;
 pub mod main_parser;
-pub mod type_checker;
 pub mod span;
 pub mod pattern_matching;
