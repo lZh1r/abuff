@@ -1,7 +1,7 @@
 use std::{env::{self, current_dir}, fs};
 
 use abuff::{
-    ast::clean::ControlFlow, checker::hoisting::hoist, env::{DEFAULT_ENVS, create_default_env}, error::build_report, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, span::Spanned
+    ast::clean::ControlFlow, checker::hoisting::hoist_declarations, env::{DEFAULT_ENVS, create_default_env}, error::build_report, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, span::Spanned
 };
 
 fn main() {
@@ -30,7 +30,7 @@ fn main() {
                 },
             };
             
-            let res = hoist(&parsed, &mut type_env, current_dir().unwrap().to_str().unwrap());
+            let res = hoist_declarations(&parsed, &mut type_env, current_dir().unwrap().to_str().unwrap());
             match res {
                 Err(e) => {
                     println!("Type checking failed with following errors:");
@@ -76,7 +76,7 @@ fn main() {
                     },
                 };
                 
-                let res = hoist(&parsed, &mut type_env, current_dir().unwrap().to_str().unwrap());
+                let res = hoist_declarations(&parsed, &mut type_env, current_dir().unwrap().to_str().unwrap());
                 match res {
                     Err(e) => build_report(e, &src, &"repl".to_string()),
                     Ok(result) => {

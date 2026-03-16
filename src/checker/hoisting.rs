@@ -16,7 +16,7 @@ enum FunctionStatement<'a> {
     }
 }
 
-pub fn hoist(
+pub fn hoist_declarations(
     statements: &Vec<Spanned<Statement>>,
     env: &mut TypeEnv,
     path: &str,

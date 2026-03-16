@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs, path::{Path, PathBuf}, sync::{Mutex, OnceLoc
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean::{self, ControlFlow, LetPattern, Value}, typed::TypeInfo}, checker::hoisting::hoist, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, lexer::lex, main_parser::Parser, native::get_native_fun, span::spanned};
+use crate::{ast::{clean::{self, ControlFlow, LetPattern, Value}, typed::TypeInfo}, checker::hoisting::hoist_declarations, env::{DEFAULT_ENVS, Env, TypeEnv, create_default_env}, error::build_report, interpreter::eval_expr, lexer::lex, main_parser::Parser, native::get_native_fun, span::spanned};
 use crate::span::{Span, Spanned};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -239,7 +239,7 @@ pub fn eval_import<R: ModuleRegistry>(path: &str, registry: &R) -> Result<
         },
     };
     
-    let (lowered_statements, var_exports, type_exports) = hoist(&statements, &mut module_type_env, path.to_str().unwrap())?;
+    let (lowered_statements, var_exports, type_exports) = hoist_declarations(&statements, &mut module_type_env, path.to_str().unwrap())?;
     
     match run(&lowered_statements, &mut module_env, path.to_path_buf(), registry) {
         Ok(_) => (),

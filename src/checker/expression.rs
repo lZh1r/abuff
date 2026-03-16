@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist, mutability::check_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::check_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
 
 pub fn substitute_generic_params(
     type_info: &Spanned<TypeInfo>,
@@ -767,7 +767,7 @@ fn process_block(
 ) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
     {
         let mut inner_scope = env.enter_scope();
-        let (lowered_statements, _, _) = hoist(statements, &mut inner_scope, "")?;
+        let (lowered_statements, _, _) = hoist_declarations(statements, &mut inner_scope, "")?;
         if let Some(e) = final_expr {
             let final_result = process_expression(e, &mut inner_scope)?;
             Ok((
