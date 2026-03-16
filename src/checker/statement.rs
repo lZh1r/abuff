@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, typed::{Expr, LetPattern, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, mutability::check_mutability}, env::TypeEnv, module::{GlobalRegistry, eval_import}, native::{get_native_fun, get_native_type}, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, typed::{Expr, LetPattern, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, mutability::check_variable_mutability}, env::TypeEnv, module::{GlobalRegistry, eval_import}, native::{get_native_fun, get_native_type}, span::{Span, Spanned, spanned}};
 
 pub struct LoweringResult {
     pub name: Option<SmolStr>,
@@ -84,7 +84,7 @@ fn process_let_statement(
         expr_result.1.clone()
     };
     
-    let mut_result = check_mutability(&expr_result.0, env);
+    let mut_result = check_variable_mutability(&expr_result.0, env);
     match mut_result {
         Ok(is_mut) => {
             if is_mut != *mutable {

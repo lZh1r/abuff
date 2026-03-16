@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::check_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::check_variable_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
 
 pub fn substitute_generic_params(
     type_info: &Spanned<TypeInfo>,
@@ -1089,7 +1089,7 @@ fn process_get(
             method_info.type_info
         };
         if method_info.is_mutating {
-            if check_mutability(&target_result.0, env)? != method_info.is_mutating {
+            if check_variable_mutability(&target_result.0, env)? != method_info.is_mutating {
                 return Err(spanned(
                     "Cannot use a mutating method on an immutable value".into(),
                     method_info.lowered.span
@@ -1183,7 +1183,7 @@ fn process_assign(
         ))
     }
 
-    let is_mutable = check_mutability(&target_result.0, env)?;
+    let is_mutable = check_variable_mutability(&target_result.0, env)?;
 
     if !is_mutable {
         return Err(spanned(
