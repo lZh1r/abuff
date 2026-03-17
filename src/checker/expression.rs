@@ -135,10 +135,12 @@ fn compare_types(
     instantiated: &Spanned<TypeInfo>,
 ) -> HashMap<SmolStr, Spanned<TypeInfo>> {
     let mut map = HashMap::new();
-
+    
     // The first argument must be a TypeClosure; otherwise return an empty map.
     let closure_params = if let TypeKind::TypeClosure { params, .. } = generic_type.inner.kind() {
         params.clone()
+    } else if let TypeKind::Enum { generic_params, .. } = generic_type.inner.kind() {
+        generic_params.clone()
     } else {
         return map;
     };
@@ -155,12 +157,10 @@ fn compare_types(
                 if closure_params.contains(name) {
                     map.insert(name.clone(), instance.clone());
                 }
-            }
-
+            },
             (TypeKind::Array(gen_inner), TypeKind::Array(inst_inner)) => {
                 walk(gen_inner, inst_inner, map, closure_params);
-            }
-
+            },
             (
                 TypeKind::Fun {
                     params: gen_params,
@@ -179,16 +179,14 @@ fn compare_types(
                     walk(&generic_param.type_info, &instance_param.type_info, map, closure_params);
                 }
                 walk(gen_ret, inst_ret, map, closure_params);
-            }
-
+            },
             (TypeKind::Record(gen_fields), TypeKind::Record(inst_fields)) => {
                 for (field_name, gen_field_ty) in gen_fields.iter() {
                     if let Some(inst_field_ty) = inst_fields.get(field_name) {
                         walk(gen_field_ty, inst_field_ty, map, closure_params);
                     }
                 }
-            }
-
+            },
             (
                 TypeKind::EnumInstance {
                     generic_args: gen_args,
@@ -202,8 +200,7 @@ fn compare_types(
                 for (gen_arg, inst_arg) in gen_args.iter().zip(inst_args.iter()) {
                     walk(gen_arg, inst_arg, map, closure_params);
                 }
-            }
-
+            },
             (
                 TypeKind::EnumVariant {
                     generic_args: gen_args,
@@ -217,13 +214,28 @@ fn compare_types(
                 for (gen_arg, inst_arg) in gen_args.iter().zip(inst_args.iter()) {
                     walk(gen_arg, inst_arg, map, closure_params);
                 }
-            }
-
+            },
             (TypeKind::TypeClosure { body, params: _ }, _) => {
                 // Recurse into the closure body.
                 walk(body, instance, map, closure_params);
-            }
-
+            },
+            (
+                TypeKind::Enum {
+                    generic_params: gen_params,
+                    ..
+                },
+                TypeKind::EnumInstance {
+                    generic_args: inst_args,
+                    ..
+                },
+            ) => {
+                println!("hello");
+                for (name, inst_arg) in gen_params.iter().zip(inst_args.iter()) {
+                    if closure_params.contains(&name.inner) {
+                        map.insert(name.inner.clone(), inst_arg.clone());
+                    }
+                }
+            },
             _ => {}
         }
     }
@@ -231,6 +243,8 @@ fn compare_types(
     // Start walking from the closure body against the instantiated type.
     if let TypeKind::TypeClosure { body, .. } = generic_type.inner.kind() {
         walk(body, instantiated, &mut map, &closure_params.into_iter().map(|spanned| spanned.inner).collect());
+    } else if let TypeKind::Enum { .. } = generic_type.inner.kind() {
+        walk(generic_type, instantiated, &mut map, &closure_params.into_iter().map(|spanned| spanned.inner).collect());
     }
 
     map
@@ -1116,6 +1130,7 @@ fn process_get(
         } else {
             method_info.type_info
         };
+        
         if method_info.is_mutating {
             if check_variable_mutability(&target_result.0, env)? != method_info.is_mutating {
                 return Err(spanned(

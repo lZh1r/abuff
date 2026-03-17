@@ -309,6 +309,24 @@ fn handle_fn(
                                     ti.span
                                 ))
                             },
+                            TypeKind::Enum { name, variants, generic_params: params  } => {
+                                Some(spanned(
+                                    TypeInfo::new_with_id(
+                                        TypeKind::Enum {
+                                            variants: variants.clone(),
+                                            name: name.clone(),
+                                            generic_params: params
+                                                .iter()
+                                                .cloned()
+                                                .filter(
+                                                    |elem| !generic_params.contains(elem)
+                                                ).collect(),
+                                        },
+                                        ti.inner.id()
+                                    ),
+                                    ti.span
+                                ))
+                            },
                             _ => None
                         }
                     };

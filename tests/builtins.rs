@@ -50,6 +50,26 @@ fn test_some() {
 }
 
 #[test]
+fn option_unwrap() {
+    let src = r#"
+        let a: Int = Some(1).unwrap();
+        a
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
 fn test_option() {
     let src = r#"
         let some = Some(1);
