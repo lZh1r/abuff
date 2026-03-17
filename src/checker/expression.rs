@@ -229,7 +229,6 @@ fn compare_types(
                     ..
                 },
             ) => {
-                println!("hello");
                 for (name, inst_arg) in gen_params.iter().zip(inst_args.iter()) {
                     if closure_params.contains(&name.inner) {
                         map.insert(name.inner.clone(), inst_arg.clone());
@@ -504,19 +503,93 @@ fn process_binary(
     let left_result = process_expression(left, env)?;
     let right_result = process_expression(right, env)?;
     match operation {
+        Operation::Multiply => {
+            match (left_result.1.inner.kind(), right_result.1.inner.kind()) {
+                (TypeKind::Array(_), TypeKind::Int) => {
+                    Ok((
+                        spanned(
+                            clean::Expr::Binary { 
+                                left: Box::new(left_result.0),
+                                operation: operation.clone(),
+                                right: Box::new(right_result.0)
+                            },
+                            expr.span
+                        ),
+                        spanned(
+                            left_result.1.inner,
+                            expr.span
+                        )
+                    ))
+                },
+                (TypeKind::Int, TypeKind::Array(_)) => {
+                    Ok((
+                        spanned(
+                            clean::Expr::Binary { 
+                                left: Box::new(left_result.0),
+                                operation: operation.clone(),
+                                right: Box::new(right_result.0)
+                            },
+                            expr.span
+                        ),
+                        spanned(
+                            right_result.1.inner,
+                            expr.span
+                        )
+                    ))
+                },
+                (TypeKind::String, TypeKind::Int) | (TypeKind::Int, TypeKind::String) => {
+                    Ok((
+                        spanned(
+                            clean::Expr::Binary { 
+                                left: Box::new(left_result.0),
+                                operation: operation.clone(),
+                                right: Box::new(right_result.0)
+                            },
+                            expr.span
+                        ),
+                        spanned(
+                            TypeInfo::string(),
+                            expr.span
+                        )
+                    ))
+                },
+                (TypeKind::Int, TypeKind::Int)
+                | (TypeKind::Float, TypeKind::Float) => {
+                    Ok((
+                        spanned(
+                            clean::Expr::Binary { 
+                                left: Box::new(left_result.0),
+                                operation: operation.clone(),
+                                right: Box::new(right_result.0)
+                            },
+                            expr.span
+                        ),
+                        spanned(
+                            left_result.1.inner,
+                            expr.span
+                        )
+                    ))
+                },
+                _ => {
+                    return Err(spanned(
+                        format_smolstr!(
+                            "Cannot apply {:?} to {}", 
+                            operation, 
+                            left_result.1.inner
+                        ), 
+                        left.span
+                    ))
+                }
+            }
+        },
         | Operation::Subtract 
-        | Operation::Multiply
         | Operation::Divide
         | Operation::Modulo  => {
             match left_result.1.inner.kind() {
                 TypeKind::Any 
                 | TypeKind::Float 
                 | TypeKind::Int => {
-                    if left_result.1.inner != right_result.1.inner 
-                    && !match right_result.1.inner.kind() {
-                        TypeKind::Array(_) => true,
-                        _ => false
-                    } {
+                    if left_result.1.inner != right_result.1.inner {
                         return Err(spanned(
                             format_smolstr!(
                                 "Type Mismatch: Expected {}, got {}",
@@ -536,33 +609,7 @@ fn process_binary(
                             expr.span
                         ),
                         spanned(
-                            left_result.1.inner,
-                            expr.span
-                        )
-                    ))
-                },
-                TypeKind::Array(_) => {
-                    if right_result.1.inner.kind() != &TypeKind::Int {
-                        return Err(spanned(
-                            format_smolstr!(
-                                "Cannot apply {:?} to {}", 
-                                operation, 
-                                left_result.1.inner
-                            ), 
-                            left.span
-                        ))
-                    }
-                    Ok((
-                        spanned(
-                            clean::Expr::Binary { 
-                                left: Box::new(left_result.0),
-                                operation: operation.clone(),
-                                right: Box::new(right_result.0)
-                            },
-                            expr.span
-                        ),
-                        spanned(
-                            left_result.1.inner,
+                            right_result.1.inner,
                             expr.span
                         )
                     ))
@@ -582,7 +629,7 @@ fn process_binary(
                     if left_result.1.inner != right_result.1.inner {
                         return Err(spanned(
                             format_smolstr!(
-                                "Type Mismatch: Expeccted {}, got {}",
+                                "Type Mismatch: Expected {}, got {}",
                                 left_result.1.inner, 
                                 right_result.1.inner
                             ), 
