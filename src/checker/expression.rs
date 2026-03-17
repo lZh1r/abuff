@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, FunctionParam, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::check_variable_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, FunctionParam, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::{check_param_mutability, check_variable_mutability}, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
 
 pub fn substitute_generic_params(
     type_info: &Spanned<TypeInfo>,
@@ -938,8 +938,6 @@ fn process_call(
                         generic_arg_map.insert(p_name, ti);
                     }
                 }
-            } else if generic_params.len() == 0 {
-        
             } else {
                 if generic_params.len() != generic_args.len() {
                     return Err(spanned(
@@ -988,8 +986,11 @@ fn process_call(
                         expr.span
                     ))
                 }
-                for (i, (param, arg_type))
-                in substituted_params.iter().zip(arg_types.iter()).enumerate() {
+                for (i, ((param, arg_type), arg_expr))
+                in substituted_params.iter()
+                    .zip(arg_types.iter())
+                    .zip(lowered_args.iter())
+                    .enumerate() {
                     match param.is_variadic {
                         true => {
                             if i != substituted_params.len() - 1 {
@@ -1011,8 +1012,11 @@ fn process_call(
                             lowered_args[i].span
                         ))
                     }
+                    
+                    check_param_mutability(param, arg_expr, env)?;
                 }
                 let spread_args = &args[substituted_params.len()-1..];
+                let lowered_spread_args = &lowered_args[substituted_params.len()-1..];
                 let temp = substituted_params.last().unwrap().type_info.clone();
                 let spread_type = match temp.inner.kind() {
                     TypeKind::Array(inner_type) => inner_type.clone(),
@@ -1021,8 +1025,12 @@ fn process_call(
                         temp.span
                     ))
                 };
-                for (arg, arg_type) 
-                in spread_args.iter().zip(arg_types.iter().skip(substituted_params.len()-1)) {
+                
+                let variadic_param = substituted_params.last().unwrap();
+                
+                for ((arg, arg_type), lowered_arg) in spread_args.iter()
+                    .zip(arg_types.iter().skip(substituted_params.len()-1))
+                    .zip(lowered_spread_args) {
                     if arg_type.inner != spread_type.inner {
                         return Err(spanned(
                             format_smolstr!(
@@ -1033,6 +1041,8 @@ fn process_call(
                             arg.span
                         ))
                     }
+                    
+                    check_param_mutability(variadic_param, lowered_arg, env)?;
                 }
             } else {
                 if substituted_params.len() != args.len() {
@@ -1044,7 +1054,11 @@ fn process_call(
                         expr.span
                     ))
                 }
-                for (param, arg_type) in substituted_params.iter().zip(arg_types.iter()) {
+                for ((param, arg_type), arg_expr)
+                in substituted_params.iter()
+                    .zip(arg_types.iter())
+                    .zip(lowered_args.iter()) 
+                {
                     if arg_type.inner != param.type_info.inner {
                         return Err(spanned(
                             format_smolstr!(
@@ -1055,6 +1069,8 @@ fn process_call(
                             expr.span
                         ))
                     }
+                    
+                    check_param_mutability(param, arg_expr, env)?;
                 }
             }
 

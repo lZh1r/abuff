@@ -237,3 +237,96 @@ fn tuple_mut() {
         _ => panic!()
     };
 }
+
+#[test]
+fn mut_fun_param_fail() {
+    let src = r#"
+        fun f(mut a: Int[]) {
+            a.push(4)
+        }
+        
+        let a = [1,2,3];
+        f(a)
+        
+        print(a)
+    "#;
+    
+    match run_typed(src.to_string()) {
+        Err(e) => {
+            if !(e.inner == "Cannot pass an immutable reference as a mutable argument") {
+                panic!()
+            }
+        },
+        _ => panic!()
+    };
+}
+
+#[test]
+fn mut_fun_param() {
+    let src = r#"
+        fun f(mut a: Int[]) {
+            a.push(4)
+        }
+        
+        let mut a = [1,2,3];
+        f(a)
+        
+        a[3]
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 4),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn mut_variadic_fun_param() {
+    let src = r#"
+        fun f(mut ...a: Int[][]) {
+            a[0].push(4)
+        }
+        
+        let mut a = [1,2,3];
+        let mut b = [1,2,3];
+        f(a, b)
+        
+        a[3] + b.len()
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 7),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn mut_variadic_fun_param_fail() {
+    let src = r#"
+        fun f(mut ...a: Int[][]) {
+            a[0].push(4)
+        }
+        
+        let mut a = [1,2,3];
+        f(a, [1,2,3])
+    "#;
+    
+    match run_typed(src.to_string()) {
+        Err(e) => {
+            if !(e.inner == "Cannot pass a literal expression as a mutable argument") {
+                panic!()
+            }
+        },
+        _ => panic!()
+    };
+}
