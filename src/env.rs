@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, Mutex, OnceLock, RwLock}, time::Instant};
+use std::{collections::{HashMap, HashSet}, env::args, fs, sync::{Arc, Mutex, OnceLock, RwLock}, time::Instant};
 
 use smol_str::{SmolStr, StrExt, ToSmolStr, format_smolstr};
 
@@ -927,6 +927,24 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                 span: Span::from(0..0)
             })
         }
+    });
+    
+    register_fun(BUILTINS_PATH, "args", |_| {
+        let args_array: Vec<Value> = args()
+            .map(|a| Value::String(a.to_smolstr()))
+            .collect();
+        
+        Ok(
+            ControlFlow::Value(
+                Value::Array(
+                    Arc::new(
+                        RwLock::new(
+                            (args_array[1..]).to_vec()
+                        )
+                    )
+                )
+            )
+        )
     });
     
     let registry = GlobalRegistry;

@@ -262,3 +262,7 @@ native type Float impl {
     native fun floor(): Float;
     native fun ceil(): Float;
 };
+
+/// Returns a list of arguments provided to this program
+/// The first argument is always a path to the file
+export native fun args(): String[];
