@@ -309,7 +309,7 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         for a in args {
             print!("{a}");
             i += 1;
-            if i < length {print!(", ")}
+            if i < length {print!(" ")}
         }
         println!();
         Ok(ControlFlow::Value(Value::Void))

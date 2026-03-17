@@ -104,7 +104,7 @@ impl fmt::Display for Value {
             Value::U128(i) => write!(f, "{i}"),
             Value::Float(fl) => write!(f, "{fl}"),
             Value::Bool(b) => write!(f, "{b}"),
-            Value::String(s) => write!(f, "\"{s}\""),
+            Value::String(s) => write!(f, "{s}"),
             Value::Char(c) => write!(f, "{c}"),
             Value::Record(hash_map) => {
                 let hash_map = hash_map.read().unwrap();
