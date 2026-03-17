@@ -1,6 +1,6 @@
 export type G = String impl {
     fun hello() {
-        print(self)
+        println(self)
     }
     static fun new(val: String): G {
         val

@@ -154,7 +154,7 @@ fn test_aliased_imports() {
 #[test]
 fn test_builtins_imports() {
     let src = r#"
-        print(1);
+        println(1);
         7
     "#;
     

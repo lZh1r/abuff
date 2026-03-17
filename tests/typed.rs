@@ -288,7 +288,7 @@ fn simple_method() {
             a: Int
         } impl {
             fun hello(val: Int) {
-                print("hello", val, self.a)
+                println("hello", val, self.a)
             }
         };
         let a: A = {a: 1};
@@ -314,7 +314,7 @@ fn self_referencial_method() {
             a: Int
         } impl {
             fun hello(val: Int) {
-                print("hello", val, self.a)
+                println("hello", val, self.a)
             }
             fun greet() {
                 self.hello(1000)
@@ -343,7 +343,7 @@ fn generic_type_method() {
             a: T
         } impl {
             fun hello(val: Int) {
-                print("hello", val, self.a)
+                println("hello", val, self.a)
             }
         };
         let a: A<Int> = {a: 1};
@@ -369,7 +369,7 @@ fn generic_type_generic_method() {
             a: T
         } impl {
             fun hello<T>(val: T) {
-                print("hello", val, self.a)
+                println("hello", val, self.a)
             }
         };
         let a: A<Int> = {a: 1};
@@ -447,7 +447,7 @@ fn method_inheritance_block() {
     let src = r#"
         type A = Int impl {
             fun hello() {
-                print("hello")
+                println("hello")
             }
         };
         let a: A = 1;
@@ -469,7 +469,7 @@ fn method_inheritance() {
     let src = r#"
         type A = Int[] impl {
             fun hello() {
-                print("hello")
+                println("hello")
             }
         };
         type B = A;

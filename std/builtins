@@ -1,8 +1,8 @@
 /// Prints provided arguments to the standard output.
-/// If more than 1 argument is provided, they will be separated by commas:
+/// If more than 1 argument is provided, they will be separated by spaces:
 /// ```
-/// print(1,2,3);
-/// // output: 1, 2, 3
+/// println(1,2,3);
+/// // output: 1 2 3
 /// ```
 ///
 /// Any value can be printed using this function:
@@ -10,23 +10,27 @@
 /// let a = {
 ///     b: 2
 /// };
-/// print(a);
+/// println(a);
 /// // output: { b: 2 }
 /// ```
 /// 
 /// In case of all functions and closures a string "closure" will be printed:
 /// ```
 /// fun f() {1;};
-/// print(f);
+/// println(f);
 /// // output: closure
 /// ```
 ///
 /// Printing native functions will give more information
 /// in form of this function's name and its module path:
 /// ```
-/// print(print);
+/// println(println);
 /// // output: native function "print" from "std/builtins"
 /// ```
+export native fun println(...args: Any[]);
+
+/// Prints provided arguments to the standard output.
+/// Works the same way as `println` but does not insert a new line at the end
 export native fun print(...args: Any[]);
 
 /// Returns program's uptime in nanoseconds.

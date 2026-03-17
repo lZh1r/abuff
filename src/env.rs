@@ -307,8 +307,45 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         let mut i = 0;
         let length = args.len();
         for a in args {
-            print!("{a}");
-            i += 1;
+            match a {
+                Value::String(s) => {
+                    if s.len() > 0 {
+                        print!("{a}");
+                        i += 1;
+                    } else {
+                        continue;
+                    }
+                },
+                _ => {
+                    print!("{a}");
+                    i += 1;
+                }
+            }
+            
+            if i < length {print!(" ")}
+        }
+        Ok(ControlFlow::Value(Value::Void))
+    });
+    
+    register_fun(BUILTINS_PATH, "println", |(args, _)| {
+        let mut i = 0;
+        let length = args.len();
+        for a in args {
+            match a {
+                Value::String(s) => {
+                    if s.len() > 0 {
+                        print!("{a}");
+                        i += 1;
+                    } else {
+                        continue;
+                    }
+                },
+                _ => {
+                    print!("{a}");
+                    i += 1;
+                }
+            }
+            
             if i < length {print!(" ")}
         }
         println!();
