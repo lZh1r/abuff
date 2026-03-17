@@ -403,7 +403,7 @@ pub fn match_expr(
         is_default: bool,
         all_branches_handled: &mut bool,
     ) -> Result<(), Spanned<SmolStr>> {
-        if expected_type.kind() == &TypeKind::Never {
+        if expected_type.kind() == &TypeKind::Never && !branch_type.inner.is_return() {
             *expected_type = branch_type.inner.clone();
         } else if expected_type.kind() != branch_type.inner.kind() && !branch_type.inner.is_return() {
             return Err(spanned(

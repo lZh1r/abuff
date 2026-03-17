@@ -293,3 +293,25 @@ fn match_dead_branches() {
         _ => panic!()
     };
 }
+
+#[test]
+fn type_inference() {
+    let src = r#"
+        let a = 1;
+        match a {
+            2 -> panic "",
+            1 -> 1,
+            _ -> return ""
+        }
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 1),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
