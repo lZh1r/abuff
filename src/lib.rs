@@ -10,6 +10,7 @@ pub mod checker {
     pub mod expression;
     pub mod hoisting;
     pub mod pattern_matching;
+    pub mod function;
 }
 pub mod interpreter;
 pub mod env;

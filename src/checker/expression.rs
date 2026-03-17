@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::check_variable_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, FunctionParam, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::check_variable_mutability, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
 
 pub fn substitute_generic_params(
     type_info: &Spanned<TypeInfo>,
@@ -17,9 +17,11 @@ pub fn substitute_generic_params(
             }
         },
         TypeKind::Fun { params, return_type, generic_params } => {
-            let new_params = params.iter().map(|(n, ti)| {
-                (n.clone(), substitute_generic_params(ti, generic_arg_map))
+            let new_params = params.iter().map(|p| FunctionParam {
+                type_info: substitute_generic_params(&p.type_info, generic_arg_map),
+                ..p.clone()
             }).collect();
+            
             let new_return_type = Box::new(substitute_generic_params(return_type, generic_arg_map));
             spanned(
                 TypeInfo::new_with_id(TypeKind::Fun {
@@ -91,8 +93,8 @@ fn collect_generic_params(
                 TypeKind::Fun { params: gen_params, return_type: gen_ret, ..},
                 TypeKind::Fun { params: con_params, return_type: con_ret, ..},
             ) => {
-                for ((extra, gen_p), (_, con_p)) in gen_params.iter().zip(con_params.iter()) {
-                    walk((gen_p, extra.0), con_p, out);
+                for (gen_p, con_p) in gen_params.iter().zip(con_params.iter()) {
+                    walk((&gen_p.type_info, gen_p.is_variadic), &con_p.type_info, out);
                 }
                 walk((gen_ret, false), con_ret, out);
             },
@@ -171,10 +173,10 @@ fn compare_types(
                     ..
                 },
             ) => {
-                for ((_, gen_p_ty), (_, inst_p_ty)) in
+                for (generic_param, instance_param) in
                     gen_params.iter().zip(inst_params.iter())
                 {
-                    walk(gen_p_ty, inst_p_ty, map, closure_params);
+                    walk(&generic_param.type_info, &instance_param.type_info, map, closure_params);
                 }
                 walk(gen_ret, inst_ret, map, closure_params);
             }
@@ -793,7 +795,7 @@ fn process_block(
 }
 
 fn process_fn(
-    params: &Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+    params: &Vec<FunctionParam>,
     body: &Box<Spanned<Expr>>,
     return_type: &Option<Spanned<TypeInfo>>,
     generic_params: &Vec<Spanned<SmolStr>>,
@@ -806,11 +808,16 @@ fn process_fn(
     if generic_params.len() == 0 {
         let mut flat_params = Vec::new();
         let mut lower_params = Vec::new();
-        for (n, p_type) in params {
-            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-            inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
-            flat_params.push((n.clone(), flattened));
-            lower_params.push(n.clone());
+        for param in params {
+            let flattened_param_type = flatten_type(&param.type_info, &mut inner_scope)?.into_owned();
+            inner_scope.add_var_type(param.name.clone(), flattened_param_type.clone(), false);
+            flat_params.push(
+                FunctionParam {
+                    type_info: flattened_param_type,
+                    ..param.clone()
+                }
+            );
+            lower_params.push((param.is_variadic, param.name.clone()));
         }
         let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
         inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone(), false);
@@ -855,11 +862,16 @@ fn process_fn(
 
         let mut flat_params = Vec::new();
         let mut lower_params = Vec::new();
-        for (n, p_type) in params {
-            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-            inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
-            flat_params.push((n.clone(), flattened));
-            lower_params.push(n.clone());
+        for param in params {
+            let flattened_param_type = flatten_type(&param.type_info, &mut inner_scope)?.into_owned();
+            inner_scope.add_var_type(param.name.clone(), flattened_param_type.clone(), false);
+            flat_params.push(
+                FunctionParam {
+                    type_info: flattened_param_type,
+                    ..param.clone()
+                }
+            );
+            lower_params.push((param.is_variadic, param.name.clone()));
         }
 
         let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
@@ -920,7 +932,7 @@ fn process_call(
             && args.len() >= generic_params.len() {
                 for (param, arg_type) in params.iter().zip(arg_types.iter()) {
                     for (p_name, ti) in collect_generic_params(
-                        (&param.1, param.0.0),
+                        (&param.type_info, param.is_variadic),
                         arg_type
                     ) {
                         generic_arg_map.insert(p_name, ti);
@@ -962,7 +974,7 @@ fn process_call(
             };
 
             let is_variadic = if let Some(last) = substituted_params.last() {
-                last.0.0
+                last.is_variadic
             } else {false};
 
             if is_variadic {
@@ -976,24 +988,24 @@ fn process_call(
                         expr.span
                     ))
                 }
-                for (i, (((v, _), p_type), arg_type))
+                for (i, (param, arg_type))
                 in substituted_params.iter().zip(arg_types.iter()).enumerate() {
-                    match v {
+                    match param.is_variadic {
                         true => {
                             if i != substituted_params.len() - 1 {
                                 return Err(spanned(
                                     "Cannot have multiple spread params in a function".into(),
-                                    p_type.span
+                                    param.type_info.span
                                 ))
                             } else {break}
                         },
                         false => (),
                     }
-                    if arg_type.inner != p_type.inner {
+                    if arg_type.inner != param.type_info.inner {
                         return Err(spanned(
                             format_smolstr!(
                                 "Argument type mismatch: expected {}, got {}",
-                                p_type.inner,
+                                param.type_info.inner,
                                 arg_type.inner
                             ),
                             lowered_args[i].span
@@ -1001,7 +1013,7 @@ fn process_call(
                     }
                 }
                 let spread_args = &args[substituted_params.len()-1..];
-                let temp = substituted_params.last().unwrap().1.clone();
+                let temp = substituted_params.last().unwrap().type_info.clone();
                 let spread_type = match temp.inner.kind() {
                     TypeKind::Array(inner_type) => inner_type.clone(),
                     o => return Err(spanned(
@@ -1032,12 +1044,12 @@ fn process_call(
                         expr.span
                     ))
                 }
-                for ((_, p_type), arg_type) in substituted_params.iter().zip(arg_types.iter()) {
-                    if arg_type.inner != p_type.inner {
+                for (param, arg_type) in substituted_params.iter().zip(arg_types.iter()) {
+                    if arg_type.inner != param.type_info.inner {
                         return Err(spanned(
                             format_smolstr!(
                                 "Argument type mismatch: expected {}, got {}",
-                                p_type.inner, 
+                                param.type_info.inner, 
                                 arg_type.inner
                             ),
                             expr.span

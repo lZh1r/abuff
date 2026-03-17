@@ -53,11 +53,11 @@ impl Display for TypeKind {
                 }
 
                 // function parameters
-                for (i, ((_, name), typ)) in params.iter().enumerate() {
+                for (i, param) in params.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}: {}", name, typ)?;
+                    write!(f, "{}: {}", param.name, param.type_info)?;
                 }
 
                 // return type
@@ -180,7 +180,7 @@ pub enum Expr {
     Binary {left: Box<Spanned<Expr>>, operation: Operation, right: Box<Spanned<Expr>>},
     Block(Vec<Spanned<Statement>>, Option<Box<Spanned<Expr>>>),
     Fun {
-        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+        params: Vec<FunctionParam>,
         body: Box<Spanned<Expr>>,
         return_type: Option<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
@@ -226,7 +226,7 @@ pub enum Method {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NormalMethod {
     pub name: SmolStr,
-    pub params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+    pub params: Vec<FunctionParam>,
     pub body: Spanned<Expr>,
     pub return_type: Option<Spanned<TypeInfo>>,
     pub generic_params: Vec<Spanned<SmolStr>>
@@ -235,7 +235,7 @@ pub struct NormalMethod {
 #[derive(Debug, Clone, PartialEq)]
 pub struct NativeMethod {
     pub name: SmolStr,
-    pub params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+    pub params: Vec<FunctionParam>,
     pub return_type: Option<Spanned<TypeInfo>>,
     pub generic_params: Vec<Spanned<SmolStr>>
 }
@@ -245,6 +245,14 @@ pub enum LetPattern {
     Name(SmolStr),
     Tuple(Vec<Spanned<LetPattern>>),
     Record(Vec<(Spanned<SmolStr>, Option<Spanned<SmolStr>>)>)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionParam {
+    pub name: SmolStr,
+    pub type_info: Spanned<TypeInfo>,
+    pub is_variadic: bool,
+    pub is_mutable: bool
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -265,14 +273,14 @@ pub enum Statement {
     Expr(Spanned<Expr>),
     Fun {
         name: SmolStr,
-        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+        params: Vec<FunctionParam>,
         body: Spanned<Expr>,
         return_type: Option<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
     },
     NativeFun {
         name: SmolStr,
-        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+        params: Vec<FunctionParam>,
         return_type: Option<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
     },
@@ -375,7 +383,7 @@ pub enum TypeKind {
     Unknown,
     Any,
     Fun {
-        params: Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+        params: Vec<FunctionParam>,
         return_type: Box<Spanned<TypeInfo>>,
         generic_params: Vec<Spanned<SmolStr>>
     },
@@ -438,8 +446,10 @@ impl PartialEq for TypeKind {
                     }
                 }
 
-                for ((name_a, type_a), (name_b, type_b)) in args_a.iter().zip(args_b.iter()) {
-                    if name_a != name_b || type_a.inner != type_b.inner {
+                for (param_a, param_b) in args_a.iter().zip(args_b.iter()) {
+                    if param_a.name != param_b.name 
+                    || param_a.type_info.inner != param_b.type_info.inner 
+                    || param_a.is_mutable != param_b.is_mutable {
                         return false;
                     }
                 }

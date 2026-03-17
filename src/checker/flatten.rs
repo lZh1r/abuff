@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::typed::{TypeInfo, TypeKind}, env::TypeEnv, span::{Spanned, spanned}};
+use crate::{ast::typed::{FunctionParam, TypeInfo, TypeKind}, checker::function::get_flat_params, env::TypeEnv, span::{Spanned, spanned}};
 
 //replaces type aliases with their underlying type, processes type closures
 pub fn flatten_type<'a>(
@@ -48,10 +48,7 @@ pub fn flatten_type<'a>(
                     for (param, arg) in generic_params.iter().zip(generic_args.iter()) {
                         new_scope.add_custom_type(param.inner.clone(), arg.clone());
                     }
-                    let mut new_params = Vec::new();
-                    for (n, ti) in params {
-                        new_params.push((n.clone(), flatten_type(ti, &mut new_scope)?.into_owned()));
-                    }
+                    let new_params = get_flat_params(params, &mut new_scope, false)?;
                     Ok(Cow::Owned(spanned(
                         TypeInfo::new_with_id(TypeKind::Fun { 
                             params: new_params, 
@@ -161,7 +158,7 @@ pub fn flatten_type<'a>(
                             return_type,
                             generic_params: _,
                         } => {
-                            params.iter().any(|(_, p)| contains_generic(p, generic_names))
+                            params.iter().any(|p| contains_generic(&p.type_info, generic_names))
                                 || contains_generic(return_type, generic_names)
                         }
                         TypeKind::Record(entries) => {
@@ -199,14 +196,19 @@ pub fn flatten_type<'a>(
 
                 // Flatten parameter types where possible, applying the replacement rule
                 let mut new_params = Vec::new();
-                for (a, ti) in params {
-                    let flattened = if contains_generic(ti, &generic_names) {
-                        ti.clone()
+                for p in params {
+                    let flattened = if contains_generic(&p.type_info, &generic_names) {
+                        p.type_info.clone()
                     } else {
-                        flatten_type(ti, env)?.into_owned()
+                        flatten_type(&p.type_info, env)?.into_owned()
                     };
                     let final_ti = replace_custom_with_generic(flattened, &generic_names);
-                    new_params.push((a.clone(), final_ti));
+                    new_params.push(
+                        FunctionParam {
+                            type_info: final_ti,
+                            ..p.clone()
+                        }
+                    );
                 }
 
                 // Flatten return type where possible, applying the replacement rule
@@ -228,10 +230,7 @@ pub fn flatten_type<'a>(
             }
 
             // No generic parameters: just flatten everything normally
-            let mut new_params = Vec::new();
-            for (a, ti) in params {
-                new_params.push((a.clone(), flatten_type(ti, env)?.into_owned()));
-            }
+            let new_params = get_flat_params(params, env, false)?;
             Ok(Cow::Owned(spanned(
                 TypeInfo::new_with_id(TypeKind::Fun {
                     params: new_params,

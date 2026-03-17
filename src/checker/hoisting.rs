@@ -2,7 +2,7 @@ use std::{collections::{HashMap, HashSet}};
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, typed::{Method, MethodSignature, Statement, TypeInfo, TypeKind}}, checker::{expression::process_expression, flatten::flatten_type, statement::process_statement}, env::{MethodInfo, TypeEnv}, module::{GlobalRegistry, insert_type_module}, native::{get_native_fun}, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, typed::{Method, MethodSignature, Statement, TypeInfo, TypeKind}}, checker::{expression::process_expression, flatten::flatten_type, function::get_flat_params, statement::process_statement}, env::{MethodInfo, TypeEnv}, module::{GlobalRegistry, insert_type_module}, native::get_native_fun, span::{Span, Spanned, spanned}};
 
 #[derive(Debug)]
 enum FunctionStatement<'a> {
@@ -339,13 +339,7 @@ fn handle_fn(
                             
                             if m.generic_params.is_empty() {
                                 // Non‑generic method
-                                let mut flat_params = Vec::new();
-                                for (n, p_type) in &m.params {
-                                    let flattened =
-                                        flatten_type(p_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
-                                    flat_params.push((n.clone(), flattened));
-                                }
+                                let flat_params = get_flat_params(&m.params, &mut inner_scope, true)?;
                                 let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                                 inner_scope.add_var_type("+return".into(), expected_type.clone(), false);
                                 inner_scope.add_var_type(
@@ -385,13 +379,7 @@ fn handle_fn(
                                     );
                                 }
     
-                                let mut flat_params = Vec::new();
-                                for (n, p_type) in &m.params {
-                                    let flattened =
-                                        flatten_type(p_type, &mut inner_scope)?.into_owned();
-                                    inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
-                                    flat_params.push((n.clone(), flattened));
-                                }
+                                let flat_params = get_flat_params(&m.params, &mut inner_scope, true)?;
     
                                 expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
                                 inner_scope.add_var_type("+return".into(), expected_flat.clone(), false);
@@ -441,7 +429,7 @@ fn handle_fn(
                                             params: m
                                                 .params
                                                 .iter()
-                                                .map(|(e, _)| e.clone())
+                                                .map(|p| (p.is_variadic, p.name.clone()))
                                                 .collect(),
                                             body: Box::new(method_result.0),
                                         },
@@ -474,13 +462,9 @@ fn handle_fn(
                             type_template = construct_type_template(&m.generic_params);
                             
                             if m.generic_params.len() == 0 {
-                                let mut flat_params = Vec::new();
-                                for (n, p_type) in &m.params {
-                                    flat_params.push((
-                                        n.clone(),
-                                        flatten_type(&p_type, &mut inner_scope)?.into_owned()
-                                    ))
-                                }
+                                
+                                let flat_params = get_flat_params(&m.params, &mut inner_scope, false)?;
+                                
                                 let r_type = flatten_type(&r_type, &mut inner_scope)?.into_owned();
                                 fun_type = spanned(
                                     TypeInfo::new(TypeKind::Fun {
@@ -502,11 +486,7 @@ fn handle_fn(
                                     );
                                 }
                 
-                                let mut flat_params = Vec::new();
-                                for (n, p_type) in &m.params {
-                                    let flattened = flatten_type(&p_type, &mut inner_scope)?.into_owned();
-                                    flat_params.push((n.clone(), flattened));
-                                }
+                                let flat_params = get_flat_params(&m.params, &mut inner_scope, false)?;
                 
                                 // Flatten return type as well
                                 let r_flat = flatten_type(&r_type, &mut inner_scope)?.into_owned();

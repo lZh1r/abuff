@@ -1,4 +1,4 @@
-use crate::checker::expression::process_expression;
+use crate::{ast::typed::FunctionParam, checker::{expression::process_expression, function::get_flat_params}};
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
@@ -249,7 +249,7 @@ fn process_type_statement(
 fn process_function_statement(
     name: &SmolStr,
     generic_params: &Vec<Spanned<SmolStr>>,
-    params: &Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+    params: &Vec<FunctionParam>,
     return_type: &Option<Spanned<TypeInfo>>,
     body: &Spanned<Expr>,
     statement: &Spanned<Statement>,
@@ -260,10 +260,17 @@ fn process_function_statement(
 
     if generic_params.len() == 0 {
         let mut flat_params = Vec::new();
-        for (n, p_type) in params {
-            let flattened = flatten_type(p_type, &mut inner_scope,)?.into_owned();
-            inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
-            flat_params.push((n.clone(), flattened))
+        for param in params {
+            let flattened_param_type = flatten_type(&param.type_info, &mut inner_scope)?.into_owned();
+            inner_scope.add_var_type(param.name.clone(), flattened_param_type.clone(), param.is_mutable);
+            flat_params.push(
+                FunctionParam {
+                    name: param.name.clone(),
+                    type_info: flattened_param_type,
+                    is_variadic: param.is_variadic,
+                    is_mutable: param.is_mutable,
+                }
+            )
         }
         let expected_type = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
         inner_scope.add_var_type(SmolStr::new("+return"), expected_type.clone(), false);
@@ -314,7 +321,7 @@ fn process_function_statement(
                     ),
                     expr: spanned(
                         clean::Expr::Fun { 
-                            params: params.iter().map(|(need, _)| need.clone()).collect(),
+                            params: params.iter().map(|p| (p.is_variadic, p.name.clone())).collect(),
                             body: Box::new(body_result.0)
                         },
                         body.span
@@ -337,10 +344,17 @@ fn process_function_statement(
 
         // Flatten parameter types with generics in scope and add them to the inner scope
         let mut flat_params = Vec::new();
-        for (n, p_type) in params {
-            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-            inner_scope.add_var_type(n.1.clone(), flattened.clone(), false);
-            flat_params.push((n.clone(), flattened));
+        for param in params {
+            let flattened_param_type = flatten_type(&param.type_info, &mut inner_scope)?.into_owned();
+            inner_scope.add_var_type(param.name.clone(), flattened_param_type.clone(), param.is_mutable);
+            flat_params.push(
+                FunctionParam {
+                    name: param.name.clone(),
+                    type_info: flattened_param_type,
+                    is_variadic: param.is_variadic,
+                    is_mutable: param.is_mutable,
+                }
+            )
         }
 
         let expected_flat = flatten_type(&expected_type, &mut inner_scope)?.into_owned();
@@ -386,7 +400,7 @@ fn process_function_statement(
                     ),
                     expr: spanned(
                         clean::Expr::Fun { 
-                            params: params.iter().map(|(need, _)| need.clone()).collect(),
+                            params: params.iter().map(|p| (p.is_variadic, p.name.clone())).collect(),
                             body: Box::new(body_result.0)
                         },
                         body.span
@@ -401,7 +415,7 @@ fn process_function_statement(
 fn process_native_function_statement(
     name: &SmolStr,
     generic_params: &Vec<Spanned<SmolStr>>,
-    params: &Vec<((bool, SmolStr), Spanned<TypeInfo>)>,
+    params: &Vec<FunctionParam>,
     return_type: &Option<Spanned<TypeInfo>>,
     path: &str,
     statement: &Spanned<Statement>,
@@ -419,10 +433,7 @@ fn process_native_function_statement(
         Span::from(0..0)
     ));
     if generic_params.len() == 0 {
-        let mut flat_params = Vec::new();
-        for (n, p_type) in params {
-            flat_params.push((n.clone(), flatten_type(p_type, &mut inner_scope)?.into_owned()))
-        }
+        let flat_params = get_flat_params(params, &mut inner_scope, false)?;
         let r_type = flatten_type(&r_type, &mut inner_scope)?.into_owned();
         let fun_type = spanned(
             TypeInfo::new(TypeKind::Fun {
@@ -454,11 +465,7 @@ fn process_native_function_statement(
             );
         }
 
-        let mut flat_params = Vec::new();
-        for (n, p_type) in params {
-            let flattened = flatten_type(p_type, &mut inner_scope)?.into_owned();
-            flat_params.push((n.clone(), flattened));
-        }
+        let flat_params = get_flat_params(params, &mut inner_scope, false)?;
 
         let r_flat = flatten_type(&r_type, &mut inner_scope)?.into_owned();
 
@@ -553,7 +560,14 @@ fn process_enum_def(
             );
             variant_funs.insert(v_name.clone(), spanned(
                 TypeInfo::new(TypeKind::Fun { 
-                    params: vec![((false, "+arg".into()), ti.clone())],
+                    params: vec![
+                        FunctionParam {
+                            name: "+arg".into(),
+                            type_info: ti.clone(),
+                            is_variadic: false,
+                            is_mutable: false
+                        }
+                    ],
                     return_type: Box::new(spanned(
                         TypeInfo::new_with_id(TypeKind::EnumVariant { 
                             enum_name: name.clone(),
