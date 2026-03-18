@@ -44,6 +44,25 @@ export native fun print(...args: Any[]);
 /// ```
 export native fun clock(): Int;
 
+/// Flushes the standard output buffer, forcing all pending writes to be displayed immediately.
+/// This function is useful when you need to ensure output is visible right away,
+/// without waiting for the buffer to fill naturally:
+/// ```
+/// print("Loading...");
+/// flush();
+/// // "Loading..." appears immediately
+/// ```
+export native fun flush();
+
+/// Pauses execution of the current thread for the specified number of milliseconds.
+/// ```
+/// println("Waiting...");
+/// sleep(1000);
+/// println("Done!");
+/// // "Waiting..." appears, then "Done!" appears after 1 second
+/// ```
+export native fun sleep(millis: Int);
+
 /// Attempts to read contents of a file into a string.
 export native fun readfile(path: String): Result<String>;
 

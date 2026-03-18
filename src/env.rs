@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, env::args, fs, sync::{Arc, Mutex, OnceLock, RwLock}, time::Instant};
+use std::{collections::{HashMap, HashSet}, env::args, fs, io::{Write, stdout}, sync::{Arc, Mutex, OnceLock, RwLock}, time::Instant};
 
 use smol_str::{SmolStr, StrExt, ToSmolStr, format_smolstr};
 
@@ -345,10 +345,22 @@ pub fn create_default_env() -> (Env, TypeEnv) {
                     i += 1;
                 }
             }
-            
             if i < length {print!(" ")}
         }
         println!();
+        Ok(ControlFlow::Value(Value::Void))
+    });
+    
+    register_fun(BUILTINS_PATH, "flush", |_| {
+        stdout().flush().unwrap();
+        Ok(ControlFlow::Value(Value::Void))
+    });
+    
+    register_fun(BUILTINS_PATH, "sleep", |(args, _)| {
+        let time = args.first().unwrap();
+        if let Value::Int(i) = time {
+            std::thread::sleep(std::time::Duration::from_millis(i.clone() as u64))
+        }
         Ok(ControlFlow::Value(Value::Void))
     });
     
