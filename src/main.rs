@@ -17,7 +17,10 @@ fn main() {
                 },
             };
             let (mut stack, mut type_env) = DEFAULT_ENVS.get_or_init(|| create_default_env()).clone();
-            let parse_result = Parser::new(&lex(src.as_str()).unwrap()).parse();
+            let parse_result = match lex(src.as_str()) {
+                Ok(v) => Parser::new(&v).parse(),
+                Err(e) => return build_report(e, &src, file_path),
+            };
             let parsed = match parse_result {
                 Ok(s) => s,
                 Err(errors) => {
@@ -64,7 +67,11 @@ fn main() {
                 
                 let _ = std::io::stdin().read_line(&mut src);
                 
-                let parse_result = Parser::new(&lex(src.as_str()).unwrap()).parse();
+                let parse_result = match lex(src.as_str()) {
+                    Ok(v) => Parser::new(&v).parse(),
+                    Err(e) => return build_report(e, &src, &"repl".to_string()),
+                };
+                
                 let parsed = match parse_result {
                     Ok(s) => s,
                     Err(errors) => {
