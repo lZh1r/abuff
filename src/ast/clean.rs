@@ -211,9 +211,45 @@ impl Value {
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
             (Value::Array(a), Value::Int(i))
             | (Value::Int(i), Value::Array(a)) => {
-                let arr = a.read().unwrap().clone();
-                let len = arr.len();
-                Ok(Value::Array(Arc::new(RwLock::new(arr.into_iter().cycle().take(len * i.abs() as usize).collect()))))
+                fn deep_clone_value(v: &Value) -> Value {
+                    match v {
+                        Value::Array(a) => {
+                            let vec = a.read().unwrap();
+                            Value::Array(Arc::new(RwLock::new(
+                                vec.iter().map(deep_clone_value).collect()
+                            )))
+                        }
+                        Value::Record(r) => {
+                            let map = r.read().unwrap();
+                            let new_map = map.iter()
+                                .map(|(k, val)| (k.clone(), deep_clone_value(val)))
+                                .collect();
+                            Value::Record(Arc::new(RwLock::new(new_map)))
+                        }
+                        Value::Tuple(t) => {
+                            let vec = t.read().unwrap();
+                            Value::Tuple(Arc::new(RwLock::new(
+                                vec.iter().map(deep_clone_value).collect()
+                            )))
+                        }
+                        other => other.clone(),
+                    }
+                }
+                let base = a.read().unwrap();
+                let len = base.len();
+                
+                if len == 0 {
+                    return Ok(Value::Array(Arc::new(RwLock::new(Vec::new()))));
+                }
+                
+                let n = len * i.abs() as usize;
+                let mut out = Vec::with_capacity(n);
+                
+                for idx in 0..n {
+                    out.push(deep_clone_value(&base[idx % len]));
+                }
+                
+                Ok(Value::Array(Arc::new(RwLock::new(out))))
             },
             (a,b) => Err(format!("Cannot multiply {a:?} by {b:?}").into())
         }
