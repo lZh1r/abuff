@@ -90,7 +90,7 @@ pub enum Token {
     #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
     Float(f64),
     
-    #[regex(r#""([^"\\]|\\["\\nrt])*""#, parse_string)]
+    #[regex(r#""([^"\\]|\\["\\nrt]|\\x[0-9a-fA-F]{2}|\\u\{[0-9a-fA-F]+\})*""#, parse_string)]
     String(SmolStr),
     
     #[regex("'.'", |lex| lex.slice().to_string().as_bytes()[1] as char)]
@@ -213,12 +213,67 @@ pub enum Token {
 
 fn parse_string(lex: &mut logos::Lexer<Token>) -> SmolStr {
     let s = lex.slice();
-    SmolStr::new(s[1..s.len()-1]
-        .replace(r"\\", "\\")
-        .replace(r#"\""#, "\"")
-        .replace(r"\n", "\n")
-        .replace(r"\r", "\r")
-        .replace(r"\t", "\t"))
+    let raw = &s[1..s.len() - 1]; // strip surrounding quotes
+
+    let mut out = String::new();
+    let mut it = raw.chars().peekable();
+
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+
+        // We saw a backslash, so an escape must follow (your regex guarantees this)
+        let esc = it.next().unwrap();
+
+        match esc {
+            '\\' => out.push('\\'),
+            '"' => out.push('"'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+
+            // \xHH where HH are exactly 2 hex digits
+            'x' => {
+                let h1 = it.next().unwrap();
+                let h2 = it.next().unwrap();
+                let hex = format!("{}{}", h1, h2);
+                let byte = u8::from_str_radix(&hex, 16).unwrap();
+                out.push(byte as char); // ASCII control codes like 0x1B will work
+            }
+
+            // \u{...} where ... is 1+ hex digits
+            'u' => {
+                // expect '{'
+                let brace = it.next().unwrap();
+                if brace != '{' {
+                    // unreachable if regex is correct, but keep behavior defined
+                    out.push('u');
+                    continue;
+                }
+
+                let mut hex = String::new();
+                while let Some(&d) = it.peek() {
+                    if d == '}' {
+                        break;
+                    }
+                    hex.push(d);
+                    it.next();
+                }
+
+                // consume '}'
+                it.next();
+
+                let cp = u32::from_str_radix(&hex, 16).unwrap();
+                out.push(char::from_u32(cp).unwrap_or('\u{FFFD}'));
+            }
+            
+            other => out.push(other),
+        }
+    }
+
+    SmolStr::new(out)
 }
 
 pub fn lex(src: &str) -> Result<Vec<Spanned<Token>>, Spanned<SmolStr>> {
