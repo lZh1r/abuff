@@ -235,6 +235,9 @@ native type String impl {
     
     //TODO: allow pattern to be a char.
     native fun contains(pattern: String): Bool;
+    
+    //TODO: allow pattern to be a char.
+    native fun split(separator: String): String[];
 };
 
 /// A charecter type representing a Unicode scalar value

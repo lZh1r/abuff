@@ -562,3 +562,24 @@ fn int_max_min() {
         _ => panic!()
     };
 }
+
+#[test]
+fn string_split() {
+    let src = r#"
+        let string = "Hello";
+        let a = string.split("ll");
+        a[0]
+    "#;
+    
+    let res = run_typed(src.to_string());
+    
+    match res.unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::String(s) => assert_eq!(s, "He"),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

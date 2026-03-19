@@ -671,6 +671,51 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         }
     });
     
+    register_fun(BUILTINS_PATH, "split", |(args, this)| {
+        if args.len() != 1 {
+            return Err(Spanned {
+                inner: format!("Expected 1 argument, got {}", args.len()).into(),
+                span: Span::from(0..0)
+            })
+        }
+        let this = this.unwrap();
+        match *this {
+            Value::String(string) => {
+                match args.first().unwrap() {
+                    Value::Char(c) => {
+                        Ok(ControlFlow::Value(
+                            Value::Array(
+                                Arc::new(RwLock::new(
+                                    string
+                                        .split(*c)
+                                        .map(|s| Value::String(s.to_smolstr()))
+                                        .collect()
+                                ))
+                            )
+                        ))
+                    },
+                    Value::String(s) => {
+                        Ok(ControlFlow::Value(
+                            Value::Array(
+                                Arc::new(RwLock::new(
+                                    string
+                                        .split(s.as_str())
+                                        .map(|s| Value::String(s.to_smolstr()))
+                                        .collect()
+                                ))
+                            )
+                        ))
+                    },
+                    _ => panic!()
+                }
+            },
+            _ => Err(Spanned {
+                inner: format_smolstr!("{this} is not a string"),
+                span: Span::from(0..0)
+            })
+        }
+    });
+    
     register_fun(BUILTINS_PATH, "startsWith", |(args, this)| {
         if args.len() != 1 {
             return Err(Spanned {
