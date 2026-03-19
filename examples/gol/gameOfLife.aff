@@ -1,0 +1,126 @@
+fun getLength(split: String[]): Int {
+    let mut length = 0;
+    let mut i = 0;
+    while (split.get(i).isSome()) {
+        length = length.max(split[i].len());
+        i += 1;
+    }
+
+    length
+}
+
+fun populateWorld(mut world: Int[][], splitInput: String[]) {
+    let mut i = 0;
+    while (splitInput.get(i).isSome()) {
+        let row = splitInput[i];
+        let mut j = 0;
+        while (row.get(j).isSome()) {
+            let char = row.get(j).unwrap();
+            match char {
+                '1' -> world[i][j] = 1,
+                _ -> {}
+            }
+            j += 1;
+        }
+        i += 1
+    }
+}
+
+fun getNewCellState(world: Int[][], i: Int, j: Int, height: Int, length: Int): Int {
+    let up = if (i-1 < 0) height - 1 else i-1;
+    let down = if (i+1 == height) 0 else i+1;
+    let left = if (j-1 < 0) length - 1 else j-1;
+    let right = if (j+1 == length) 0 else j+1;
+    let neighborCount = {
+        world[up][j] +
+        world[down][j] +
+        world[i][left] +
+        world[i][right] +
+        world[up][left] +
+        world[down][left] +
+        world[up][right] +
+        world[down][right]
+    };
+
+    match (world[i][j], neighborCount) {
+        (0, 3) -> 1,
+        (1, a if (a == 2 || a == 3)) -> 1,
+        _ -> 0
+    }
+}
+
+fun getNewWorld(world: Int[][], height: Int, length: Int): Int[][] {
+    let mut newWorld = [[0] * length] * height;
+
+    let mut i = 0;
+    while (world.get(i).isSome()) {
+        let row = world[i];
+        let mut j = 0;
+        while (row.get(j).isSome()) {
+            newWorld[i][j] = getNewCellState(world, i, j, height, length);
+            j += 1;
+        }
+        i += 1
+    }
+
+    newWorld
+}
+
+fun renderWorld(world: Int[][], height: Int, length: Int) {
+    let mut i = 0;
+    while (i < height) {
+        print("\x1B[1A")
+        i += 1;
+    }
+
+    i = 0
+    while (i < height) {
+        print("\x1B[2K\r")
+        let mut j = 0;
+        while (j < length) {
+            match world[i][j] {
+                0 -> print("-"),
+                1 -> print("#"),
+                _ -> {}
+            }
+
+            if (length - j > 1) print(" ")
+            j += 1
+        }
+        print("\n")
+        i += 1;
+    }
+
+    flush()
+}
+
+let args = args();
+let path = match args.get(1) {
+    .None(_) -> panic "World file not provided",
+    .Some(p) -> p
+};
+
+let content = match readfile(path) {
+    .Err(e) -> panic e.message,
+    .Ok(s) -> s
+};
+
+let split = content.split("\n");
+
+let height = split.len();
+let length = getLength(split);
+
+let mut world = [[0] * length] * height;
+populateWorld(world, split);
+
+let mut i = 0;
+while (i < height) {
+    println("")
+    i += 1
+}
+
+while (true) {
+    world = getNewWorld(world, height, length)
+    renderWorld(world, height, length)
+    sleep(100)
+}
