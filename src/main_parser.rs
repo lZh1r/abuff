@@ -1335,6 +1335,28 @@ impl<'a> Parser<'a> {
                     combined_span,
                 ))
             }
+            Token::For => {
+                //for (<pattern> in iterable) body
+                self.expect(&Token::LParen)?;
+                let start = self.peek_at(-1).unwrap().span.start;
+                
+                let pattern = self.parse_let_pattern()?;
+                self.expect(&Token::In)?;
+                let iterable = Box::new(self.parse_expression()?);
+                self.expect(&Token::RParen)?;
+                let body = Box::new(self.parse_expression()?);
+                
+                let end = body.span.end;
+                
+                Ok(spanned(
+                    Expr::For { 
+                        element: pattern,
+                        iterable,
+                        body
+                    },
+                    Span::from(start..end)
+                ))
+            }
             Token::Return => {
                 // return expr
                 if self.peek().is_some() {

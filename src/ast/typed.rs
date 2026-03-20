@@ -199,6 +199,7 @@ pub enum Expr {
     Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>},
     StaticMethod {target: Spanned<SmolStr>, method: Spanned<SmolStr>},
     Tuple(Vec<Box<Spanned<Expr>>>),
+    For {element: Spanned<LetPattern>, iterable: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>}
 }
 
 #[derive(Debug, Clone, PartialEq)]

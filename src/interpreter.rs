@@ -565,6 +565,89 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
             }
             Ok(ControlFlow::Value(Value::Tuple(Arc::new(RwLock::new(values)))))
         },
+        Expr::For { element, iterable, body } => {
+            match eval_expr(iterable, env)? {
+                ControlFlow::Value(v) => {
+                    match v {
+                        Value::Array(a) => {
+                            for i in a.read().unwrap().iter() {
+                                let mut loop_scope = env.enter_scope();
+                                process_let_pattern(element, i, &mut loop_scope)?;
+                                eval_expr(body,  &mut loop_scope)?;
+                            }
+                        },
+                        Value::String(s) => {
+                            for i in s.chars() {
+                                let mut loop_scope = env.enter_scope();
+                                let i = Value::Char(i);
+                                process_let_pattern(element, &i,  &mut loop_scope)?;
+                                eval_expr(body,  &mut loop_scope)?;
+                            }
+                        },
+                        _ => panic!()
+                    }
+                },
+                _ => panic!()
+            };
+            Ok(ControlFlow::Value(Value::Void))
+        },
+    }
+}
+
+fn process_let_pattern(
+    pattern: &Spanned<LetPattern>,
+    value: &Value,
+    env: &mut Env
+) -> Result<Spanned<LetPattern>, Spanned<SmolStr>> {
+    match (&pattern.inner, value) {
+        (LetPattern::Tuple(patterns), Value::Tuple(elems)) => {
+            let mut lower_patterns = Vec::new();
+            for (p, ti) in patterns.iter().zip(elems.read().unwrap().iter()) {
+                lower_patterns.push(
+                    process_let_pattern(
+                        &p,
+                        &*ti,
+                        env
+                    )?
+                );
+            }
+            Ok(spanned(
+                LetPattern::Tuple(lower_patterns),
+                pattern.span
+            ))
+        },
+        (LetPattern::Record(elements), Value::Record(rec)) => {
+            let record_map = rec.read().unwrap();
+            for (name, maybe_alias) in elements {
+                if let Some(alias) = maybe_alias {
+                    env.add_variable(
+                        alias.clone(),
+                        record_map.get(name).unwrap().clone()
+                    );
+                } else {
+                    env.add_variable(
+                        name.clone(), 
+                        record_map.get(name).unwrap().clone()
+                    );
+                }
+            }
+            Ok(spanned(
+                LetPattern::Record(elements.clone()),
+                pattern.span
+            ))
+        },
+        (LetPattern::Tuple(_), _) => panic!(),
+        (LetPattern::Record(_), _) => panic!(),
+        (LetPattern::Name(name), _) => {
+            env.add_variable(
+                name.clone(),
+                value.clone()
+            );
+            Ok(spanned(
+                LetPattern::Name(name.clone()),
+                pattern.span
+            ))
+        }
     }
 }
 
@@ -578,64 +661,7 @@ fn eval_block(stmts: &[Spanned<Statement>], final_expr: &Option<Box<Spanned<Expr
                     cf => return Ok(cf),
                 };
                 
-                fn process_pattern(
-                    pattern: &Spanned<LetPattern>,
-                    value: &Value,
-                    env: &mut Env
-                ) -> Result<Spanned<LetPattern>, Spanned<SmolStr>> {
-                    match (&pattern.inner, value) {
-                        (LetPattern::Tuple(patterns), Value::Tuple(elems)) => {
-                            let mut lower_patterns = Vec::new();
-                            for (p, ti) in patterns.iter().zip(elems.read().unwrap().iter()) {
-                                lower_patterns.push(
-                                    process_pattern(
-                                        &p,
-                                        &*ti,
-                                        env
-                                    )?
-                                );
-                            }
-                            Ok(spanned(
-                                LetPattern::Tuple(lower_patterns),
-                                pattern.span
-                            ))
-                        },
-                        (LetPattern::Record(elements), Value::Record(rec)) => {
-                            let record_map = rec.read().unwrap();
-                            for (name, maybe_alias) in elements {
-                                if let Some(alias) = maybe_alias {
-                                    env.add_variable(
-                                        alias.clone(),
-                                        record_map.get(name).unwrap().clone()
-                                    );
-                                } else {
-                                    env.add_variable(
-                                        name.clone(), 
-                                        record_map.get(name).unwrap().clone()
-                                    );
-                                }
-                            }
-                            Ok(spanned(
-                                LetPattern::Record(elements.clone()),
-                                pattern.span
-                            ))
-                        },
-                        (LetPattern::Tuple(_), _) => panic!(),
-                        (LetPattern::Record(_), _) => panic!(),
-                        (LetPattern::Name(name), _) => {
-                            env.add_variable(
-                                name.clone(),
-                                value.clone()
-                            );
-                            Ok(spanned(
-                                LetPattern::Name(name.clone()),
-                                pattern.span
-                            ))
-                        }
-                    }
-                }
-                
-                let _ = process_pattern(pattern, &value, env)?;
+                let _ = process_let_pattern(pattern, &value, env)?;
             },
             Statement::Expr(expr) => {
                 match eval_expr(expr, &mut new_scope)? {

@@ -355,3 +355,69 @@ fn mixed_destructuring() {
         _ => panic!()
     };
 }
+
+#[test]
+fn for_loop() {
+    let src = r#"
+        let mut sum = 0;
+        for (i in [1,2,3]) sum += i;
+        sum
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 6),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn for_loop_tuples() {
+    let src = r#"
+        let mut sum = 0;
+        for ((i, j) in [(1,2),(3,4)]) {
+            sum += j;
+            sum -= i;
+        }
+        sum
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 2),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}
+
+#[test]
+fn for_loop_objects() {
+    let src = r#"
+        let mut sum = 0;
+        let arr = [
+            {a: 2, b: 1},
+            {a: 3, b: 2}
+        ];
+        for ({a: b, b: c} in arr) {
+            sum += b * c;
+        }
+        sum
+    "#;
+    
+    match run_typed(src.to_string()).unwrap() {
+        ControlFlow::Value(v) => {
+            match v {
+                Value::Int(i) => assert_eq!(i, 8),
+                _ => panic!()
+            }
+        }
+        _ => panic!()
+    };
+}

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
 
-use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, FunctionParam, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::{check_param_mutability, check_variable_mutability}, pattern_matching::match_expr}, env::TypeEnv, span::{Span, Spanned, spanned}};
+use crate::{ast::{clean, shared::{Operation, UnaryOp}, typed::{Expr, FunctionParam, LetPattern, Statement, TypeInfo, TypeKind}}, checker::{flatten::flatten_type, hoisting::hoist_declarations, mutability::{check_param_mutability, check_variable_mutability}, pattern_matching::{lower_let_pattern, match_expr}}, env::TypeEnv, span::{Span, Spanned, spanned}};
 
 pub fn substitute_generic_params(
     type_info: &Spanned<TypeInfo>,
@@ -375,13 +375,13 @@ pub fn process_expression(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
         Expr::Tuple(exprs) => {
             let mut types = Vec::new();
             let mut lowered = Vec::new();
-            
+    
             for e in exprs {
                 let result = process_expression(e, env)?;
                 lowered.push(result.0);
                 types.push(Box::new(result.1));
             }
-            
+    
             Ok((
                 spanned(
                     clean::Expr::Tuple(lowered),
@@ -393,6 +393,7 @@ pub fn process_expression(expr: &Spanned<Expr>, env: &mut TypeEnv) -> Result<
                 )
             ))
         },
+        Expr::For { element, iterable, body } => process_for(element, iterable, body, expr, env),
     }
 }
 
@@ -1465,4 +1466,44 @@ fn process_static_method(
         )),
     };
     Ok((lowered_expr, ti))
+}
+
+fn process_for(
+    pattern: &Spanned<LetPattern>,
+    iterable: &Box<Spanned<Expr>>,
+    body: &Box<Spanned<Expr>>,
+    expr: &Spanned<Expr>,
+    env: &mut TypeEnv
+) -> Result<(Spanned<clean::Expr>, Spanned<TypeInfo>), Spanned<SmolStr>> {
+    let iter_result = process_expression(iterable, env)?;
+    
+    let expected_type = match iter_result.1.inner.kind() {
+        TypeKind::Array(ti) => &**ti,
+        TypeKind::String => &spanned(
+            TypeInfo::char(),
+            iter_result.1.span
+        ),
+        _ => return Err(spanned(
+            format_smolstr!("Cannot iterate over {}", iter_result.1),
+            iter_result.0.span
+        ))
+    };
+    
+    let pattern = lower_let_pattern(pattern, &expected_type, &false, env)?;
+    let body_result = process_expression(body, env)?;
+    
+    Ok((
+        spanned(
+            clean::Expr::For { 
+                element: pattern,
+                iterable: Box::new(iter_result.0),
+                body: Box::new(body_result.0)
+            },
+            expr.span.clone()
+        ),
+        spanned(
+            TypeInfo::void(),
+            expr.span
+        )
+    ))
 }

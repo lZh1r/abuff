@@ -42,7 +42,8 @@ pub enum Expr {
     Panic(Option<Box<Spanned<Expr>>>),
     EnumConstructor {enum_name: SmolStr, variant: SmolStr, value: Box<Spanned<Expr>>},
     Match {target: Box<Spanned<Expr>>, branches: Vec<(Spanned<MatchArm>, Spanned<Expr>)>},
-    Tuple(Vec<Spanned<Expr>>)
+    Tuple(Vec<Spanned<Expr>>),
+    For {element: Spanned<LetPattern>, iterable: Box<Spanned<Expr>>, body: Box<Spanned<Expr>>}
 }
 
 #[derive(Debug, Clone, PartialEq)]

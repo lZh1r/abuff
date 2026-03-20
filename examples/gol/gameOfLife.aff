@@ -1,9 +1,7 @@
 fun getLength(split: String[]): Int {
     let mut length = 0;
-    let mut i = 0;
-    while (split.get(i).isSome()) {
-        length = length.max(split[i].len());
-        i += 1;
+    for (line in split) {
+        length = length.max(line.len());
     }
 
     length

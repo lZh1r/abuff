@@ -1,4 +1,4 @@
-use crate::checker::flatten::flatten_type;
+use crate::{ast::typed::LetPattern, checker::flatten::flatten_type};
 use std::collections::HashMap;
 
 use smol_str::{SmolStr, format_smolstr};
@@ -553,5 +553,73 @@ pub fn match_expr(
             "Expected a default case for matching arbitrary values".into(),
             expr.span
         ))
+    }
+}
+
+pub fn lower_let_pattern(
+    pattern: &Spanned<LetPattern>,
+    expected_type: &Spanned<TypeInfo>,
+    mutable: &bool,
+    env: &mut TypeEnv
+) -> Result<Spanned<clean::LetPattern>, Spanned<SmolStr>> {
+    match (&pattern.inner, expected_type.inner.kind()) {
+        (LetPattern::Tuple(patterns), TypeKind::Tuple(types)) => {
+            let mut lower_patterns = Vec::new();
+            for (p, ti) in patterns.iter().zip(types.iter()) {
+                lower_patterns.push(
+                    lower_let_pattern(
+                        &p,
+                        &*ti,
+                        mutable,
+                        env
+                    )?
+                );
+            }
+            Ok(spanned(
+                clean::LetPattern::Tuple(lower_patterns),
+                pattern.span
+            ))
+        },
+        (LetPattern::Record(elements), TypeKind::Record(map)) => {
+            let mut lowered_elements = Vec::new();
+            for (name, maybe_alias) in elements {
+                let ti = if let Some(ti) = map.get(&name.inner) {
+                    ti
+                } else {
+                    return Err(spanned(
+                        format_smolstr!(
+                            "Type {expected_type} does not have a property {name}"
+                        ), 
+                        name.span
+                    ))
+                };
+                
+                if let Some(alias) = maybe_alias {
+                    lowered_elements.push((name.inner.clone(), Some(alias.inner.clone())));
+                    env.add_var_type(alias.inner.clone(), ti.clone(), mutable.clone());
+                } else {
+                    lowered_elements.push((name.inner.clone(), None));
+                    env.add_var_type(name.inner.clone(), ti.clone(), mutable.clone());
+                }
+            }
+            
+            Ok(spanned(
+                clean::LetPattern::Record(lowered_elements), 
+                pattern.span
+            ))
+        },
+        (LetPattern::Tuple(_), ti) | (LetPattern::Record(_), ti) => {
+            Err(spanned(
+                format_smolstr!("Type {ti} cannot be destructured"), 
+                pattern.span
+            ))
+        },
+        (LetPattern::Name(name), _) => {
+            env.add_var_type(name.clone(), expected_type.clone(), mutable.clone());
+            Ok(spanned(
+                clean::LetPattern::Name(name.clone()),
+                pattern.span
+            ))
+        }
     }
 }
