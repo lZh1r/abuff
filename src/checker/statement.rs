@@ -88,15 +88,12 @@ fn process_let_statement(
     match mut_result {
         Ok(is_mut) => {
             if is_mut != *mutable {
-                match is_mut {
+                match mutable {
                     true => return Err(spanned(
                         "Cannot assign an immutable reference to a mutable variable".into(),
                         expr_result.0.span
                     )),
-                    false => return Err(spanned(
-                        "Cannot assign a mutable reference to an immutable variable".into(),
-                        expr_result.0.span
-                    )),
+                    false => ()
                 }
             }
         },
