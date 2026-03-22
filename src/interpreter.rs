@@ -568,17 +568,16 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
         Expr::For { element, iterable, body } => {
             match eval_expr(iterable, env)? {
                 ControlFlow::Value(v) => {
+                	let mut loop_scope = env.enter_scope();
                     match v {
                         Value::Array(a) => {
                             for i in a.read().unwrap().iter() {
-                                let mut loop_scope = env.enter_scope();
                                 process_let_pattern(element, i, &mut loop_scope)?;
                                 eval_expr(body,  &mut loop_scope)?;
                             }
                         },
                         Value::String(s) => {
                             for i in s.chars() {
-                                let mut loop_scope = env.enter_scope();
                                 let i = Value::Char(i);
                                 process_let_pattern(element, &i,  &mut loop_scope)?;
                                 eval_expr(body,  &mut loop_scope)?;
