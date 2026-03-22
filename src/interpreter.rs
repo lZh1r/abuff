@@ -139,7 +139,13 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                         };
                         match val {
                             Value::Array(arr) | Value::Tuple(arr) => {
-                                let mut arr = arr.write().unwrap();
+                                let mut arr = match arr.try_write() {
+                                    Ok(v) => v,
+                                    Err(_) => return Err(spanned(
+	                                    "Runtime error: Cannot modify an array while iterating over it".into(),
+	                                    span
+                                    )),
+                                };
                                 if idx >= arr.len() {
                                     return Err(Spanned {
                                         inner: "Runtime error: Index out of bounds".into(),
@@ -157,7 +163,13 @@ pub fn eval_expr(expr: &Spanned<Expr>, env: &mut Env) -> Result<ControlFlow, Spa
                     Access::Get(field) => {
                         match val {
                             Value::Record(rec) => {
-                                let mut rec = rec.write().unwrap();
+                            let mut rec = match rec.try_write() {
+                                Ok(v) => v,
+                                Err(_) => return Err(spanned(
+	                                    "Runtime error: Cannot modify a record while iterating over it".into(),
+	                                    span
+                                )),
+                            };
                                 if !rec.contains_key(field) {
                                     return Err(Spanned {
                                         inner: format!("Runtime error: Field {field} not found").into(),
