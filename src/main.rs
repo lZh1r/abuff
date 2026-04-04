@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env::{self, current_dir}, fs};
+use std::{collections::{BTreeMap}, env::{self, current_dir}, fs};
 
 use abuff::{
     ast::clean::ControlFlow, checker::hoisting::hoist_declarations, env::{DEFAULT_ENVS, create_default_env}, error::build_report, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, span::Spanned
@@ -6,12 +6,12 @@ use abuff::{
 
 struct CommandInfo {
     description: String,
-    function: fn(Vec<String>, HashMap<&str, CommandInfo>),
+    function: fn(Vec<String>, BTreeMap<&str, CommandInfo>),
     min_arg_amount: u8
 }
 
 fn main() {
-    let commands = HashMap::from([
+    let commands = BTreeMap::from([
         (
             "run",
             CommandInfo {
