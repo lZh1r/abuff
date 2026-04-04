@@ -6,8 +6,8 @@ use abuff::{
 
 struct CommandInfo {
     description: String,
-    function: fn(Vec<String>),
-    arg_count: u8
+    function: fn(Vec<String>, HashMap<&str, CommandInfo>),
+    min_arg_amount: u8
 }
 
 fn main() {
@@ -16,7 +16,7 @@ fn main() {
             "run",
             CommandInfo {
                 description: "Executes a file".into(),
-                function: |args| {
+                function: |args, _| {
                     let file_path = args.get(2).unwrap();
                     let src = match fs::read_to_string(file_path) {
                         Ok(s) => s,
@@ -69,14 +69,14 @@ fn main() {
                         }
                     }
                 },
-                arg_count: 1
+                min_arg_amount: 1
             }
         ),
         (
             "check",
             CommandInfo {
                 description: "Runs static analysis on the provided file".into(),
-                function: |args| {
+                function: |args, _| {
                     let file_path = args.get(2).unwrap();
                     let src = match fs::read_to_string(file_path) {
                         Ok(s) => s,
@@ -113,7 +113,33 @@ fn main() {
                         }
                     }
                 },
-                arg_count: 1
+                min_arg_amount: 1
+            }
+        ),
+        (
+            "help",
+            CommandInfo {
+                description: "Displays this message".into(),
+                function: |args, commands| {
+                    match args.get(2) {
+                        Some(command) => {
+                            match commands.get(command.as_str()) {
+                                Some(cmd) => {
+                                    println!("{}", cmd.description)
+                                },
+                                None => {
+                                    eprintln!("Unknown command {command}")
+                                }
+                            }
+                        },
+                        None => {
+                            for (k, v) in commands.iter() {
+                                println!("\x1b[1m{k}\x1b[0m - {}", v.description);
+                            }
+                        }
+                    }
+                },
+                min_arg_amount: 0
             }
         )
     ]);
@@ -126,11 +152,11 @@ fn main() {
                 eprintln!("Unknown command {cmd}")
             }
             let command_info = commands.get(cmd.as_str()).unwrap();
-            if command_info.arg_count > (args.len() - 2) as u8 {
+            if command_info.min_arg_amount > (args.len() - 2) as u8 {
                 eprintln!("Incorrect amount of arguments provided!");
-                eprintln!("Expected {}, got {}", command_info.arg_count, args.len());
+                eprintln!("Expected {}, got {}", command_info.min_arg_amount, args.len());
             } else {
-                (command_info.function)(args)
+                (command_info.function)(args, commands)
             }
         },
         None => {
