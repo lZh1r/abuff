@@ -1027,14 +1027,18 @@ pub fn create_default_env() -> (Env, TypeEnv) {
         let args_array: Vec<Value> = args()
             .map(|a| Value::String(a.to_smolstr()))
             .collect();
+
+        let result = if args_array.len() == 1 {
+            vec![]
+        } else {
+            (args_array[2..]).to_vec()
+        };
         
         Ok(
             ControlFlow::Value(
                 Value::Array(
                     Arc::new(
-                        RwLock::new(
-                            (args_array[1..]).to_vec()
-                        )
+                        RwLock::new(result)
                     )
                 )
             )
