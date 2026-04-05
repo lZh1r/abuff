@@ -2403,3 +2403,1277 @@ impl<'a> Parser<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    
+    fn sp<T>(inner: T) -> Spanned<T> {
+        Spanned {
+            inner,
+            span: Span { start: 0, end: 0 },
+        }
+    }
+    
+    fn parse_tokens(tokens: Vec<Token>) -> Vec<Statement> {
+        let sp_tokens: Vec<Spanned<Token>> = tokens.into_iter().map(|t| sp(t)).collect();
+        let mut parser = Parser::new(&sp_tokens);
+        parser
+            .parse()
+            .expect("parser should succeed")
+            .into_iter()
+            .map(|s| s.inner)
+            .collect()
+    }
+    
+    fn assert_fn_params_eq_ignore_spans(a: &[FunctionParam], b: &[FunctionParam]) {
+        assert_eq!(a.len(), b.len(), "params length mismatch");
+        for (pa, pb) in a.iter().zip(b.iter()) {
+            assert_eq!(pa.name, pb.name, "param name mismatch");
+            assert_eq!(pa.type_info.inner, pb.type_info.inner, "param type mismatch");
+            assert_eq!(pa.is_variadic, pb.is_variadic, "param variadic mismatch");
+            assert_eq!(pa.is_mutable, pb.is_mutable, "param mutable mismatch");
+        }
+    }
+    
+    fn assert_let_pattern_eq_ignore_spans(a: &LetPattern, b: &LetPattern) {
+        match (a, b) {
+            (LetPattern::Name(na), LetPattern::Name(nb)) => assert_eq!(na, nb),
+            (LetPattern::Record(fa), LetPattern::Record(fb)) => {
+                assert_eq!(fa.len(), fb.len(), "record pattern length mismatch");
+                for ((a_key, a_alias), (b_key, b_alias)) in fa.iter().zip(fb.iter()) {
+                    assert_eq!(a_key.inner, b_key.inner, "record pattern key mismatch");
+                    match (a_alias, b_alias) {
+                        (None, None) => {}
+                        (Some(a), Some(b)) => assert_eq!(a.inner, b.inner, "record alias mismatch"),
+                        (x, y) => panic!("record alias option mismatch: {x:?} vs {y:?}"),
+                    }
+                }
+            }
+            (LetPattern::Tuple(ae), LetPattern::Tuple(be)) => {
+                assert_eq!(ae.len(), be.len(), "tuple pattern length mismatch");
+                for (aa, bb) in ae.iter().zip(be.iter()) {
+                    assert_let_pattern_eq_ignore_spans(&aa.inner, &bb.inner);
+                }
+            }
+            _ => panic!("let pattern mismatch: {a:?} vs {b:?}"),
+        }
+    }
+    
+    fn assert_match_arm_eq_ignore_spans(a: &MatchArm, b: &MatchArm) {
+        match (a, b) {
+            (
+                MatchArm::Conditional {
+                    alias: aa_alias,
+                    condition: aa_cond,
+                },
+                MatchArm::Conditional {
+                    alias: bb_alias,
+                    condition: bb_cond,
+                },
+            ) => {
+                assert_eq!(aa_alias, bb_alias, "conditional alias mismatch");
+                assert_expr_eq_ignore_spans(&aa_cond.inner, &bb_cond.inner);
+            }
+            (MatchArm::Value(ae), MatchArm::Value(be)) => {
+                assert_expr_eq_ignore_spans(&ae.inner, &be.inner);
+            }
+            (MatchArm::Default(ae), MatchArm::Default(be)) => assert_eq!(ae, be),
+            (
+                MatchArm::EnumConstructor {
+                    enum_name: aa_enum,
+                    variant: aa_var,
+                    alias: aa_alias,
+                },
+                MatchArm::EnumConstructor {
+                    enum_name: bb_enum,
+                    variant: bb_var,
+                    alias: bb_alias,
+                },
+            ) => {
+                assert_eq!(aa_enum, bb_enum, "enum name mismatch");
+                assert_eq!(aa_var, bb_var, "variant mismatch");
+                assert_eq!(aa_alias, bb_alias, "alias mismatch");
+            }
+            (MatchArm::Tuple(ae), MatchArm::Tuple(be)) => {
+                assert_eq!(ae.len(), be.len(), "tuple match-arm length mismatch");
+                for (aa, bb) in ae.iter().zip(be.iter()) {
+                    assert_match_arm_eq_ignore_spans(&aa.inner, &bb.inner);
+                }
+            }
+            _ => panic!("match arm mismatch: {a:?} vs {b:?}"),
+        }
+    }
+    
+    fn assert_type_info_eq_ignore_spans(a: &TypeInfo, b: &TypeInfo) {
+        // For the type shapes used in these tests (primitives), spans don't exist inside TypeInfo.
+        assert_eq!(a, b);
+    }
+    
+    fn assert_expr_eq_ignore_spans(a: &Expr, b: &Expr) {
+        match (a, b) {
+            (Expr::Bool(aa), Expr::Bool(bb)) => assert_eq!(aa, bb),
+            (Expr::Int(aa), Expr::Int(bb)) => assert_eq!(aa, bb),
+            (Expr::Float(aa), Expr::Float(bb)) => assert_eq!(aa, bb),
+            (Expr::String(aa), Expr::String(bb)) => assert_eq!(aa, bb),
+            (Expr::Char(aa), Expr::Char(bb)) => assert_eq!(aa, bb),
+            (Expr::Void, Expr::Void) => {}
+            (Expr::Null, Expr::Null) => {}
+            (Expr::Var(aa), Expr::Var(bb)) => assert_eq!(aa, bb),
+    
+            (Expr::Unary(aop, ainner), Expr::Unary(bop, binn)) => {
+                assert_eq!(aop, bop, "unary op mismatch");
+                assert_expr_eq_ignore_spans(&ainner.inner, &binn.inner);
+            }
+    
+            (Expr::Binary { left: aleft, operation: aop, right: aright }, Expr::Binary {
+                left: bleft,
+                operation: bop,
+                right: bright,
+            }) => {
+                assert_eq!(aop, bop, "binary op mismatch");
+                assert_expr_eq_ignore_spans(&aleft.inner, &bleft.inner);
+                assert_expr_eq_ignore_spans(&aright.inner, &bright.inner);
+            }
+    
+            (Expr::Assign { target: at, value: av }, Expr::Assign { target: bt, value: bv }) => {
+                assert_expr_eq_ignore_spans(&at.inner, &bt.inner);
+                assert_expr_eq_ignore_spans(&av.inner, &bv.inner);
+            }
+    
+            (Expr::If {
+                condition: acond,
+                body: abody,
+                else_block: aelse,
+            }, Expr::If {
+                condition: bcond,
+                body: bbody,
+                else_block: bels,
+            }) => {
+                assert_expr_eq_ignore_spans(&acond.inner, &bcond.inner);
+                assert_expr_eq_ignore_spans(&abody.inner, &bbody.inner);
+                match (aelse, bels) {
+                    (None, None) => {}
+                    (Some(ae), Some(be)) => assert_expr_eq_ignore_spans(&ae.inner, &be.inner),
+                    (x, y) => panic!("if else option mismatch: {x:?} vs {y:?}"),
+                }
+            }
+    
+            (Expr::While { condition: acond, body: abody }, Expr::While {
+                condition: bcond,
+                body: bbody,
+            }) => {
+                assert_expr_eq_ignore_spans(&acond.inner, &bcond.inner);
+                assert_expr_eq_ignore_spans(&abody.inner, &bbody.inner);
+            }
+    
+            (Expr::Break, Expr::Break) => {}
+            (Expr::Continue, Expr::Continue) => {}
+    
+            (Expr::Return(aret), Expr::Return(bret)) => {
+                assert_expr_eq_ignore_spans(&aret.inner, &bret.inner);
+            }
+    
+            (Expr::Panic(ap), Expr::Panic(bp)) => match (ap, bp) {
+                (None, None) => {}
+                (Some(ae), Some(be)) => assert_expr_eq_ignore_spans(&ae.inner, &be.inner),
+                (x, y) => panic!("panic option mismatch: {x:?} vs {y:?}"),
+            },
+    
+            (Expr::For { element: ael, iterable: aiter, body: abody }, Expr::For {
+                element: bel,
+                iterable: biter,
+                body: bbody,
+            }) => {
+                assert_let_pattern_eq_ignore_spans(&ael.inner, &bel.inner);
+                assert_expr_eq_ignore_spans(&aiter.inner, &biter.inner);
+                assert_expr_eq_ignore_spans(&abody.inner, &bbody.inner);
+            }
+    
+            (Expr::Block(astmts, amaybe), Expr::Block(bstmts, bmaybe)) => {
+                assert_eq!(astmts.len(), bstmts.len(), "block statement length mismatch");
+                for (sa, sb) in astmts.iter().zip(bstmts.iter()) {
+                    assert_stmt_eq_ignore_spans(&sa.inner, &sb.inner);
+                }
+                match (amaybe, bmaybe) {
+                    (None, None) => {}
+                    (Some(ae), Some(be)) => assert_expr_eq_ignore_spans(&ae.inner, &be.inner),
+                    (x, y) => panic!("block tail expr option mismatch: {x:?} vs {y:?}"),
+                }
+            }
+    
+            (Expr::Array(aelts), Expr::Array(belts)) => {
+                assert_eq!(aelts.len(), belts.len(), "array element count mismatch");
+                for (aa, bb) in aelts.iter().zip(belts.iter()) {
+                    assert_expr_eq_ignore_spans(&aa.inner, &bb.inner);
+                }
+            }
+    
+            (Expr::Tuple(aelts), Expr::Tuple(belts)) => {
+                assert_eq!(aelts.len(), belts.len(), "tuple element count mismatch");
+                for (aa, bb) in aelts.iter().zip(belts.iter()) {
+                    assert_expr_eq_ignore_spans(&aa.inner, &bb.inner);
+                }
+            }
+    
+            (Expr::Record(afields), Expr::Record(bfields)) => {
+                assert_eq!(afields.len(), bfields.len(), "record field count mismatch");
+                for ((ak, av), (bk, bv)) in afields.iter().zip(bfields.iter()) {
+                    assert_eq!(ak, bk, "record field name mismatch");
+                    assert_expr_eq_ignore_spans(&av.inner, &bv.inner);
+                }
+            }
+    
+            (Expr::Get(at, am), Expr::Get(bt, bm)) => {
+                assert_eq!(am, bm, "field name mismatch");
+                assert_expr_eq_ignore_spans(&at.inner, &bt.inner);
+            }
+    
+            (Expr::Index(at, ai), Expr::Index(bt, bi)) => {
+                assert_expr_eq_ignore_spans(&at.inner, &bt.inner);
+                assert_expr_eq_ignore_spans(&ai.inner, &bi.inner);
+            }
+    
+            (Expr::Fun {
+                params: ap,
+                body: abody,
+                return_type: art,
+                generic_params: agp,
+            }, Expr::Fun {
+                params: bp,
+                body: bbody,
+                return_type: brt,
+                generic_params: bgp,
+            }) => {
+                assert_fn_params_eq_ignore_spans(ap, bp);
+                assert_expr_eq_ignore_spans(&abody.inner, &bbody.inner);
+                match (art.as_ref(), brt.as_ref()) {
+                    (None, None) => {}
+                    (Some(atv), Some(btv)) => assert_type_info_eq_ignore_spans(&atv.inner, &btv.inner),
+                    (x, y) => panic!("fun return_type option mismatch: {x:?} vs {y:?}"),
+                }
+                assert_eq!(
+                    agp.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    bgp.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+            }
+    
+            (Expr::Call {
+                fun: afun,
+                args: aargs,
+                generic_args: agens,
+            }, Expr::Call {
+                fun: bfun,
+                args: bargs,
+                generic_args: bgens,
+            }) => {
+                assert_expr_eq_ignore_spans(&afun.inner, &bfun.inner);
+    
+                assert_eq!(aargs.len(), bargs.len(), "call arg length mismatch");
+                for (aa, bb) in aargs.iter().zip(bargs.iter()) {
+                    assert_expr_eq_ignore_spans(&aa.inner, &bb.inner);
+                }
+    
+                assert_eq!(agens.len(), bgens.len(), "call generic arg length mismatch");
+                for (a_t, b_t) in agens.iter().zip(bgens.iter()) {
+                    assert_type_info_eq_ignore_spans(&a_t.inner, &b_t.inner);
+                }
+            }
+    
+            (Expr::StaticMethod { target: at, method: am }, Expr::StaticMethod {
+                target: bt,
+                method: bm,
+            }) => {
+                assert_eq!(at.inner, bt.inner, "static method target mismatch");
+                assert_eq!(am.inner, bm.inner, "static method name mismatch");
+            }
+    
+            (Expr::Match { target: at, branches: ab }, Expr::Match { target: bt, branches: bb }) => {
+                assert_expr_eq_ignore_spans(&at.inner, &bt.inner);
+                assert_eq!(ab.len(), bb.len(), "match branch count mismatch");
+                for ((a_pat, a_expr), (b_pat, b_expr)) in ab.iter().zip(bb.iter()) {
+                    assert_match_arm_eq_ignore_spans(&a_pat.inner, &b_pat.inner);
+                    assert_expr_eq_ignore_spans(&a_expr.inner, &b_expr.inner);
+                }
+            }
+    
+            other => panic!("expr mismatch (unsupported variant or mismatch): {other:?}"),
+        }
+    }
+    
+    fn assert_method_eq_ignore_spans(a: &Method, b: &Method) {
+        match (a, b) {
+            (Method::Normal(na), Method::Normal(nb)) => {
+                assert_eq!(na.name, nb.name);
+                assert_fn_params_eq_ignore_spans(&na.params, &nb.params);
+                assert_expr_eq_ignore_spans(&na.body.inner, &nb.body.inner);
+                assert_eq!(na.return_type.as_ref().map(|t| &t.inner), nb.return_type.as_ref().map(|t| &t.inner));
+                assert_eq!(
+                    na.generic_params.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    nb.generic_params.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+            }
+            (Method::Native(na), Method::Native(nb)) => {
+                assert_eq!(na.name, nb.name);
+                assert_fn_params_eq_ignore_spans(&na.params, &nb.params);
+                assert_eq!(na.return_type.as_ref().map(|t| &t.inner), nb.return_type.as_ref().map(|t| &t.inner));
+                assert_eq!(
+                    na.generic_params.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    nb.generic_params.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+            }
+            _ => panic!("method mismatch: {a:?} vs {b:?}"),
+        }
+    }
+    
+    fn assert_method_signature_eq_ignore_spans(a: &MethodSignature, b: &MethodSignature) {
+        assert_eq!(a.is_static, b.is_static, "method is_static mismatch");
+        assert_eq!(a.is_mutating, b.is_mutating, "method is_mutating mismatch");
+        assert_method_eq_ignore_spans(&a.method.inner, &b.method.inner);
+    }
+    
+    fn assert_stmt_eq_ignore_spans(a: &Statement, b: &Statement) {
+        match (a, b) {
+            (
+                Statement::Let {
+                    pattern: ap,
+                    expr: ae,
+                    type_info: at,
+                    mutable: am,
+                },
+                Statement::Let {
+                    pattern: bp,
+                    expr: be,
+                    type_info: bt,
+                    mutable: bm,
+                },
+            ) => {
+                assert_eq!(am, bm, "let mut mismatch");
+                assert_let_pattern_eq_ignore_spans(&ap.inner, &bp.inner);
+                assert_expr_eq_ignore_spans(&ae.inner, &be.inner);
+                match (at.as_ref(), bt.as_ref()) {
+                    (None, None) => {}
+                    (Some(atv), Some(btv)) => assert_type_info_eq_ignore_spans(&atv.inner, &btv.inner),
+                    (x, y) => panic!("let type_info option mismatch: {x:?} vs {y:?}"),
+                }
+            }
+    
+            (Statement::Expr(ae), Statement::Expr(be)) => {
+                assert_expr_eq_ignore_spans(&ae.inner, &be.inner);
+            }
+    
+            (
+                Statement::Fun {
+                    name: an,
+                    params: ap,
+                    body: ab,
+                    return_type: art,
+                    generic_params: agp,
+                },
+                Statement::Fun {
+                    name: bn,
+                    params: bp,
+                    body: bb,
+                    return_type: brt,
+                    generic_params: bgp,
+                },
+            ) => {
+                assert_eq!(an, bn, "fun name mismatch");
+                assert_fn_params_eq_ignore_spans(ap, bp);
+                assert_expr_eq_ignore_spans(&ab.inner, &bb.inner);
+                match (art.as_ref(), brt.as_ref()) {
+                    (None, None) => {}
+                    (Some(atv), Some(btv)) => assert_type_info_eq_ignore_spans(&atv.inner, &btv.inner),
+                    (x, y) => panic!("fun return_type option mismatch: {x:?} vs {y:?}"),
+                }
+                assert_eq!(
+                    agp.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    bgp.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+            }
+    
+            (
+                Statement::TypeDef {
+                    name: an,
+                    type_info: ati,
+                    generic_params: agp,
+                    implementation: aimpl,
+                    interfaces: aifaces,
+                },
+                Statement::TypeDef {
+                    name: bn,
+                    type_info: bti,
+                    generic_params: bgp,
+                    implementation: bimpl,
+                    interfaces: bifaces,
+                },
+            ) => {
+                assert_eq!(an, bn, "type name mismatch");
+                assert_type_info_eq_ignore_spans(&ati.inner, &bti.inner);
+                assert_eq!(
+                    agp.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    bgp.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    aifaces.iter().map(|i| &i.inner).collect::<Vec<_>>(),
+                    bifaces.iter().map(|i| &i.inner).collect::<Vec<_>>()
+                );
+    
+                assert_eq!(aimpl.len(), bimpl.len(), "impl map length mismatch");
+                for (k, av) in aimpl.iter() {
+                    let bv = bimpl
+                        .get(k)
+                        .unwrap_or_else(|| panic!("missing impl for key {k:?}"));
+                    assert_eq!(av.len(), bv.len(), "impl vec length mismatch for key {k:?}");
+                    for (asig, bsig) in av.iter().zip(bv.iter()) {
+                        assert_method_signature_eq_ignore_spans(asig, bsig);
+                    }
+                }
+            }
+    
+            (
+                Statement::EnumDef {
+                    name: an,
+                    variants: av,
+                    generic_params: agp,
+                    implementation: aimpl,
+                    interfaces: aifaces,
+                },
+                Statement::EnumDef {
+                    name: bn,
+                    variants: bv,
+                    generic_params: bgp,
+                    implementation: bimpl,
+                    interfaces: bifaces,
+                },
+            ) => {
+                assert_eq!(an, bn, "enum name mismatch");
+                assert_eq!(av.len(), bv.len(), "enum variant count mismatch");
+                for ((a_name, a_ty), (b_name, b_ty)) in av.iter().zip(bv.iter()) {
+                    assert_eq!(a_name, b_name, "enum variant name mismatch");
+                    match (a_ty.as_ref(), b_ty.as_ref()) {
+                        (None, None) => {}
+                        (Some(atv), Some(btv)) => assert_type_info_eq_ignore_spans(&atv.inner, &btv.inner),
+                        (x, y) => panic!("enum variant type option mismatch: {x:?} vs {y:?}"),
+                    }
+                }
+                assert_eq!(
+                    agp.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    bgp.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+    
+                assert_eq!(aimpl.len(), bimpl.len(), "impl map length mismatch");
+                for (k, avs) in aimpl.iter() {
+                    let bvs = bimpl.get(k).expect("missing impl entry");
+                    assert_eq!(avs.len(), bvs.len(), "impl vec length mismatch for key {k:?}");
+                    for (asig, bsig) in avs.iter().zip(bvs.iter()) {
+                        assert_method_signature_eq_ignore_spans(asig, bsig);
+                    }
+                }
+    
+                assert_eq!(
+                    aifaces.iter().map(|i| &i.inner).collect::<Vec<_>>(),
+                    bifaces.iter().map(|i| &i.inner).collect::<Vec<_>>()
+                );
+            }
+    
+            (
+                Statement::Import {
+                    symbols: asyms,
+                    path: apath,
+                },
+                Statement::Import {
+                    symbols: bsyms,
+                    path: bpath,
+                },
+            ) => {
+                assert_eq!(apath.inner, bpath.inner, "import path mismatch");
+                assert_eq!(asyms.len(), bsyms.len(), "import symbol count mismatch");
+                for ((ak, aalias, a_is_type), (bk, balias, b_is_type)) in asyms.iter().zip(bsyms.iter()) {
+                    assert_eq!(ak.inner, bk.inner, "import symbol name mismatch");
+                    assert_eq!(a_is_type, b_is_type, "import symbol kind mismatch");
+                    assert_eq!(aalias, balias, "import alias mismatch");
+                }
+            }
+    
+            (
+                Statement::NativeFun {
+                    name: an,
+                    params: ap,
+                    return_type: art,
+                    generic_params: agp,
+                },
+                Statement::NativeFun {
+                    name: bn,
+                    params: bp,
+                    return_type: brt,
+                    generic_params: bgp,
+                },
+            ) => {
+                assert_eq!(an, bn, "native fun name mismatch");
+                assert_fn_params_eq_ignore_spans(ap, bp);
+                match (art.as_ref(), brt.as_ref()) {
+                    (None, None) => {}
+                    (Some(atv), Some(btv)) => assert_type_info_eq_ignore_spans(&atv.inner, &btv.inner),
+                    (x, y) => panic!("native fun return_type option mismatch: {x:?} vs {y:?}"),
+                }
+                assert_eq!(
+                    agp.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    bgp.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+            }
+    
+            (
+                Statement::NativeType {
+                    name: an,
+                    generic_params: agp,
+                    implementation: aimpl,
+                    interfaces: aifaces,
+                },
+                Statement::NativeType {
+                    name: bn,
+                    generic_params: bgp,
+                    implementation: bimpl,
+                    interfaces: bifaces,
+                },
+            ) => {
+                assert_eq!(an, bn, "native type name mismatch");
+                assert_eq!(
+                    agp.iter().map(|g| &g.inner).collect::<Vec<_>>(),
+                    bgp.iter().map(|g| &g.inner).collect::<Vec<_>>()
+                );
+    
+                assert_eq!(aifaces.iter().map(|i| &i.inner).collect::<Vec<_>>(), bifaces.iter().map(|i| &i.inner).collect::<Vec<_>>());
+    
+                assert_eq!(aimpl.len(), bimpl.len(), "native type impl map length mismatch");
+                for (k, av) in aimpl.iter() {
+                    let bv = bimpl
+                        .get(k)
+                        .unwrap_or_else(|| panic!("missing native impl for key {k:?}"));
+                    assert_eq!(av.len(), bv.len(), "native impl vec length mismatch for key {k:?}");
+                    for (asig, bsig) in av.iter().zip(bv.iter()) {
+                        assert_method_signature_eq_ignore_spans(asig, bsig);
+                    }
+                }
+            }
+    
+            (Statement::Export(ae), Statement::Export(be)) => {
+                assert_stmt_eq_ignore_spans(&ae.inner, &be.inner);
+            }
+    
+            _ => panic!("statement mismatch: {a:?} vs {b:?}"),
+        }
+    }
+    
+    fn assert_stmts_eq_ignore_spans(a: &[Statement], b: &[Statement]) {
+        assert_eq!(a.len(), b.len(), "statement count mismatch");
+        for (sa, sb) in a.iter().zip(b.iter()) {
+            assert_stmt_eq_ignore_spans(sa, sb);
+        }
+    }
+    
+    #[test]
+    fn let_simple() {
+        let actual = parse_tokens(vec![
+            Token::Let,
+            Token::Ident(SmolStr::new("a")),
+            Token::Eq,
+            Token::Int(2),
+            Token::Semicolon,
+        ]);
+    
+        let expected = vec![Statement::Let {
+            pattern: sp(LetPattern::Name(SmolStr::new("a"))),
+            expr: sp(Expr::Int(2)),
+            type_info: None,
+            mutable: false,
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn let_mut_record_pattern_with_type() {
+        let actual = parse_tokens(vec![
+            Token::Let,
+            Token::Mut,
+            Token::LBrace,
+            Token::Ident(SmolStr::new("a")),
+            Token::Colon,
+            Token::Ident(SmolStr::new("b")),
+            Token::Comma,
+            Token::Ident(SmolStr::new("c")),
+            Token::RBrace,
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::Eq,
+            Token::Int(3),
+            Token::Semicolon,
+        ]);
+    
+        let expected = vec![Statement::Let {
+            pattern: sp(LetPattern::Record(vec![
+                (sp(SmolStr::new("a")), Some(sp(SmolStr::new("b")))),
+                (sp(SmolStr::new("c")), None),
+            ])),
+            expr: sp(Expr::Int(3)),
+            type_info: Some(sp(TypeInfo::int())),
+            mutable: true,
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn expr_binary_precedence() {
+        let actual = parse_tokens(vec![Token::Int(2), Token::Plus, Token::Int(3), Token::Star, Token::Int(6)]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Binary {
+            left: Box::new(sp(Expr::Int(2))),
+            operation: Operation::Add,
+            right: Box::new(sp(Expr::Binary {
+                left: Box::new(sp(Expr::Int(3))),
+                operation: Operation::Multiply,
+                right: Box::new(sp(Expr::Int(6))),
+            })),
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn expr_assignment_eq() {
+        let actual = parse_tokens(vec![Token::Ident(SmolStr::new("a")), Token::Eq, Token::Int(1)]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Assign {
+            target: Box::new(sp(Expr::Var(SmolStr::new("a")))),
+            value: Box::new(sp(Expr::Int(1))),
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn expr_assignment_plus_eq() {
+        let actual = parse_tokens(vec![Token::Ident(SmolStr::new("a")), Token::PlusEq, Token::Int(2)]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Assign {
+            target: Box::new(sp(Expr::Var(SmolStr::new("a")))),
+            value: Box::new(sp(Expr::Binary {
+                left: Box::new(sp(Expr::Var(SmolStr::new("a")))),
+                operation: Operation::Add,
+                right: Box::new(sp(Expr::Int(2))),
+            })),
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn expr_unary_not() {
+        let actual = parse_tokens(vec![Token::Bang, Token::True]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Unary(
+            UnaryOp::Not,
+            Box::new(sp(Expr::Bool(true))),
+        )))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn expr_if_else() {
+        let actual = parse_tokens(vec![
+            Token::If,
+            Token::LParen,
+            Token::Int(4),
+            Token::Lt,
+            Token::Int(3),
+            Token::RParen,
+            Token::Int(3),
+            Token::Else,
+            Token::Int(4),
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::If {
+            condition: Box::new(sp(Expr::Binary {
+                left: Box::new(sp(Expr::Int(4))),
+                operation: Operation::LessThan,
+                right: Box::new(sp(Expr::Int(3))),
+            })),
+            body: Box::new(sp(Expr::Int(3))),
+            else_block: Some(Box::new(sp(Expr::Int(4)))),
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn fun_statement_block_expr_tail() {
+        let actual = parse_tokens(vec![
+            Token::Fun,
+            Token::Ident(SmolStr::new("add")),
+            Token::LParen,
+            Token::Ident(SmolStr::new("x")),
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::Comma,
+            Token::Mut,
+            Token::Ident(SmolStr::new("y")),
+            Token::Colon,
+            Token::Ident(SmolStr::new("Float")),
+            Token::RParen,
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::LBrace,
+            Token::Ident(SmolStr::new("x")),
+            Token::Plus,
+            Token::Ident(SmolStr::new("y")),
+            Token::RBrace,
+        ]);
+    
+        let expected = vec![Statement::Fun {
+            name: SmolStr::new("add"),
+            params: vec![
+                FunctionParam {
+                    name: SmolStr::new("x"),
+                    type_info: sp(TypeInfo::int()),
+                    is_variadic: false,
+                    is_mutable: false,
+                },
+                FunctionParam {
+                    name: SmolStr::new("y"),
+                    type_info: sp(TypeInfo::float()),
+                    is_variadic: false,
+                    is_mutable: true,
+                },
+            ],
+            body: sp(Expr::Block(
+                vec![],
+                Some(Box::new(sp(Expr::Binary {
+                    left: Box::new(sp(Expr::Var(SmolStr::new("x")))),
+                    operation: Operation::Add,
+                    right: Box::new(sp(Expr::Var(SmolStr::new("y")))),
+                })))),
+            ),
+            return_type: Some(sp(TypeInfo::int())),
+            generic_params: vec![],
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn record_literal_and_field_get() {
+        let actual = parse_tokens(vec![
+            Token::LBrace,
+            Token::Ident(SmolStr::new("a")),
+            Token::Colon,
+            Token::Int(1),
+            Token::Comma,
+            Token::Ident(SmolStr::new("b")),
+            Token::Colon,
+            Token::Int(2),
+            Token::RBrace,
+            Token::Dot,
+            Token::Ident(SmolStr::new("a")),
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Get(
+            Box::new(sp(Expr::Record(vec![
+                (SmolStr::new("a"), sp(Expr::Int(1))),
+                (SmolStr::new("b"), sp(Expr::Int(2))),
+            ]))),
+            SmolStr::new("a"),
+        )))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn tuple_literal_and_indexing() {
+        let actual = parse_tokens(vec![
+            Token::LParen,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::RParen,
+            Token::LBracket,
+            Token::Int(0),
+            Token::RBracket,
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Index(
+            Box::new(sp(Expr::Tuple(vec![
+                Box::new(sp(Expr::Int(1))),
+                Box::new(sp(Expr::Int(2))),
+            ]))),
+            Box::new(sp(Expr::Int(0))),
+        )))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn match_conditional_and_default() {
+        let actual = parse_tokens(vec![
+            Token::Match,
+            Token::Ident(SmolStr::new("x")),
+            Token::LBrace,
+            Token::Ident(SmolStr::new("a")),
+            Token::If,
+            Token::Ident(SmolStr::new("x")),
+            Token::Gt,
+            Token::Int(0),
+            Token::Arrow,
+            Token::Int(1),
+            Token::Comma,
+            Token::Ident(SmolStr::new("b")),
+            Token::Arrow,
+            Token::Int(2),
+            Token::RBrace,
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Match {
+            target: Box::new(sp(Expr::Var(SmolStr::new("x")))),
+            branches: vec![
+                (
+                    sp(MatchArm::Conditional {
+                        alias: SmolStr::new("a"),
+                        condition: sp(Expr::Binary {
+                            left: Box::new(sp(Expr::Var(SmolStr::new("x")))),
+                            operation: Operation::GreaterThan,
+                            right: Box::new(sp(Expr::Int(0))),
+                        }),
+                    }),
+                    sp(Expr::Int(1)),
+                ),
+                (sp(MatchArm::Default(SmolStr::new("b"))), sp(Expr::Int(2))),
+            ],
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn type_def_simple() {
+        let actual = parse_tokens(vec![
+            Token::Type,
+            Token::Ident(SmolStr::new("MyType")),
+            Token::Eq,
+            Token::Ident(SmolStr::new("Int")),
+            Token::Semicolon,
+        ]);
+    
+        let mut impls: HashMap<SmolStr, Vec<MethodSignature>> = HashMap::new();
+        impls.insert(SmolStr::new("+self"), vec![]);
+    
+        let expected = vec![Statement::TypeDef {
+            name: SmolStr::new("MyType"),
+            type_info: sp(TypeInfo::int()),
+            generic_params: vec![],
+            implementation: impls,
+            interfaces: vec![],
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn enum_def_simple() {
+        let actual = parse_tokens(vec![
+            Token::Enum,
+            Token::Ident(SmolStr::new("MyEnum")),
+            Token::LBrace,
+            Token::Ident(SmolStr::new("A")),
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::Comma,
+            Token::Ident(SmolStr::new("B")),
+            Token::RBrace,
+            Token::Semicolon,
+        ]);
+    
+        let mut impls: HashMap<SmolStr, Vec<MethodSignature>> = HashMap::new();
+        impls.insert(SmolStr::new("+self"), vec![]);
+    
+        let expected = vec![Statement::EnumDef {
+            name: SmolStr::new("MyEnum"),
+            variants: vec![
+                (SmolStr::new("A"), Some(sp(TypeInfo::int()))),
+                (SmolStr::new("B"), None),
+            ],
+            generic_params: vec![],
+            implementation: impls,
+            interfaces: vec![],
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn import_statement_simple() {
+        let actual = parse_tokens(vec![
+            Token::Import,
+            Token::LBrace,
+            Token::Ident(SmolStr::new("a")),
+            Token::Comma,
+            Token::Ident(SmolStr::new("b")),
+            Token::As,
+            Token::Ident(SmolStr::new("c")),
+            Token::Comma,
+            Token::Type,
+            Token::Ident(SmolStr::new("T")),
+            Token::RBrace,
+            Token::From,
+            Token::String(SmolStr::new("mymod")),
+            Token::Semicolon,
+        ]);
+    
+        let expected = vec![Statement::Import {
+            symbols: vec![
+                (sp(SmolStr::new("a")), None, false),
+                (sp(SmolStr::new("b")), Some(SmolStr::new("c")), false),
+                (sp(SmolStr::new("T")), None, true),
+            ],
+            path: sp(SmolStr::new("mymod")),
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn export_statement_wraps_next() {
+        let actual = parse_tokens(vec![
+            Token::Export,
+            Token::Let,
+            Token::Ident(SmolStr::new("a")),
+            Token::Eq,
+            Token::Int(1),
+            Token::Semicolon,
+        ]);
+    
+        let expected_inner = Statement::Let {
+            pattern: sp(LetPattern::Name(SmolStr::new("a"))),
+            expr: sp(Expr::Int(1)),
+            type_info: None,
+            mutable: false,
+        };
+    
+        let expected = vec![Statement::Export(Box::new(sp(expected_inner)))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn while_loop_break_in_block_tail() {
+        let actual = parse_tokens(vec![
+            Token::While,
+            Token::LParen,
+            Token::True,
+            Token::RParen,
+            Token::LBrace,
+            Token::Break,
+            Token::RBrace,
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::While {
+            condition: Box::new(sp(Expr::Bool(true))),
+            body: Box::new(sp(Expr::Block(
+                vec![],
+                Some(Box::new(sp(Expr::Break))),
+            ))),
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn for_loop_simple() {
+        let actual = parse_tokens(vec![
+            Token::For,
+            Token::LParen,
+            Token::Ident(SmolStr::new("x")),
+            Token::In,
+            Token::Int(0),
+            Token::RParen,
+            Token::Ident(SmolStr::new("x")),
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::For {
+            element: sp(LetPattern::Name(SmolStr::new("x"))),
+            iterable: Box::new(sp(Expr::Int(0))),
+            body: Box::new(sp(Expr::Var(SmolStr::new("x")))),
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn unary_negate() {
+        let actual = parse_tokens(vec![Token::Minus, Token::Int(5)]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Unary(
+            UnaryOp::Negate,
+            Box::new(sp(Expr::Int(5))),
+        )))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn panic_none_in_block_consumes_semicolon() {
+        let actual = parse_tokens(vec![Token::LBrace, Token::Panic, Token::Semicolon, Token::RBrace]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Block(
+            vec![sp(Statement::Expr(sp(Expr::Panic(None))))],
+            None,
+        )))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn match_tuple_pattern() {
+        let actual = parse_tokens(vec![
+            Token::Match,
+            Token::Ident(SmolStr::new("x")),
+            Token::LBrace,
+            Token::LParen,
+            Token::Ident(SmolStr::new("a")),
+            Token::Comma,
+            Token::Ident(SmolStr::new("b")),
+            Token::RParen,
+            Token::Arrow,
+            Token::Ident(SmolStr::new("a")),
+            Token::RBrace,
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Match {
+            target: Box::new(sp(Expr::Var(SmolStr::new("x")))),
+            branches: vec![(
+                sp(MatchArm::Tuple(vec![
+                    sp(MatchArm::Default(SmolStr::new("a"))),
+                    sp(MatchArm::Default(SmolStr::new("b"))),
+                ])),
+                sp(Expr::Var(SmolStr::new("a"))),
+            )],
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn array_literal_expression() {
+        let actual = parse_tokens(vec![
+            Token::LBracket,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::RBracket,
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Array(vec![
+            sp(Expr::Int(1)),
+            sp(Expr::Int(2)),
+        ])))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn fun_literal_expression_simple() {
+        let actual = parse_tokens(vec![
+            Token::Fun,
+            Token::LParen,
+            Token::Ident(SmolStr::new("x")),
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::RParen,
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::LBrace,
+            Token::Ident(SmolStr::new("x")),
+            Token::RBrace,
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Fun {
+            params: vec![FunctionParam {
+                name: SmolStr::new("x"),
+                type_info: sp(TypeInfo::int()),
+                is_variadic: false,
+                is_mutable: false,
+            }],
+            body: Box::new(sp(Expr::Block(
+                vec![],
+                Some(Box::new(sp(Expr::Var(SmolStr::new("x"))))),
+            ))),
+            return_type: Some(sp(TypeInfo::int())),
+            generic_params: vec![],
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn call_expression_simple() {
+        let actual = parse_tokens(vec![
+            Token::Ident(SmolStr::new("f")),
+            Token::LParen,
+            Token::Int(1),
+            Token::Comma,
+            Token::Int(2),
+            Token::RParen,
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Call {
+            fun: Box::new(sp(Expr::Var(SmolStr::new("f")))),
+            args: vec![sp(Expr::Int(1)), sp(Expr::Int(2))],
+            generic_args: vec![],
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn static_method_access() {
+        let actual = parse_tokens(vec![
+            Token::Ident(SmolStr::new("a")),
+            Token::ColonColon,
+            Token::Ident(SmolStr::new("m")),
+        ]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::StaticMethod {
+            target: sp(SmolStr::new("a")),
+            method: sp(SmolStr::new("m")),
+        }))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn return_expression() {
+        let actual = parse_tokens(vec![Token::Return, Token::Int(1)]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Return(Box::new(sp(Expr::Int(1))))))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn panic_expression_some() {
+        let actual = parse_tokens(vec![Token::Panic, Token::Int(1)]);
+    
+        let expected = vec![Statement::Expr(sp(Expr::Panic(Some(Box::new(sp(Expr::Int(1)))))))];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn native_fun_statement_simple() {
+        let actual = parse_tokens(vec![
+            Token::Native,
+            Token::Fun,
+            Token::Ident(SmolStr::new("nf")),
+            Token::LParen,
+            Token::Ident(SmolStr::new("x")),
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::RParen,
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::Semicolon,
+        ]);
+    
+        let expected = vec![Statement::NativeFun {
+            name: SmolStr::new("nf"),
+            params: vec![FunctionParam {
+                name: SmolStr::new("x"),
+                type_info: sp(TypeInfo::int()),
+                is_variadic: false,
+                is_mutable: false,
+            }],
+            return_type: Some(sp(TypeInfo::int())),
+            generic_params: vec![],
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn native_type_statement_simple() {
+        let actual = parse_tokens(vec![Token::Native, Token::Type, Token::Ident(SmolStr::new("NT")), Token::Semicolon]);
+    
+        let mut impls: HashMap<SmolStr, Vec<MethodSignature>> = HashMap::new();
+        impls.insert(SmolStr::new("+self"), vec![]);
+    
+        let expected = vec![Statement::NativeType {
+            name: SmolStr::new("NT"),
+            generic_params: vec![],
+            implementation: impls,
+            interfaces: vec![],
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+    
+    #[test]
+    fn type_def_impl_mutating_fun_method() {
+        let actual = parse_tokens(vec![
+            Token::Type,
+            Token::Ident(SmolStr::new("T")),
+            Token::Eq,
+            Token::Ident(SmolStr::new("Int")),
+            Token::Impl,
+            Token::LBrace,
+            Token::Mut,
+            Token::Fun,
+            Token::Ident(SmolStr::new("m")),
+            Token::LParen,
+            Token::Ident(SmolStr::new("x")),
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::RParen,
+            Token::Colon,
+            Token::Ident(SmolStr::new("Int")),
+            Token::LBrace,
+            Token::Ident(SmolStr::new("x")),
+            Token::RBrace,
+            Token::RBrace,
+            Token::Semicolon,
+        ]);
+    
+        let mut impls: HashMap<SmolStr, Vec<MethodSignature>> = HashMap::new();
+        impls.insert(
+            SmolStr::new("+self"),
+            vec![MethodSignature {
+                method: sp(Method::Normal(NormalMethod {
+                    name: SmolStr::new("m"),
+                    params: vec![FunctionParam {
+                        name: SmolStr::new("x"),
+                        type_info: sp(TypeInfo::int()),
+                        is_variadic: false,
+                        is_mutable: false,
+                    }],
+                    body: sp(Expr::Block(vec![], Some(Box::new(sp(Expr::Var(SmolStr::new("x"))))))),
+                    return_type: Some(sp(TypeInfo::int())),
+                    generic_params: vec![],
+                })),
+                is_static: false,
+                is_mutating: true,
+            }],
+        );
+    
+        let expected = vec![Statement::TypeDef {
+            name: SmolStr::new("T"),
+            type_info: sp(TypeInfo::int()),
+            generic_params: vec![],
+            implementation: impls,
+            interfaces: vec![],
+        }];
+    
+        assert_stmts_eq_ignore_spans(&actual, &expected);
+    }
+
+}
