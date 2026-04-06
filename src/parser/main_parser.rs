@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use smol_str::{SmolStr, format_smolstr};
 
 use crate::{
-    ast::{shared::{Operation, UnaryOp}, typed::{Expr, FunctionParam, LetPattern, MatchArm, Method, MethodSignature, NativeMethod, NormalMethod, Statement, TypeInfo, TypeKind}},
+    ast::{shared::{Operation, UnaryOp}, typed::{Expr, FunctionParam, LetPattern, MatchArm, Method, MethodSignature, NativeMethod, NormalMethod, Statement, TypeInfo}},
     lexer::Token,
     span::spanned
 };
@@ -12,7 +12,7 @@ use crate::span::{Span, Spanned};
 
 pub struct Parser<'a> {
     tokens: &'a [Spanned<Token>],
-    cursor: usize,
+    pub(super) cursor: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -34,15 +34,15 @@ impl<'a> Parser<'a> {
     //helpers
     //=======
 
-    fn peek(&self) -> Option<&Spanned<Token>> {
+    pub(super) fn peek(&self) -> Option<&Spanned<Token>> {
         self.tokens.get(self.cursor)
     }
 
-    fn peek_at(&self, offset: i64) -> Option<&Spanned<Token>> {
+    pub(super) fn peek_at(&self, offset: i64) -> Option<&Spanned<Token>> {
         self.tokens.get((self.cursor as i64 + offset) as usize)
     }
 
-    fn advance(&mut self) -> Option<&Spanned<Token>> {
+    pub(super) fn advance(&mut self) -> Option<&Spanned<Token>> {
         let token = self.tokens.get(self.cursor);
         if token.is_some() {
             self.cursor += 1;
@@ -50,14 +50,14 @@ impl<'a> Parser<'a> {
         token
     }
 
-    fn check(&self, token: &Token) -> bool {
+    pub(super) fn check(&self, token: &Token) -> bool {
         match self.peek() {
             Some(sp) => &sp.inner == token,
             None => false,
         }
     }
 
-    fn expect(&mut self, token: &Token) -> Result<(), Spanned<SmolStr>> {
+    pub(super) fn expect(&mut self, token: &Token) -> Result<(), Spanned<SmolStr>> {
         if self.check(token) {
             self.advance();
             Ok(())
@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn get_precedence(token: &Token) -> u8 {
+    pub(super) fn get_precedence(token: &Token) -> u8 {
         match token {
             Token::LParen | Token::LBracket | Token::Dot => 20,
             Token::Bang => 19,
@@ -95,7 +95,7 @@ impl<'a> Parser<'a> {
     }
 
     // helpers for operations
-    fn token_to_operation(token: &Token) -> Option<Operation> {
+    pub(super) fn token_to_operation(token: &Token) -> Option<Operation> {
         use crate::ast::shared::Operation::*;
         match token {
             Token::Plus => Some(Add),
@@ -121,7 +121,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn is_assignment_token(token: &Token) -> bool {
+    pub(super) fn is_assignment_token(token: &Token) -> bool {
         matches!(
             token,
             Token::Eq
@@ -133,7 +133,7 @@ impl<'a> Parser<'a> {
         )
     }
 
-    fn is_assignable(expr: &Expr) -> bool {
+    pub(super) fn is_assignable(expr: &Expr) -> bool {
         match expr {
             Expr::Var(_) | Expr::Get(_, _) | Expr::Index(_, _) => true,
             _ => false,
@@ -354,7 +354,7 @@ impl<'a> Parser<'a> {
         ))
     }
     
-    fn parse_fn_params(&mut self) -> Result<Vec<FunctionParam>, Spanned<SmolStr>> {
+    pub(super) fn parse_fn_params(&mut self) -> Result<Vec<FunctionParam>, Spanned<SmolStr>> {
         self.expect(&Token::LParen)?;
         let mut fun_params: Vec<FunctionParam> = Vec::new();
         if !self.check(&Token::RParen) {
@@ -2153,113 +2153,6 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    //-----
-    //types
-    //-----
-
-    fn parse_type(&mut self) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
-        // parse primary and apply postfix (array) operators
-        let mut ty = self.parse_type_primary()?;
-        // postfix arrays: Type[]
-        loop {
-            if self.check(&Token::LBracket) && self.peek_at(1).map(|t| matches!(t.inner, Token::RBracket)).unwrap_or(false) {
-                // consume '[' and ']'
-                let _l = self.advance().unwrap().clone();
-                let r = self.advance().unwrap().clone(); // RBracket
-                let combined = Span { start: ty.span.start, end: r.span.end };
-                ty = spanned(TypeInfo::new(TypeKind::Array(Box::new(ty))), combined);
-            } else {
-                break;
-            }
-        }
-        Ok(ty)
-    }
-
-    fn parse_type_ident_or_enumvariant(&mut self) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
-        let prev_token_span = self.peek_at(-1)
-            .map(|s| Span::at(s.span.end)).unwrap_or(Span::at(0));
-        // Assumes next token is Ident
-        let ident_sp = self.advance().ok_or(spanned(
-            "Unexpected EOF parsing type".into(),
-            prev_token_span
-        ))?.clone();
-        let name = if let Token::Ident(s) = ident_sp.inner.clone() {
-            s
-        } else {
-            return Err(spanned("Expected identifier in type".into(), ident_sp.span));
-        };
-        // enforce that type names start with a capital letter
-        if name.chars().next().map(|c| !c.is_uppercase()).unwrap_or(true) {
-            return Err(spanned("Type names must start with a capital letter".into(), ident_sp.span));
-        }
-
-        // custom type, possibly with generic args: Ident<...>
-        let mut generic_args: Vec<Spanned<TypeInfo>> = Vec::new();
-        if self.check(&Token::Lt) {
-            // consume '<'
-            self.advance();
-            if !self.check(&Token::Gt) {
-                loop {
-                    let arg = self.parse_type()?;
-                    generic_args.push(arg);
-                    if self.check(&Token::Comma) {
-                        self.advance();
-                        continue;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            // expect '>'
-            if !self.check(&Token::Gt) {
-                return Err(spanned(
-                    "Expected > after generic args".into(),
-                    Span::at(self.peek_at(-1).unwrap().span.end)
-                ));
-            }
-            let gt = self.advance().unwrap().clone();
-            let span = Span { start: ident_sp.span.start, end: gt.span.end };
-            return Ok(spanned(TypeInfo::new(TypeKind::Custom { name, generic_args }), span));
-        }
-
-        // primitives mapping (must start with capital letter)
-        let ty = match name.as_str() {
-            "Int" => TypeInfo::int(),
-            "Float" => TypeInfo::float(),
-            "String" => TypeInfo::string(),
-            "Char" => TypeInfo::char(),
-            "Bool" => TypeInfo::bool(),
-            "Void" => TypeInfo::void(),
-            "Null" => TypeInfo::null(),
-            "Any" => TypeInfo::any(),
-            "Unknown" => TypeInfo::unknown(),
-            _ => TypeInfo::new(TypeKind::Custom { name: name.clone(), generic_args: vec![] }),
-        };
-        Ok(spanned(ty, ident_sp.span))
-    }
-
-    fn try_parse_function_type(
-        &mut self,
-        paren_span: Span
-    ) -> Result<Spanned<TypeInfo>, Spanned<SmolStr>> {
-        let params = self.parse_fn_params()?;
-        // if arrow follows, it's a function type
-        self.expect(&Token::Arrow)?;
-        let ret = self.parse_type()?;
-        let span = Span { start: paren_span.start, end: ret.span.end };
-        Ok(spanned(
-            TypeInfo::new(
-                TypeKind::Fun {
-                    params,
-                    return_type: Box::new(ret),
-                    generic_params: vec![]
-                }
-            ),
-            span
-        ))
-    }
-
-    
 }
 
 #[cfg(test)]
