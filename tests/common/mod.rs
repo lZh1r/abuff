@@ -1,6 +1,6 @@
 use std::env::current_dir;
 
-use abuff::{ast::clean::ControlFlow, checker::hoisting::hoist_declarations, env::create_default_env, error::build_report, lexer::lex, main_parser::Parser, module::{GlobalRegistry, run}, span::{Span, Spanned}};
+use abuff::{ast::clean::ControlFlow, checker::hoisting::hoist_declarations, env::create_default_env, error::build_report, lexer::lex, parser::main_parser::Parser, module::{GlobalRegistry, run}, span::{Span, Spanned}};
 use smol_str::SmolStr;
 
 pub fn run_typed(src: String) -> Result<ControlFlow, Spanned<SmolStr>> {

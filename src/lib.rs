@@ -12,11 +12,15 @@ pub mod checker {
     pub mod pattern_matching;
     pub mod function;
 }
+pub mod parser {
+    pub mod main_parser;
+    pub(crate) mod types;
+    pub(crate) mod test_helpers;
+}
 pub mod interpreter;
 pub mod env;
 pub mod error;
 pub mod module;
 pub mod native;
 pub mod lexer;
-pub mod main_parser;
 pub mod span;
