@@ -16,6 +16,7 @@ pub mod parser {
     pub mod main_parser;
     pub(crate) mod types;
     pub(crate) mod statements;
+    pub(crate) mod expressions;
     pub(crate) mod test_helpers;
 }
 pub mod interpreter;
